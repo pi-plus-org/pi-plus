@@ -97,6 +97,7 @@ describe("dispatchHubCommand", () => {
 			hub.dispatchHubCommand(["profile", "add", "anth", "-p", "kimi-coding"], {
 				login: async (context) => {
 					calls.push(context);
+					return {};
 				},
 			}),
 		);
@@ -121,12 +122,58 @@ describe("dispatchHubCommand", () => {
 		expect(hub.loadProfiles().profiles.anth).toEqual({ provider: "kimi-coding" });
 	});
 
+	it("profile add --sign-in invokes the login and overwrites the token", async () => {
+		const { stdout } = await capture(() =>
+			hub.dispatchHubCommand(["profile", "add", "anth", "-p", "kimi-coding", "-t", "stale-token", "--sign-in"], {
+				login: async () => ({ token: "fresh-token" }),
+			}),
+		);
+		expect(stdout.some((l) => l.includes("Signing in to 'kimi-coding'"))).toBe(true);
+		expect(stdout).toContain("Logged in to 'kimi-coding'.");
+		expect(hub.loadProfiles().profiles.anth).toEqual({ provider: "kimi-coding", token: "fresh-token" });
+	});
+
+	it("profile add --sign-in with an OAuth result clears the profile token", async () => {
+		await capture(() =>
+			hub.dispatchHubCommand(["profile", "add", "anth", "-p", "kimi-coding", "-t", "stale-token", "--sign-in"], {
+				// OAuth logins produce no single key: the credential stays in the
+				// profile dir's auth.json and the token must not resurrect over it.
+				login: async () => ({}),
+			}),
+		);
+		expect(hub.loadProfiles().profiles.anth).toEqual({ provider: "kimi-coding" });
+	});
+
+	it("profile add --sign-in without a provider throws before saving", async () => {
+		let loggedIn = false;
+		await expect(
+			capture(() =>
+				hub.dispatchHubCommand(["profile", "add", "anth", "--sign-in"], {
+					login: async () => {
+						loggedIn = true;
+						return {};
+					},
+				}),
+			),
+		).rejects.toThrow("--sign-in requires a provider");
+		expect(loggedIn).toBe(false);
+		expect(hub.loadProfiles().profiles.anth).toBeUndefined();
+	});
+
+	it("profile add --sign-in without an injected login throws before saving", async () => {
+		await expect(
+			capture(() => hub.dispatchHubCommand(["profile", "add", "anth", "-p", "kimi-coding", "--sign-in"])),
+		).rejects.toThrow("did not wire a provider login");
+		expect(hub.loadProfiles().profiles.anth).toBeUndefined();
+	});
+
 	it("profile add with a token does not invoke login", async () => {
 		let called = false;
 		await capture(() =>
 			hub.dispatchHubCommand(["profile", "add", "anth", "-p", "kimi-coding", "-t", "tok-1234567890abcdef"], {
 				login: async () => {
 					called = true;
+					return {};
 				},
 			}),
 		);
@@ -186,6 +233,69 @@ describe("dispatchHubCommand", () => {
 
 	it("profile update throws for an unknown profile", () => {
 		expect(() => hub.dispatchHubCommand(["profile", "update", "ghost", "-m", "m1"])).toThrow("not found");
+	});
+
+	it("profile update --sign-in invokes the login and overwrites the token", async () => {
+		await capture(() => {
+			hub.dispatchHubCommand(["profile", "add", "work", "-p", "kimi-coding", "-t", "stale-token"]);
+		});
+		const calls: { profileDir: string; provider: string }[] = [];
+		const { stdout } = await capture(() =>
+			hub.dispatchHubCommand(["profile", "update", "work", "--sign-in"], {
+				login: async (context) => {
+					calls.push(context);
+					return { token: "fresh-token" };
+				},
+			}),
+		);
+		expect(stdout).toContain("Profile 'work' updated.");
+		expect(stdout.some((l) => l.includes("Signing in to 'kimi-coding'"))).toBe(true);
+		expect(stdout).toContain("Logged in to 'kimi-coding'.");
+		expect(calls).toHaveLength(1);
+		// The stored provider is enough — no -p needed on the update itself.
+		expect(calls[0].provider).toBe("kimi-coding");
+		expect(hub.loadProfiles().profiles.work.token).toBe("fresh-token");
+	});
+
+	it("profile update --sign-in keeps the previous token when the login fails", async () => {
+		await capture(() => {
+			hub.dispatchHubCommand(["profile", "add", "work", "-p", "kimi-coding", "-t", "stale-token"]);
+		});
+		const { stderr } = await capture(() =>
+			hub.dispatchHubCommand(["profile", "update", "work", "--sign-in"], {
+				login: async () => {
+					throw new Error("Login cancelled");
+				},
+			}),
+		);
+		expect(stderr.some((l) => l.includes("Login did not complete: Login cancelled"))).toBe(true);
+		expect(hub.loadProfiles().profiles.work.token).toBe("stale-token");
+	});
+
+	it("profile update --sign-in clears the token on an OAuth login", async () => {
+		await capture(() => {
+			hub.dispatchHubCommand(["profile", "add", "work", "-p", "kimi-coding", "-t", "stale-token"]);
+		});
+		await capture(() =>
+			hub.dispatchHubCommand(["profile", "update", "work", "--sign-in"], {
+				login: async () => ({}),
+			}),
+		);
+		expect(hub.loadProfiles().profiles.work.token).toBeUndefined();
+	});
+
+	it("profile update --sign-in without any provider throws before saving", async () => {
+		await capture(() => {
+			hub.dispatchHubCommand(["profile", "add", "work", "-m", "m1"]);
+		});
+		await expect(
+			capture(() =>
+				hub.dispatchHubCommand(["profile", "update", "work", "--sign-in"], {
+					login: async () => ({ token: "fresh-token" }),
+				}),
+			),
+		).rejects.toThrow("--sign-in requires a provider");
+		expect(hub.loadProfiles().profiles.work.token).toBeUndefined();
 	});
 
 	it("profile list marks the default profile with an asterisk", async () => {

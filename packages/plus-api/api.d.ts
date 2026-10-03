@@ -16,12 +16,47 @@ import type {
 	CreateAgentSessionResult,
 	DefaultResourceLoaderOptions,
 	ExtensionCommandContextActions,
+	ExtensionContext,
 	ExtensionError,
 	ExtensionUIContext,
 	InlineExtension,
+	ToolCallEvent,
+	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 
 export declare const plusSdkExtensionFactories: InlineExtension[];
+
+// --- pi-plus-permissions (bypass | acceptEdits | plan tool-call gate) ------
+
+export type PermissionMode = "bypass" | "acceptEdits" | "plan";
+
+/** Canonical order; hosts cycle forward through this list on their shortcut. */
+export declare const PERMISSION_MODES: PermissionMode[];
+
+export declare const PERMISSION_MODE_LABELS: Record<PermissionMode, string>;
+
+/** Mutable holder shared between the host and the extension. */
+export interface PermissionModeState {
+	mode: PermissionMode;
+}
+
+export interface PermissionsExtensionOptions {
+	/** Host-owned state; a fresh bypass-on holder is created when omitted. */
+	state?: PermissionModeState;
+	/** Called after every mode change, including host-side writes. */
+	onModeChange?: (mode: PermissionMode) => void;
+}
+
+export declare function parsePermissionMode(arg: string): PermissionMode | undefined;
+
+export declare function gatePermissionToolCall(
+	event: ToolCallEvent,
+	mode: PermissionMode,
+	ctx: ExtensionContext,
+): Promise<ToolCallEventResult | undefined>;
+
+/** Build the pi-plus-permissions inline extension for a host. */
+export declare function createPermissionsExtension(options?: PermissionsExtensionOptions): InlineExtension;
 
 export interface PlusUIDialogHandlers {
 	select(title: string, options: string[]): Promise<string | undefined>;

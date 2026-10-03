@@ -104,7 +104,7 @@ _pipi() {
         elif [[ "$prev" == "--model" || "$prev" == "-m" || "$prev" == "--delete-model" || "$prev" == "-d" ]]; then
           _pipi_models_for_profile "\${COMP_WORDS[3]}"
         else
-          local update_opts="--model -m --delete-model -d --token -t --url -u --provider -p --thinking"
+          local update_opts="--model -m --delete-model -d --token -t --url -u --provider -p --thinking --sign-in"
           COMPREPLY=($(compgen -W "$update_opts" -- "$cur"))
         fi
       elif [[ "\${COMP_WORDS[2]}" == "add" && \${COMP_CWORD} -gt 3 ]]; then
@@ -113,7 +113,7 @@ _pipi() {
         elif [[ "$prev" == "--provider" || "$prev" == "-p" ]]; then
           COMPREPLY=($(compgen -W "$providers" -- "$cur"))
         else
-          local add_opts="--model -m --token -t --url -u --provider -p --thinking"
+          local add_opts="--model -m --token -t --url -u --provider -p --thinking --sign-in"
           COMPREPLY=($(compgen -W "$add_opts" -- "$cur"))
         fi
       fi

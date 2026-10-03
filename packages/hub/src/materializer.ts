@@ -80,14 +80,12 @@ export function writeAuthFile(dir: string, profile: Profile): void {
  * layering wrapper in packages/plus/src/coding-agent/core/settings-manager.ts),
  * so the profile file carries ONLY profile-scoped content:
  *
- * - `defaultProvider`/`defaultModel` as persisted by pi at runtime under the
- *   profile (pi's write routing keeps them here), then overridden by the
- *   profile's dedicated fields / `settings` map for their own keys;
+ * - `defaultProvider`/`defaultModel`/`defaultThinkingLevel` as persisted by pi
+ *   at runtime under the profile (pi's write routing keeps them here), then
+ *   overridden by the profile's dedicated fields / `settings` map for their own
+ *   keys (a `thinking` declaration is re-applied on every materialization);
  * - every key declared in `profile.settings` (a `null` deletes it, so a profile
  *   can drop a key inherited from the agent settings);
- * - `defaultThinkingLevel` when `profile.thinking` declares it (a thinking
- *   declaration is re-applied on every materialization; a runtime thinking-level
- *   edit under the profile routes to the agent settings until the next launch);
  * - the `skills` insurance from the outer ~/.pi/settings.json when neither
  *   layer defines skills (running from $HOME would otherwise expose it as a
  *   project file and PI_CODING_AGENT_DIR isolation hides it).

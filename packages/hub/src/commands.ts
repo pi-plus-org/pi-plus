@@ -30,12 +30,27 @@ export const HUB_SUBCOMMANDS: ReadonlySet<string> = new Set(["profile", "use", "
  */
 export interface HubCommandOptions {
 	/**
-	 * Runs the interactive provider login for a freshly created profile,
-	 * persisting the credential into the profile's materialized agent dir.
-	 * Invoked by `profile add` when the profile only selects a provider.
-	 * Rejects when the login fails or is cancelled.
+	 * Runs the interactive provider login for a profile, persisting the
+	 * credential into the profile's materialized agent dir. Invoked by
+	 * `profile add` when the profile only selects a provider or `--sign-in`
+	 * was given, and by `profile update --sign-in`. Resolves with the sign-in
+	 * outcome (see `HubLoginResult`); rejects when the login fails or is
+	 * cancelled.
 	 */
-	login?: (context: { profileDir: string; provider: string }) => Promise<void>;
+	login?: (context: { profileDir: string; provider: string }) => Promise<HubLoginResult>;
+}
+
+/** Outcome of a caller-injected provider login. */
+export interface HubLoginResult {
+	/**
+	 * The API key the sign-in stored, when the flow produced an api_key
+	 * credential: `profile add`/`profile update` overwrite the profile's
+	 * `token` with it. Omit it for OAuth flows — their credential lives in the
+	 * profile dir's auth.json and has no single key, and a stored token would
+	 * overwrite that entry on the next materialization (so the field is
+	 * cleared instead).
+	 */
+	token?: string;
 }
 
 interface SubcommandArgv {
@@ -65,6 +80,7 @@ const VALUE_OPTIONS = new Map<string, string>([
 const FLAG_OPTIONS = new Map<string, string>([
 	["-j", "json"],
 	["--json", "json"],
+	["--sign-in", "signIn"],
 ]);
 
 /** Hand-rolled option parser for hub subcommands (pi style, no arg-parsing lib). */
@@ -150,6 +166,29 @@ function applyProfileOptions(p: Profile, parsed: SubcommandArgv): void {
 	}
 }
 
+/**
+ * Validate an explicit `--sign-in` request: it needs a provider to sign into
+ * and a host that wired the login hook. Returns the resolved pieces (call sites
+ * stay assertion-free) or undefined when the flag wasn't given. Throws before
+ * anything is saved so a rejected request leaves no half-applied update.
+ */
+function resolveSignIn(
+	parsed: SubcommandArgv,
+	profile: Profile,
+	options: HubCommandOptions,
+): { provider: string; login: NonNullable<HubCommandOptions["login"]> } | undefined {
+	if (!parsed.flags.has("signIn")) return undefined;
+	const provider = profile.provider;
+	if (!provider) {
+		throw new Error("Error: --sign-in requires a provider (-p).");
+	}
+	const login = options.login;
+	if (!login) {
+		throw new Error("Error: --sign-in is not available: this host did not wire a provider login.");
+	}
+	return { provider, login };
+}
+
 function cmdProfileAdd(parsed: SubcommandArgv, options: HubCommandOptions): void | Promise<void> {
 	const name = parsed.positionals[0];
 	if (!name) {
@@ -169,6 +208,8 @@ function cmdProfileAdd(parsed: SubcommandArgv, options: HubCommandOptions): void
 	}
 	applyProfileOptions(profile, parsed);
 	warnMissingProvider(profile);
+	// Validated up front, before the profile is saved below.
+	const signIn = resolveSignIn(parsed, profile, options);
 
 	// Materialize right away so the profile dir exists and tracks the source
 	// settings from the moment the profile is created.
@@ -182,40 +223,61 @@ function cmdProfileAdd(parsed: SubcommandArgv, options: HubCommandOptions): void
 	addProfile(name, profile);
 	console.log(`Profile '${name}' saved.`);
 
-	// A profile that only selects a provider carries no credential: treat the
-	// add as "log this profile into that provider" and run the provider's
-	// interactive login (OAuth login page / API-key setup), persisting the
+	// `--sign-in` asks for the provider's interactive login explicitly, even
+	// when the profile also carries a token — signing in overwrites it (see
+	// runProviderLogin). A profile that only selects a provider carries no
+	// credential: treat the add as "log this profile into that provider" and
+	// run the same flow (OAuth login page / API-key setup), persisting the
 	// credential into the profile's agent dir. Without an injected login the
 	// provider-only profile is stored as before.
 	const provider = profile.provider;
 	const providerOnly = provider !== undefined && Object.keys(profile).length === 1;
+	if (signIn) {
+		console.log(`Signing in to '${signIn.provider}' for profile '${name}'...`);
+		return runProviderLogin(name, signIn.provider, profile, profileDir ?? profileDirFor(name), signIn.login);
+	}
 	if (providerOnly && options.login && profileDir) {
 		console.log(`No token given — invoking the '${provider}' login for profile '${name}'...`);
-		return runProviderLogin(name, provider, profileDir, options.login);
+		return runProviderLogin(name, provider, profile, profileDir, options.login);
 	}
 }
 
-/** Awaiting half of `profile add`: a failed or cancelled login never un-saves
- *  the profile — the caller reports it and suggests adding a token later. */
+/**
+ * Awaiting half of `profile add` / `profile update`: a failed or cancelled
+ * login never un-saves the profile — the caller reports it and suggests how to
+ * store a credential. A completed sign-in overwrites the profile token: an
+ * api-key login stores the key it just wrote into the profile's auth.json; an
+ * OAuth login has no single key, so the field is cleared — with no token the
+ * materializer leaves the OAuth entry in auth.json alone on every launch.
+ */
 function runProviderLogin(
 	name: string,
 	provider: string,
+	profile: Profile,
 	profileDir: string,
 	login: NonNullable<HubCommandOptions["login"]>,
 ): Promise<void> {
 	return login({ profileDir, provider }).then(
-		() => {
+		(result) => {
+			const previousToken = profile.token;
+			if (result.token) profile.token = result.token;
+			else delete profile.token;
+			if (profile.token !== previousToken) {
+				updateProfile(name, profile);
+			}
 			console.log(`Logged in to '${provider}'.`);
 		},
 		(err: unknown) => {
 			const message = err instanceof Error ? err.message : String(err);
 			console.error(`Login did not complete: ${message}`);
-			console.error(`Profile '${name}' kept without credentials — 'pipi profile update ${name} -t <key>'.`);
+			console.error(
+				`Profile '${name}' keeps its stored credentials — 'pipi profile update ${name} --sign-in' to retry the login, or 'pipi profile update ${name} -t <key>' to store a token.`,
+			);
 		},
 	);
 }
 
-function cmdProfileUpdate(parsed: SubcommandArgv): void {
+function cmdProfileUpdate(parsed: SubcommandArgv, options: HubCommandOptions): void | Promise<void> {
 	const name = parsed.positionals[0];
 	if (!name) {
 		throw new Error("Error: profile name is required. Usage: pipi profile update <name> [options]");
@@ -265,8 +327,24 @@ function cmdProfileUpdate(parsed: SubcommandArgv): void {
 
 	applyProfileOptions(p, parsed);
 	warnMissingProvider(p);
+	// Validated up front so an invalid sign-in request never saves the edits.
+	const signIn = resolveSignIn(parsed, p, options);
 	updateProfile(name, p);
 	console.log(`Profile '${name}' updated.`);
+
+	if (signIn) {
+		// Refresh the profile dir before the login so the credential lands in a
+		// dir that tracks the just-saved profile, and sign-in overwrites the
+		// profile token (see runProviderLogin).
+		let profileDir: string | undefined;
+		try {
+			profileDir = materializeProfile(name, p);
+		} catch (err) {
+			logger.debug(`profile update: materialize failed: ${err}`);
+		}
+		console.log(`Signing in to '${signIn.provider}' for profile '${name}'...`);
+		return runProviderLogin(name, signIn.provider, p, profileDir ?? profileDirFor(name), signIn.login);
+	}
 }
 
 function cmdProfileList(): void {
@@ -383,8 +461,7 @@ function dispatchProfile(argv: string[], options: HubCommandOptions): void | Pro
 		case "add":
 			return cmdProfileAdd(parsed, options);
 		case "update":
-			cmdProfileUpdate(parsed);
-			return;
+			return cmdProfileUpdate(parsed, options);
 		case "list":
 			cmdProfileList();
 			return;
@@ -434,7 +511,8 @@ function dispatchUnuse(): void {
  * Throws synchronously on invalid usage or unknown profiles — callers are
  * expected to print the error and exit non-zero. Returns a promise only when
  * the command awaits an injected provider login (`profile add` with only a
- * provider); callers must await it before exiting.
+ * provider, or `profile add`/`profile update` with `--sign-in`); callers must
+ * await it before exiting.
  */
 export function dispatchHubCommand(args: string[], options: HubCommandOptions = {}): void | Promise<void> {
 	logger.info(`Executing: ${args.join(" ")}`);

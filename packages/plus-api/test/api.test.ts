@@ -117,7 +117,7 @@ describe("api entry exports", () => {
 		expect(typeof DefaultResourceLoader).toBe("function");
 	});
 
-	it("registers exactly the nine non-TUI pi-plus extensions, all hidden", () => {
+	it("registers exactly the ten non-TUI pi-plus extensions, all hidden", () => {
 		// InlineExtension is a union (function form or object form); this entry
 		// uses the object form, so narrow before reading name/hidden.
 		const factories = plusSdkExtensionFactories.map((extension) => {
@@ -129,6 +129,7 @@ describe("api entry exports", () => {
 			"pi-plus-tasks",
 			"pi-plus-memory",
 			"pi-plus-plan",
+			"pi-plus-session-recap",
 			"pi-plus-ask-user",
 			"pi-plus-hooks",
 			"pi-plus-context-guard",

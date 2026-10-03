@@ -34,7 +34,7 @@ export const ENV_BASE_AGENT_DIR = "PI_PLUS_BASE_AGENT_DIR";
  * Mirrored in packages/hub/src/types.ts (PROFILE_SETTINGS_KEYS) — hub is
  * dependency-free so the two lists must be kept in sync manually.
  */
-export const PROFILE_SETTINGS_KEYS: readonly string[] = ["defaultProvider", "defaultModel"];
+export const PROFILE_SETTINGS_KEYS: readonly string[] = ["defaultProvider", "defaultModel", "defaultThinkingLevel"];
 
 /**
  * Directory where hub materializes profile agent dirs, mirroring

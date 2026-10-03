@@ -28,12 +28,14 @@ import { main as upstreamMain } from "../../../coding-agent/src/main.ts";
 import { createTerminalAuthInteraction, loginProvider } from "../../../plus/src/auth/login.ts";
 import { ENV_BASE_AGENT_DIR } from "../../../plus/src/coding-agent/core/profile-settings.ts";
 import {
+	createPermissionsExtension,
 	registerAskUser,
 	registerCd,
 	registerContextGuard,
 	registerInit,
 	registerMemory,
 	registerPlan,
+	registerRecap,
 	registerSubagent,
 	registerTasks,
 	registerUserHooks,
@@ -58,16 +60,22 @@ export async function main(args: string[], options?: MainOptions) {
 	let plan: LaunchPlan;
 	try {
 		if (args[0] && HUB_SUBCOMMANDS.has(args[0])) {
-			// `profile add <name> -p <provider>` with no credential runs the
+			// `profile add <name> -p <provider>` with no credential — or an
+			// explicit `--sign-in` on `profile add`/`profile update` — runs the
 			// provider's login (OAuth page in the browser / API-key setup) and
 			// persists it into the profile's isolated agent dir; hub cannot do
 			// this itself (dependency-free), so the CLI injects the capability.
 			await dispatchHubCommand(args, {
 				login: async (context) => {
-					await loginProvider(context.provider, {
+					const credential = await loginProvider(context.provider, {
 						agentDir: context.profileDir,
 						interaction: createTerminalAuthInteraction(),
 					});
+					// Hub overwrites the profile token with the sign-in result:
+					// hand back the key an api-key login produced; an OAuth
+					// credential has no single token — it stays in the profile's
+					// auth.json and hub clears the field.
+					return credential.type === "api_key" && credential.key ? { token: credential.key } : {};
 				},
 			});
 			return;
@@ -125,7 +133,10 @@ export async function main(args: string[], options?: MainOptions) {
 	// status reads as text, consistent with the subagent tool's word-based
 	// status; pi-plus-init adds /init, which analyzes the codebase and creates
 	// or improves AGENTS.md at the cwd root (pi already loads AGENTS.md into
-	// every session, so the extension only owns the command).
+	// every session, so the extension only owns the command); pi-plus-permissions
+	// adds the /permissions command and the tool-call permission gate (bypass |
+	// accept-edits | plan; bypass is the default, so behavior stays pi-like until
+	// the user switches — in TUI mode accept-edits prompts through the dialog UI).
 	// Merged with any caller-provided factories; upstream appends its own
 	// built-ins (main.ts: extensionFactories = [...builtInExtensions, ...]).
 	const merged: MainOptions = {
@@ -139,6 +150,8 @@ export async function main(args: string[], options?: MainOptions) {
 			{ name: "pi-plus-tasks", factory: registerTasks, hidden: true },
 			{ name: "pi-plus-memory", factory: registerMemory, hidden: true },
 			{ name: "pi-plus-plan", factory: registerPlan, hidden: true },
+			createPermissionsExtension(),
+			{ name: "pi-plus-session-recap", factory: registerRecap, hidden: true },
 			{ name: "pi-plus-ask-user", factory: registerAskUser, hidden: true },
 			{ name: "pi-plus-hooks", factory: registerUserHooks, hidden: true },
 			{ name: "pi-plus-context-guard", factory: registerContextGuard, hidden: true },

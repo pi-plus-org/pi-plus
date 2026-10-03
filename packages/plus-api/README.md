@@ -25,9 +25,9 @@ await session.prompt("Review this repository");
 ```
 
 - The full pi-plus layer is included: the compaction/context/reasoning overrides are
-  baked into `api.js` by the shared bundle-time redirect plugin, and the nine
+  baked into `api.js` by the shared bundle-time redirect plugin, and the ten
   non-TUI pi-plus extensions (subagent, tasks, memory, plan, ask-user, hooks,
-  context-guard, `/cd`, `/init`) are registered exactly as the CLI wrapper registers them. No CLI
+  context-guard, recap, `/cd`, `/init`) are registered exactly as the CLI wrapper registers them. No CLI
   logic ships in this artifact: no hub command dispatch (`pipi profile ...`), no
   completion, no pipi help text, no banner/vim/tab-title/plain-tools.
 - Profile management ships as a library: the curated `@earendil-works/pi-hub`
@@ -49,10 +49,14 @@ await session.prompt("Review this repository");
   `SessionManager.deleteSession(path)` to remove a transcript.
 - Provider login ships as a library (`src/auth.ts`): `loginProvider(providerId, { agentDir?, interaction?, signal?, method? })`
   runs pi's model-runtime login flow (OAuth login page / API-key setup — the same
-  flow `pipi profile add <name> -p <provider>` triggers) and persists the credential
+  flow `pipi profile add <name> -p <provider>` and the `--sign-in` flag on
+  `pipi profile add`/`profile update` trigger) and persists the credential
   to `<agentDir>/auth.json`; `createTerminalAuthInteraction()` provides the readline
   terminal UI for CLI use, and hosts pass their own `AuthInteraction` to drive the
-  prompts from a custom UI. pi-plus disables the TUI `/login` (the `interactive-mode`
+  prompts from a custom UI. To mirror the CLI's sign-in token overwrite, write the
+  returned credential's `key` into `Profile.token` via `updateProfile` (and clear
+  the field for OAuth logins, whose credential only lives in the profile's
+  `auth.json` — a stored token would overwrite it at the next launch). pi-plus disables the TUI `/login` (the `interactive-mode`
   and `slash-commands` core redirects are baked in here too), so this is the login
   entry for the whole product.
 - `createPlusAgentSession()` extends the upstream `createAgentSession` (re-exported,

@@ -75,9 +75,11 @@ describe("profile-layered settings reads", () => {
 			editorPaddingX: 1,
 			retry: { enabled: true, maxRetries: 5 },
 			defaultModel: "base-model",
+			defaultThinkingLevel: "off",
 		});
 		writeJson(path.join(fx.profileDir, "settings.json"), {
 			defaultModel: "profile-model",
+			defaultThinkingLevel: "high",
 			theme: "profile-theme",
 			retry: { maxRetries: 2 },
 		});
@@ -87,6 +89,7 @@ describe("profile-layered settings reads", () => {
 		const global = mgr.getGlobalSettings();
 		expect(global.theme).toBe("profile-theme");
 		expect(global.defaultModel).toBe("profile-model");
+		expect(global.defaultThinkingLevel).toBe("high");
 		expect(global.editorPaddingX).toBe(1);
 		expect(global.retry).toEqual({ enabled: true, maxRetries: 2 });
 	});
@@ -127,12 +130,15 @@ describe("profile-layered settings writes", () => {
 
 		const mgr = SettingsManager.create(fx.cwd, fx.profileDir);
 		mgr.setDefaultModel("new-model");
+		mgr.setDefaultThinkingLevel("medium");
 		await mgr.flush();
 
 		const profile = readJson(path.join(fx.profileDir, "settings.json"));
 		expect(profile.defaultModel).toBe("new-model");
+		expect(profile.defaultThinkingLevel).toBe("medium");
 		const base = readJson(path.join(fx.baseDir, "settings.json"));
 		expect(base.defaultModel).toBe("base-model");
+		expect(base.defaultThinkingLevel).toBeUndefined();
 		expect(base.theme).toBe("dark");
 	});
 
