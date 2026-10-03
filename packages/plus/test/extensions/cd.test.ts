@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../../coding-agent/src/core/extensions/types.ts";
 import { getDefaultSessionDir } from "../../../coding-agent/src/core/session-manager.ts";
@@ -51,7 +51,10 @@ function fakeCtx(cwd: string, state: FakeState): ExtensionCommandContext {
 	return {
 		cwd,
 		waitForIdle: async () => {},
-		sessionManager: { getSessionFile: () => state.sessionFile },
+		sessionManager: {
+			getSessionFile: () => state.sessionFile,
+			getSessionDir: () => (state.sessionFile ? dirname(state.sessionFile) : undefined),
+		},
 		ui: { notify },
 		switchSession: async (
 			path: string,
@@ -92,8 +95,7 @@ afterEach(() => {
 const HEADER_ID = "01a0d6f7-4830-76ff-905d-d33e39e072f2";
 const HEADER_TS = "2026-09-25T05:08:45.232Z";
 
-function makeSessionFile(cwd: string): string {
-	const sessionDir = getDefaultSessionDir(cwd);
+function makeSessionFile(cwd: string, sessionDir = getDefaultSessionDir(cwd)): string {
 	const file = join(sessionDir, `${HEADER_TS.replace(/[:.]/g, "-")}_${HEADER_ID}.jsonl`);
 	writeFileSync(
 		file,
@@ -233,5 +235,23 @@ describe("/cd", () => {
 		const header = JSON.parse(readFileSync(newFile, "utf8").split("\n")[0]) as Record<string, unknown>;
 		assert.equal(header.id, HEADER_ID);
 		assert.equal(header.cwd, dirB);
+	});
+
+	it("relocates within the current session's agent dir when the host isolated it", async () => {
+		// A host (e.g. the SDK agentDir option) may put the whole
+		// <agentDir>/sessions/<encoded-cwd> layout in its own agent dir; the
+		// move must follow it instead of falling back to the process default
+		// (PI_CODING_AGENT_DIR), which would leak the transcript into the
+		// user's real history.
+		const isolatedAgent = join(root, "isolated-agent");
+		const oldFile = makeSessionFile(dirA, getDefaultSessionDir(dirA, isolatedAgent));
+		const state: FakeState = { notifies: [], switchCalls: [], cancelSwitch: false, sessionFile: oldFile };
+		await captureCd().run(dirB, fakeCtx(dirA, state));
+
+		const newFile = state.switchCalls[0].path;
+		const targetDir = getDefaultSessionDir(dirB, isolatedAgent);
+		assert.ok(newFile.startsWith(targetDir), `expected ${newFile} under ${targetDir}`);
+		assert.ok(!newFile.startsWith(getDefaultSessionDir(dirB)), "must not land in the process-default sessions dir");
+		assert.ok(!existsSync(oldFile), "old session file removed after the switch");
 	});
 });
