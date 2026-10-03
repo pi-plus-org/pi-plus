@@ -7,7 +7,7 @@
  * packages/plus/src/coding-agent/core/settings-manager.ts — keep the two lists
  * in sync; hub stays dependency-free so this cannot be shared).
  */
-export const PROFILE_SETTINGS_KEYS: string[] = ["defaultProvider", "defaultModel"];
+export const PROFILE_SETTINGS_KEYS: string[] = ["defaultProvider", "defaultModel", "defaultThinkingLevel"];
 
 export interface Profile {
 	provider?: string;

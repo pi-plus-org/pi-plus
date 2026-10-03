@@ -6,7 +6,8 @@
  * interactive login — OAuth (opens the provider's login page in the browser)
  * when the provider offers it, else its API-key setup flow. The pi-plus CLI
  * uses this from `pipi profile add <name> -p <provider>` (a provider-only add
- * means "log this profile into the provider"), and pi-plus-sdk re-exports it
+ * means "log this profile into the provider") and from the `--sign-in` flag on
+ * `profile add`/`profile update`, and pi-plus-sdk re-exports it
  * so embedding hosts can drive login with their own UI. pi's TUI /login is
  * disabled in pi-plus by the interactive-mode wrapper (see
  * packages/plus/loader/redirects.mjs) so credentials always land in a

@@ -36,6 +36,7 @@
 
 export * from "../../coding-agent/src/index.ts";
 export * from "../../plus/src/context/threshold-setting.ts";
+export * from "../../plus/src/extensions/permissions/index.ts";
 export * from "./auth.ts";
 export * from "./profiles.ts";
 
@@ -72,6 +73,7 @@ import {
 	registerInit,
 	registerMemory,
 	registerPlan,
+	registerRecap,
 	registerSubagent,
 	registerTasks,
 	registerUserHooks,
@@ -87,6 +89,7 @@ export const plusSdkExtensionFactories: InlineExtension[] = [
 	{ name: "pi-plus-tasks", factory: registerTasks, hidden: true },
 	{ name: "pi-plus-memory", factory: registerMemory, hidden: true },
 	{ name: "pi-plus-plan", factory: registerPlan, hidden: true },
+	{ name: "pi-plus-session-recap", factory: registerRecap, hidden: true },
 	{ name: "pi-plus-ask-user", factory: registerAskUser, hidden: true },
 	{ name: "pi-plus-hooks", factory: registerUserHooks, hidden: true },
 	{ name: "pi-plus-context-guard", factory: registerContextGuard, hidden: true },

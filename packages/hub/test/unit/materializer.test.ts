@@ -239,18 +239,23 @@ describe("materializeProfile", () => {
 		expect(afterSource.packages).toEqual(["npm:old"]);
 	});
 
-	it("keeps profile-persisted defaultModel when the profile does not declare a model", () => {
+	it("keeps profile-persisted defaultModel/defaultThinkingLevel when the profile does not declare them", () => {
 		fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ theme: "dark" }));
 		const dir = mat.materializeProfile("loose", { provider: "kimi-coding", token: "tok" });
 		const profileSettings = path.join(dir, "settings.json");
 		const existing = JSON.parse(fs.readFileSync(profileSettings, "utf-8"));
 		existing.defaultModel = "kimi-selected-at-runtime";
+		existing.defaultThinkingLevel = "medium";
 		fs.writeFileSync(profileSettings, JSON.stringify(existing));
 
 		mat.materializeProfile("loose", { provider: "kimi-coding", token: "tok" });
 		const settings = JSON.parse(fs.readFileSync(profileSettings, "utf-8"));
 		expect(settings.defaultProvider).toBe("kimi-coding");
 		expect(settings.defaultModel).toBe("kimi-selected-at-runtime");
+		expect(settings.defaultThinkingLevel).toBe("medium");
+		// Profile-scoped: the runtime thinking level must not leak into the agent settings.
+		const source = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf-8"));
+		expect(source.defaultThinkingLevel).toBeUndefined();
 	});
 
 	it("migrates legacy baked general keys into the agent settings, agent wins on conflict", () => {

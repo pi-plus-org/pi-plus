@@ -131,7 +131,8 @@ _pipi() {
                 '(-t --token)'{-t,--token}'[API key / token]:token:' \\
                 '(-u --url)'{-u,--url}'[Base URL]:url:' \\
                 '(-p --provider)'{-p,--provider}'[pi provider id]:provider:(${PI_PROVIDERS.join(" ")})' \\
-                '--thinking[Thinking level]:level:(${THINKING_LEVELS.join(" ")})'
+                '--thinking[Thinking level]:level:(${THINKING_LEVELS.join(" ")})' \\
+                '--sign-in[Sign in to the provider (overwrites the profile token)]'
             fi
           elif [[ $words[2] == "update" ]]; then
             if (( CURRENT == 3 )); then
@@ -146,7 +147,8 @@ _pipi() {
                 '(-t --token)'{-t,--token}'[API key / token]:token:' \\
                 '(-u --url)'{-u,--url}'[Base URL]:url:' \\
                 '(-p --provider)'{-p,--provider}'[pi provider id]:provider:(${PI_PROVIDERS.join(" ")})' \\
-                '--thinking[Thinking level]:level:(${THINKING_LEVELS.join(" ")})'
+                '--thinking[Thinking level]:level:(${THINKING_LEVELS.join(" ")})' \\
+                '--sign-in[Sign in to the provider (overwrites the profile token)]'
               case $state in
                 profileModel)
                   _pipi_models_for_profile $line[1]
