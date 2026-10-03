@@ -185,9 +185,25 @@ function applyProfileOverrides(settings: AgentSettingsData, profile: Profile): v
 	}
 
 	const models = profile.models || (profile.model ? [profile.model] : []);
+	// `model` is the profile's declared default; `models[0]` is the hub-managed
+	// mirror (setProfileDefaultModel keeps them in sync). A host editing the
+	// list directly can leave the two inconsistent — trust the declared
+	// default when it's one of the models, rather than silently promoting a
+	// list head that may not even resolve (which drops the session onto the
+	// provider's built-in model). Otherwise position 1 still wins.
+	const defaultModel = profile.model && models.includes(profile.model) ? profile.model : models[0];
 	if (profile.provider) settings.defaultProvider = profile.provider;
-	if (models[0]) settings.defaultModel = models[0];
+	if (defaultModel) settings.defaultModel = defaultModel;
 	if (profile.thinking) settings.defaultThinkingLevel = profile.thinking;
+	// pi's model scope setting (same format as --models): scopes the model
+	// selector / cycling to exactly the profile's models — a multi-model
+	// profile would otherwise expose only defaultModel to the session.
+	// Unknown ids stay listed as unavailable, matching the TUI. A single
+	// model is already covered by defaultModel, so no scope is written.
+	if (profile.settings?.enabledModels === undefined) {
+		if (models.length > 1) settings.enabledModels = [...models];
+		else delete settings.enabledModels;
+	}
 }
 
 /**

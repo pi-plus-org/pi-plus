@@ -173,8 +173,9 @@ export function mergeModelsUpdate(current: string[], provided: string[]): { mode
 	return { models: provided, messages };
 }
 
-/** Select a profile's default model: the list position 1 that materialization
- *  writes as `settings.defaultModel`. Adds the model to the list when absent.
+/** Select a profile's default model: `profile.model` (mirrored at list
+ *  position 1), which materialization writes as `settings.defaultModel`.
+ *  Adds the model to the list when absent.
  *  Throws for an unknown profile, an empty model, or when adding would exceed
  *  the three-models-per-profile bound the pipi CLI enforces. Returns a
  *  human-readable message for host UIs. */
