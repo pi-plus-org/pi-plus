@@ -15,7 +15,7 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../../../coding-agent/src/core/extensions/types.ts";
 import {
 	CURRENT_SESSION_VERSION,
@@ -103,7 +103,15 @@ async function changeDirectory(ctx: ExtensionCommandContext, arg: string): Promi
 		header = freshHeader(target);
 	}
 
-	const sessionDir = getDefaultSessionDir(target);
+	// Relocate under the agent dir the current session lives in, not the
+	// process default: hosts may isolate it (SDK agentDir option,
+	// PI_CODING_AGENT_DIR), and a default-dir fallback would leak the moved
+	// transcript into the user's real history. Session dirs are laid out as
+	// <agentDir>/sessions/<encoded-cwd>, so the agent dir is two levels up;
+	// fall back to the default when the layout doesn't hold (in-memory).
+	const currentSessionDir = ctx.sessionManager.getSessionDir();
+	const targetAgentDir = currentSessionDir ? dirname(dirname(currentSessionDir)) : undefined;
+	const sessionDir = getDefaultSessionDir(target, targetAgentDir);
 	const newPath = writeRelocatedSession(sessionDir, header, rest);
 
 	const result = await ctx.switchSession(newPath, {
