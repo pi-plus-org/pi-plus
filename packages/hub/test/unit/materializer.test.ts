@@ -160,6 +160,57 @@ describe("materializeProfile", () => {
 		expect(settings.defaultModel).toBe("gemini-2.5-pro");
 	});
 
+	it("scopes enabledModels to a multi-model profile's models", () => {
+		const dir = mat.materializeProfile("multi", { ...baseProfile, models: ["m-two", "m-one", "m-three"] });
+		const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
+		expect(settings.enabledModels).toEqual(["m-two", "m-one", "m-three"]);
+		expect(settings.defaultModel).toBe("m-two");
+	});
+
+	it("writes no enabledModels for a single-model profile", () => {
+		const dir = mat.materializeProfile("work", baseProfile);
+		const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
+		expect(settings.enabledModels).toBeUndefined();
+	});
+
+	it("prefers the declared default model over an inconsistent models list head", () => {
+		// A host editing `models` directly can leave `model` out of position 1;
+		// the declared default must still win, or an unresolvable list head
+		// silently demotes the profile to the provider's built-in model.
+		const dir = mat.materializeProfile("drift", {
+			...baseProfile,
+			model: "m-one",
+			models: ["m-two", "m-one", "m-three"],
+		});
+		const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
+		expect(settings.defaultModel).toBe("m-one");
+		expect(settings.enabledModels).toEqual(["m-two", "m-one", "m-three"]);
+	});
+
+	it("drops a stale enabledModels when the profile shrinks to one model", () => {
+		const multi = { ...baseProfile, models: ["m-two", "m-one"] };
+		const dir = mat.materializeProfile("work", multi);
+		const profileSettings = path.join(dir, "settings.json");
+		// Selector persistence writes enabledModels into the profile layer.
+		const existing = JSON.parse(fs.readFileSync(profileSettings, "utf-8"));
+		existing.enabledModels = ["m-two", "m-one"];
+		fs.writeFileSync(profileSettings, JSON.stringify(existing));
+
+		mat.materializeProfile("work", { ...baseProfile, models: ["m-two"] });
+		const settings = JSON.parse(fs.readFileSync(profileSettings, "utf-8"));
+		expect(settings.enabledModels).toBeUndefined();
+	});
+
+	it("lets an explicit profile.settings enabledModels win over the model list", () => {
+		const dir = mat.materializeProfile("custom", {
+			...baseProfile,
+			models: ["m-two", "m-one"],
+			settings: { enabledModels: ["kimi-coding/*"] },
+		});
+		const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
+		expect(settings.enabledModels).toEqual(["kimi-coding/*"]);
+	});
+
 	it("carries the outer ~/.pi settings.json skills key when agent settings lack it", () => {
 		fs.writeFileSync(path.join(tmpDir, "settings.json"), JSON.stringify({ skills: ["~/.claude/skills"] }));
 		const dir = mat.materializeProfile("work", baseProfile);
