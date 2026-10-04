@@ -20,7 +20,7 @@ The context-detection/compaction/reasoning overrides and the ten non-TUI extensi
 3. **Usage print** (`src/coding-agent/cli/args.ts` wrapper) — `pipi --help` gains a "Profile commands (pi-plus)" section.
 4. **Welcome banner** (`src/coding-agent/ui/banner.ts`) — pipi's TUI startup header is a CC-style banner with a block-character π+ mark: condensed logo by default, boxed variant with Extensions/Skills feeds, compact/plain degradation on narrow terminals, `resumed <id> · <title>` on resume/fork.
 5. **Vim modal editing** (`src/coding-agent/ui/vim/`, core subset ported from [pi-vimmode](https://github.com/pekochan069/pi-vimmode), MIT, (c) 2026 pekochan069) — insert/normal/visual/visual-line modes, motions with counts, `d c y` operators, undo/redo, prompt search. Enable with `"vim": true` in settings or toggle with `/vim`.
-6. **Settings selector rows** (`src/coding-agent/ui/settings-selector.ts` wrapper) — `/settings` gains "Auto-compact threshold", "Context floor", and "Context window cap" rows (persisted via the shared core's `context/threshold-setting.ts`).
+6. **Settings selector rows** (`src/coding-agent/ui/settings-selector.ts` wrapper) — `/settings` gains "Auto-compact threshold", "Context floor", and "Context window cap" rows (persisted in the `piPlus` block of the base agent settings.json via the shared core's `context/plus-settings.ts`).
 7. **Tab title + busy spinner** (`src/extensions/tab-title/`) — the terminal window/tab title brands as `pi+ - [sessionName -] cwdBasename` with a braille spinner while the agent or compaction is working. TUI mode only.
 8. **Plain tool blocks** (`src/extensions/plain-tools/`) — strips background fills from tool result blocks so tool status reads as text (words, never colored blocks).
 

@@ -15,11 +15,12 @@ import {
 	getAutoCompactThresholdPercent,
 	getContextFloorTokens,
 	getContextWindowCapTokens,
-} from "../../../plus/src/context/threshold-setting.ts";
+} from "../../../plus/src/context/plus-settings.ts";
 import { SettingsSelectorComponent } from "../../src/coding-agent/ui/settings-selector.ts";
 
 let dir: string;
-const savedEnv = process.env.PI_PLUS_SETTINGS_FILE;
+const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
+const savedBaseAgentDir = process.env.PI_PLUS_BASE_AGENT_DIR;
 
 function fakeConfig(): SettingsConfig {
 	return {
@@ -78,14 +79,19 @@ function internalsOf(selector: SettingsSelectorComponent): ListInternals {
 beforeAll(() => initTheme("dark"));
 
 beforeEach(() => {
+	// The piPlus store lives in settings.json under the agent dir; an empty
+	// temp dir isolates the rows' defaults from a real ~/.pi/agent.
 	dir = mkdtempSync(join(tmpdir(), "plus-settings-ui-"));
-	process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
+	process.env.PI_CODING_AGENT_DIR = dir;
+	delete process.env.PI_PLUS_BASE_AGENT_DIR;
 });
 
 afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
-	if (savedEnv === undefined) delete process.env.PI_PLUS_SETTINGS_FILE;
-	else process.env.PI_PLUS_SETTINGS_FILE = savedEnv;
+	if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
+	if (savedBaseAgentDir === undefined) delete process.env.PI_PLUS_BASE_AGENT_DIR;
+	else process.env.PI_PLUS_BASE_AGENT_DIR = savedBaseAgentDir;
 });
 
 describe("SettingsSelectorComponent threshold row", () => {

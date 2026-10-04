@@ -13,16 +13,12 @@
  *   PI_DISABLE_AUTO_COMPACT       disable threshold-triggered auto-compaction
  *
  * Threshold override precedence: PI_AUTOCOMPACT_PCT_OVERRIDE (env, capped at
- * the CC buffer math) beats the percent persisted via the /settings UI in
- * pi-plus-settings.json (default 80% of the effective window) — see
- * threshold-setting.ts.
+ * the CC buffer math) beats the percent persisted via the /settings UI in the
+ * piPlus block of settings.json (default 80% of the effective window) — see
+ * plus-settings.ts.
  */
 
-import {
-	getAutoCompactThresholdPercent,
-	getContextFloorTokens,
-	getContextWindowCapTokens,
-} from "./threshold-setting.ts";
+import { getAutoCompactThresholdPercent, getContextFloorTokens, getContextWindowCapTokens } from "./plus-settings.ts";
 
 /** Minimum model info needed for the window math. Structurally compatible with pi's Model. */
 export interface DetectionModel {
@@ -45,8 +41,8 @@ export const AUTOCOMPACT_BUFFER_TOKENS = 30_000;
 // a non-negative auto-compact threshold for small-context models, so it stays
 // at the pre-#1949 value of 13_000 and is decoupled from AUTOCOMPACT_BUFFER_TOKENS.
 // User-facing override (only ever raises this): the /settings "Context floor"
-// row persisted in pi-plus-settings.json, or PI_CONTEXT_FLOOR_TOKENS for the
-// session — see getContextFloorBufferTokens() and threshold-setting.ts.
+// row persisted in the piPlus block of settings.json, or PI_CONTEXT_FLOOR_TOKENS
+// for the session — see getContextFloorBufferTokens() and plus-settings.ts.
 export const AUTOCOMPACT_FLOOR_BUFFER_TOKENS = 13_000;
 
 export const WARNING_THRESHOLD_BUFFER_TOKENS = 20_000;
@@ -56,7 +52,7 @@ export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000;
 /**
  * Context window ceiling for threshold math. With no persisted cap (the
  * default) the model's advertised context window is used as-is; a cap set in
- * /settings (pi-plus-settings.json) shrinks it to min(model window, cap).
+ * /settings (piPlus block of settings.json) shrinks it to min(model window, cap).
  * PI_AUTO_COMPACT_WINDOW can only lower this further, never raise it.
  */
 export function getContextWindowCeiling(model: DetectionModel): number {
@@ -196,7 +192,7 @@ export function getAutoCompactThreshold(model?: DetectionModel): number {
 		}
 	}
 
-	// Threshold chosen in the /settings UI (pi-plus-settings.json, default 80%
+	// Threshold chosen in the /settings UI (piPlus block of settings.json, default 80%
 	// percent of the effective window). Uncapped: an explicit choice may sit
 	// above the CC buffer math (PTL retry is the safety net there).
 	return Math.floor((effectiveContextWindow * getAutoCompactThresholdPercent()) / 100);

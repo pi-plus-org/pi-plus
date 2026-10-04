@@ -40,7 +40,7 @@ import {
 	materializeProfile,
 	plusSdkExtensionFactories,
 	profileDirFor,
-	readPlusSettings,
+	readPiPlusSettings,
 	removeProfile,
 	removeProfileDir,
 	renameProfile,
@@ -104,6 +104,18 @@ async function createFauxHarness(): Promise<FauxHarness> {
 		],
 	});
 	return { faux, model, modelRuntime };
+}
+
+/** Wait until the faux provider has served `count` calls. The pi-plus
+ *  session-recap extension fires a fire-and-forget title call off the first
+ *  agent_settled, sharing this scripted queue — without draining it here the
+ *  recap would steal the response scripted for the next prompt. */
+async function waitForFauxCalls(faux: FauxHarness["faux"], count: number, timeoutMs = 5000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (faux.state.callCount < count) {
+		if (Date.now() > deadline) throw new Error(`timed out waiting for ${count} faux calls`);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
 }
 
 describe("api entry exports", () => {
@@ -252,11 +264,13 @@ describe("session history management", () => {
 });
 
 describe("pi-plus context settings", () => {
-	it("threshold/floor/cap round-trip through the settings file", () => {
+	it("threshold/floor/cap round-trip through the piPlus block of settings.json", () => {
 		const dir = mkdtempSync(join(tmpdir(), "plus-sdk-settings-"));
-		const file = join(dir, "pi-plus-settings.json");
-		const previous = process.env.PI_PLUS_SETTINGS_FILE;
-		process.env.PI_PLUS_SETTINGS_FILE = file;
+		const file = join(dir, "settings.json");
+		const previous = process.env.PI_CODING_AGENT_DIR;
+		const previousBase = process.env.PI_PLUS_BASE_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = dir;
+		delete process.env.PI_PLUS_BASE_AGENT_DIR;
 		try {
 			// Defaults with no file present.
 			expect(getAutoCompactThresholdPercent()).toBe(DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT);
@@ -266,20 +280,30 @@ describe("pi-plus context settings", () => {
 			setAutoCompactThresholdPercent(95);
 			setContextFloorTokens(32768);
 			setContextWindowCapTokens(262144);
-			expect(readPlusSettings()).toEqual({
+			expect(readPiPlusSettings()).toEqual({
 				autoCompactThresholdPercent: 95,
 				contextFloorTokens: 32768,
 				contextWindowCapTokens: 262144,
+			});
+			// The block lives in the agent settings.json alongside upstream keys.
+			expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({
+				piPlus: {
+					autoCompactThresholdPercent: 95,
+					contextFloorTokens: 32768,
+					contextWindowCapTokens: 262144,
+				},
 			});
 			// Reset removes the key (undefined = default / no cap).
 			setAutoCompactThresholdPercent(undefined);
 			setContextFloorTokens(undefined);
 			setContextWindowCapTokens(undefined);
-			expect(readPlusSettings()).toEqual({});
+			expect(readPiPlusSettings()).toEqual({});
 			expect(getAutoCompactThresholdPercent()).toBe(DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT);
 		} finally {
-			if (previous === undefined) delete process.env.PI_PLUS_SETTINGS_FILE;
-			else process.env.PI_PLUS_SETTINGS_FILE = previous;
+			if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previous;
+			if (previousBase === undefined) delete process.env.PI_PLUS_BASE_AGENT_DIR;
+			else process.env.PI_PLUS_BASE_AGENT_DIR = previousBase;
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
@@ -431,7 +455,12 @@ describe("createPlusAgentSessionRuntime", () => {
 		const agentDir = makeTempDir();
 		const sessionDir = makeTempDir();
 		const { faux, model, modelRuntime } = await createFauxHarness();
-		faux.setResponses([fauxAssistantMessage("First reply."), fauxAssistantMessage("Cloned continuation.")]);
+		// Slot 2 is consumed by the recap extension's first-prompt title call.
+		faux.setResponses([
+			fauxAssistantMessage("First reply."),
+			fauxAssistantMessage("Recapped title."),
+			fauxAssistantMessage("Cloned continuation."),
+		]);
 		const observer = makeRuntimeObserver();
 
 		const runtime = await createPlusAgentSessionRuntime({
@@ -455,6 +484,11 @@ describe("createPlusAgentSessionRuntime", () => {
 			const originalFile = session.sessionFile;
 			expect(originalFile && existsSync(originalFile)).toBe(true);
 			const messageCountBefore = session.messages.length;
+
+			// Let the recap's title call reach the faux provider before forking
+			// so the scripted queue order (title, then continuation) holds; the
+			// title write itself may race the clone and be discarded (stale ctx).
+			await waitForFauxCalls(faux, 2);
 
 			// clone = fork at the leaf, in place: new file, same history, one rebind
 			const leafId = session.sessionManager.getLeafId();

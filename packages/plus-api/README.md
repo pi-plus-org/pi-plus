@@ -39,11 +39,12 @@ await session.prompt("Review this repository");
   `materializeProfile/removeProfileDir/profileDirFor/AGENT_DIR/
   syncProfilePackagesToSource` for the per-profile agent dirs. Hosts get the
   exact contract the `pipi` CLI dispatches instead of reimplementing it.
-- The pi-plus context settings ship as a library: `readPlusSettings/writePlusSettings`
+- The pi-plus context settings ship as a library: `readPiPlusSettings/updatePiPlusSettings`
   and the `get/setAutoCompactThresholdPercent`, `get/setContextFloorTokens`,
   `get/setContextWindowCapTokens` helpers (plus formatters/parsers) manage the
-  pi-plus settings store (`<agentDir>/pi-plus-settings.json`) that drives
-  auto-compaction trigger math — the same file the pipi TUI `/settings` rows edit.
+  `piPlus` block of the base agent `settings.json` that drives auto-compaction
+  trigger math — the same store the pipi TUI `/settings` rows edit. Hosts store
+  their own keys in the same block via the generic pair.
   Session history management completes the surface: `SessionManager.listAll` to
   enumerate, `SessionManager.search(query)` to match titles and transcript text, and
   `SessionManager.deleteSession(path)` to remove a transcript.

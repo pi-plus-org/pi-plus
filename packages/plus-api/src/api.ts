@@ -26,8 +26,9 @@
  * - provider login (OAuth login page / API-key setup, pi's /login equivalent,
  *   which pi-plus disables in the TUI) is re-exported from ./auth.ts
  * - the pi-plus context settings (auto-compact threshold percent, context floor,
- *   context window cap — the pi-plus settings store next to settings.json) are
- *   re-exported from packages/plus's threshold-setting module
+ *   context window cap — the piPlus block of the base agent settings.json, plus
+ *   the generic readPiPlusSettings/updatePiPlusSettings for host-owned keys) are
+ *   re-exported from packages/plus's plus-settings module
  *
  * Hosts without a pi CLI on PATH should pass excludeTools: ["subagent"]:
  * the subagent tool launches a pi subprocess and, in a CLI-less host such as
@@ -35,7 +36,7 @@
  */
 
 export * from "../../coding-agent/src/index.ts";
-export * from "../../plus/src/context/threshold-setting.ts";
+export * from "../../plus/src/context/plus-settings.ts";
 export * from "../../plus/src/extensions/permissions/index.ts";
 export * from "./auth.ts";
 export * from "./profiles.ts";
