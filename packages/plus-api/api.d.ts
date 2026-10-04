@@ -24,6 +24,21 @@ import type {
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 
+// pi-plus runtime addition: the SettingsManager wrapper patches a setter +
+// raw getter pair onto the upstream class next to its existing read-side
+// getExternalEditorCommand (see packages/plus/src/coding-agent/core/settings-manager.ts).
+// The write is queued like every other save — await manager.flush() to persist.
+declare module "@earendil-works/pi-coding-agent" {
+	interface SettingsManager {
+		/** Persist the external editor command; undefined removes the key and
+		 *  restores the $VISUAL/$EDITOR fallback (pi-plus patch, runtime only). */
+		setExternalEditorCommand(command: string | undefined): void;
+		/** Raw persisted external editor command, undefined when unset — unlike
+		 *  getExternalEditorCommand, no $VISUAL/$EDITOR fallback (pi-plus patch). */
+		getExternalEditorSetting(): string | undefined;
+	}
+}
+
 export declare const plusSdkExtensionFactories: InlineExtension[];
 
 // --- pi-plus-permissions (bypass | acceptEdits | plan tool-call gate) ------
@@ -248,15 +263,15 @@ export declare function loginProvider(providerId: string, options?: LoginProvide
 export declare function createTerminalAuthInteraction(): AuthInteraction;
 
 // ---------------------------------------------------------------------------
-// pi-plus settings store (~/.pi/agent/pi-plus-settings.json): auto-compaction
-// threshold percent, context floor buffer and context window cap. Re-exported
-// from packages/plus/src/context/threshold-setting.ts; the runtime bundle
-// inlines the module. Pass an explicit `path` to read/write a specific agent
-// dir's copy; the default follows the process agent dir (PI_AGENT_DIR).
+// pi-plus settings store — the `piPlus` block of the base agent
+// ~/.pi/agent/settings.json (resolved through the hub-profile layering, so CLI
+// and embedded hosts share exactly one store). Auto-compaction threshold
+// percent, context floor buffer and context window cap are the typed keys;
+// readPiPlusSettings/updatePiPlusSettings expose the block generically for
+// host-owned keys (e.g. a desktop app's defaultPermissionMode, theme, sidebar
+// width). Re-exported from packages/plus/src/context/plus-settings.ts; the
+// runtime bundle inlines the module.
 // ---------------------------------------------------------------------------
-
-/** Env var that overrides the settings file path (tests, debugging). */
-export declare const PLUS_SETTINGS_ENV: "PI_PLUS_SETTINGS_FILE";
 
 export interface PlusSettings {
 	/** Percent (1-100) of the effective context window at which auto-compaction triggers. */
@@ -267,12 +282,11 @@ export interface PlusSettings {
 	contextWindowCapTokens?: number;
 }
 
-export declare function getPlusSettingsPath(): string;
-/** Read the store; missing or malformed files yield {} (never throws). */
-export declare function readPlusSettings(path?: string): PlusSettings;
-/** Persist the store, replacing only the fields present in `patch`; a field
- *  explicitly set to undefined deletes that key, absent fields are untouched. */
-export declare function writePlusSettings(patch: PlusSettings, path?: string): void;
+/** Raw piPlus block including host-owned keys; {} when absent or malformed. */
+export declare function readPiPlusSettings(): Record<string, unknown>;
+/** Merge keys into the piPlus block under the settings-file lock; a key set to
+ *  undefined is deleted; all other settings.json content is preserved. */
+export declare function updatePiPlusSettings(patch: Record<string, unknown | undefined>): void;
 
 /** Default threshold: 80% of the effective context window. */
 export declare const DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT: number;

@@ -98,6 +98,11 @@ export function registerRecap(pi: ExtensionAPI, deps: RecapDeps = {}): void {
 					applyingRecap = false;
 				}
 			} catch (error) {
+				// A session replacement (fork / /cd / resume-switch) landed while
+				// the title call was in flight: the captured pi is stale, so the
+				// write is correctly refused. The title is intentionally
+				// discarded — best-effort by design, not an error worth logging.
+				if (error instanceof Error && error.message.includes("extension ctx is stale")) return;
 				console.error("pi-plus: session recap failed:", error);
 			}
 		}).catch(() => {});

@@ -31,6 +31,10 @@ import {
 const MODEL = { contextWindow: 200_000, maxTokens: 65_536 };
 const SETTINGS = { enabled: true, reserveTokens: 16_384 };
 
+let dir: string;
+const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
+const savedBaseAgentDir = process.env.PI_PLUS_BASE_AGENT_DIR;
+
 beforeEach(() => {
 	setCurrentModel(MODEL);
 	resetAutoCompactBreaker();
@@ -42,15 +46,29 @@ beforeEach(() => {
 		"PI_CONTEXT_FLOOR_TOKENS",
 		"PI_BLOCKING_LIMIT_OVERRIDE",
 		"PI_AUTOCOMPACT_FAILURE_COOLDOWN_MS",
-		"PI_PLUS_SETTINGS_FILE",
 	]) {
 		delete process.env[key];
 	}
+	// Isolate the piPlus store on an empty temp agent dir: the getters read
+	// settings.json there, so a real ~/.pi/agent can never leak into defaults.
+	dir = mkdtempSync(join(tmpdir(), "plus-detect-"));
+	process.env.PI_CODING_AGENT_DIR = dir;
+	delete process.env.PI_PLUS_BASE_AGENT_DIR;
 });
 
 afterEach(() => {
 	setCurrentModel(undefined);
+	rmSync(dir, { recursive: true, force: true });
+	if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
+	if (savedBaseAgentDir === undefined) delete process.env.PI_PLUS_BASE_AGENT_DIR;
+	else process.env.PI_PLUS_BASE_AGENT_DIR = savedBaseAgentDir;
 });
+
+/** Persist a piPlus block into the isolated agent dir's settings.json. */
+function persistPiPlus(block: Record<string, unknown>): void {
+	writeFileSync(join(dir, "settings.json"), JSON.stringify({ piPlus: block }));
+}
 
 describe("getEffectiveContextWindowSize", () => {
 	it("subtracts min(maxTokens, 20000) from the context window", () => {
@@ -99,79 +117,43 @@ describe("getEffectiveContextWindowSize", () => {
 
 	it("applies a persisted context window cap below the model window", () => {
 		// 1M model capped at 256K: min(1M, 256K) - 20k reserve = 242_144.
-		const dir = mkdtempSync(join(tmpdir(), "plus-cap-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextWindowCapTokens: 262_144 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			setCurrentModel({ contextWindow: 1_000_000, maxTokens: 384_000 });
-			assert.equal(getEffectiveContextWindowSize(), 262_144 - MAX_OUTPUT_TOKENS_FOR_SUMMARY);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextWindowCapTokens: 262_144 });
+		setCurrentModel({ contextWindow: 1_000_000, maxTokens: 384_000 });
+		assert.equal(getEffectiveContextWindowSize(), 262_144 - MAX_OUTPUT_TOKENS_FOR_SUMMARY);
 	});
 
 	it("applies a persisted context window cap above the old 256K ceiling", () => {
 		// A cap may also sit above 256K: min(1M, 512K) - 20k reserve = 504_832.
-		const dir = mkdtempSync(join(tmpdir(), "plus-cap-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextWindowCapTokens: 524_288 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			setCurrentModel({ contextWindow: 1_000_000, maxTokens: 384_000 });
-			assert.equal(getEffectiveContextWindowSize(), 524_288 - MAX_OUTPUT_TOKENS_FOR_SUMMARY);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextWindowCapTokens: 524_288 });
+		setCurrentModel({ contextWindow: 1_000_000, maxTokens: 384_000 });
+		assert.equal(getEffectiveContextWindowSize(), 524_288 - MAX_OUTPUT_TOKENS_FOR_SUMMARY);
 	});
 
 	it("lets PI_AUTO_COMPACT_WINDOW lower a persisted cap further", () => {
-		const dir = mkdtempSync(join(tmpdir(), "plus-cap-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextWindowCapTokens: 524_288 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			process.env.PI_AUTO_COMPACT_WINDOW = "100000";
-			setCurrentModel({ contextWindow: 1_000_000, maxTokens: 384_000 });
-			assert.equal(getEffectiveContextWindowSize(), 100_000 - MAX_OUTPUT_TOKENS_FOR_SUMMARY);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextWindowCapTokens: 524_288 });
+		process.env.PI_AUTO_COMPACT_WINDOW = "100000";
+		setCurrentModel({ contextWindow: 1_000_000, maxTokens: 384_000 });
+		assert.equal(getEffectiveContextWindowSize(), 100_000 - MAX_OUTPUT_TOKENS_FOR_SUMMARY);
 	});
 
 	it("raises the floor for small-context models when a context floor is persisted", () => {
 		// 30k - 20k reserve = 10k, below 20k + 32k = 52k → floored at the setting.
-		const dir = mkdtempSync(join(tmpdir(), "plus-floor-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextFloorTokens: 32_768 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			setCurrentModel({ contextWindow: 30_000, maxTokens: 64_000 });
-			assert.equal(getEffectiveContextWindowSize(), MAX_OUTPUT_TOKENS_FOR_SUMMARY + 32_768);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextFloorTokens: 32_768 });
+		setCurrentModel({ contextWindow: 30_000, maxTokens: 64_000 });
+		assert.equal(getEffectiveContextWindowSize(), MAX_OUTPUT_TOKENS_FOR_SUMMARY + 32_768);
 	});
 
 	it("leaves big windows untouched when a context floor is persisted", () => {
-		const dir = mkdtempSync(join(tmpdir(), "plus-floor-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextFloorTokens: 32_768 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			// 200k - 20k reserve = 180k, far above 20k + 32k → no effect.
-			assert.equal(getEffectiveContextWindowSize(), 200_000 - MAX_OUTPUT_TOKENS_FOR_SUMMARY);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextFloorTokens: 32_768 });
+		// 200k - 20k reserve = 180k, far above 20k + 32k → no effect.
+		assert.equal(getEffectiveContextWindowSize(), 200_000 - MAX_OUTPUT_TOKENS_FOR_SUMMARY);
 	});
 
 	it("PI_CONTEXT_FLOOR_TOKENS wins over the persisted floor", () => {
-		const dir = mkdtempSync(join(tmpdir(), "plus-floor-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextFloorTokens: 32_768 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			process.env.PI_CONTEXT_FLOOR_TOKENS = "65536";
-			setCurrentModel({ contextWindow: 30_000, maxTokens: 64_000 });
-			assert.equal(getEffectiveContextWindowSize(), MAX_OUTPUT_TOKENS_FOR_SUMMARY + 65_536);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextFloorTokens: 32_768 });
+		process.env.PI_CONTEXT_FLOOR_TOKENS = "65536";
+		setCurrentModel({ contextWindow: 30_000, maxTokens: 64_000 });
+		assert.equal(getEffectiveContextWindowSize(), MAX_OUTPUT_TOKENS_FOR_SUMMARY + 65_536);
 	});
 
 	it("clamps PI_CONTEXT_FLOOR_TOKENS at the built-in 13k minimum", () => {
@@ -192,16 +174,10 @@ describe("getContextPercentBaseWindow", () => {
 	it("returns the effective threshold window when a persisted cap shrinks the window", () => {
 		// 1M model capped at 256K: percent base = 242_144 so the footer reads against
 		// the window auto-compact actually fires at, not the raw 1M capacity.
-		const dir = mkdtempSync(join(tmpdir(), "plus-cap-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextWindowCapTokens: 262_144 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			assert.equal(getContextPercentBaseWindow({ contextWindow: 1_000_000, maxTokens: 384_000 }), 242_144);
-			// Models at or below the cap are unchanged.
-			assert.equal(getContextPercentBaseWindow(MODEL), 200_000);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextWindowCapTokens: 262_144 });
+		assert.equal(getContextPercentBaseWindow({ contextWindow: 1_000_000, maxTokens: 384_000 }), 242_144);
+		// Models at or below the cap are unchanged.
+		assert.equal(getContextPercentBaseWindow(MODEL), 200_000);
 	});
 
 	it("follows PI_AUTO_COMPACT_WINDOW below an uncapped model window", () => {
@@ -217,15 +193,9 @@ describe("getContextWindowCeiling", () => {
 	});
 
 	it("is the persisted cap when the cap is below the model window", () => {
-		const dir = mkdtempSync(join(tmpdir(), "plus-cap-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextWindowCapTokens: 262_144 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			assert.equal(getContextWindowCeiling({ contextWindow: 1_000_000, maxTokens: 384_000 }), 262_144);
-			assert.equal(getContextWindowCeiling(MODEL), 200_000);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextWindowCapTokens: 262_144 });
+		assert.equal(getContextWindowCeiling({ contextWindow: 1_000_000, maxTokens: 384_000 }), 262_144);
+		assert.equal(getContextWindowCeiling(MODEL), 200_000);
 	});
 });
 
@@ -266,26 +236,14 @@ describe("getAutoCompactThreshold", () => {
 	it("applies the persisted /settings percent without the buffer cap", () => {
 		// 95% of the 180k effective window = 171000, above the 150k CC buffer —
 		// a user-chosen threshold may sit higher than the buffer math.
-		const dir = mkdtempSync(join(tmpdir(), "plus-detect-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ autoCompactThresholdPercent: 95 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			assert.equal(getAutoCompactThreshold(), 171_000);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ autoCompactThresholdPercent: 95 });
+		assert.equal(getAutoCompactThreshold(), 171_000);
 	});
 
 	it("lets the env override beat the persisted percent", () => {
-		const dir = mkdtempSync(join(tmpdir(), "plus-detect-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ autoCompactThresholdPercent: 95 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			process.env.PI_AUTOCOMPACT_PCT_OVERRIDE = "50";
-			assert.equal(getAutoCompactThreshold(), Math.floor(180_000 * 0.5));
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ autoCompactThresholdPercent: 95 });
+		process.env.PI_AUTOCOMPACT_PCT_OVERRIDE = "50";
+		assert.equal(getAutoCompactThreshold(), Math.floor(180_000 * 0.5));
 	});
 
 	it("computes the threshold against the model's full window for 1M-context models when no cap is set", () => {
@@ -296,15 +254,9 @@ describe("getAutoCompactThreshold", () => {
 
 	it("computes the threshold against a persisted cap for 1M-context models", () => {
 		// effective = 256K - 20k = 242_144; 80% default = 193_715.
-		const dir = mkdtempSync(join(tmpdir(), "plus-cap-"));
-		try {
-			writeFileSync(join(dir, "pi-plus-settings.json"), JSON.stringify({ contextWindowCapTokens: 262_144 }));
-			process.env.PI_PLUS_SETTINGS_FILE = join(dir, "pi-plus-settings.json");
-			setCurrentModel({ contextWindow: 1_000_000, maxTokens: 384_000 });
-			assert.equal(getAutoCompactThreshold(), Math.floor(242_144 * 0.8));
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
+		persistPiPlus({ contextWindowCapTokens: 262_144 });
+		setCurrentModel({ contextWindow: 1_000_000, maxTokens: 384_000 });
+		assert.equal(getAutoCompactThreshold(), Math.floor(242_144 * 0.8));
 	});
 });
 

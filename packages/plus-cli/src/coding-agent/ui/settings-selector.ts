@@ -6,7 +6,8 @@
  * floor" (minimum tokens of usable context the effective window is floored at),
  * and "Context window cap" (maximum window used for auto-compact math and the
  * footer meter; "No cap" uses the model's advertised window) — all persisted
- * via plus/src/context/threshold-setting.ts. Upstream's selector
+ * in the piPlus block of settings.json via plus/src/context/plus-settings.ts.
+ * Upstream's selector
  * builds its item list and dispatch closure privately inside the constructor,
  * so instead of forking that logic the subclass reaches into the constructed
  * SettingsList at runtime — its fields are TS-private (not ECMAScript #private)
@@ -37,7 +38,7 @@ import {
 	setAutoCompactThresholdPercent,
 	setContextFloorTokens,
 	setContextWindowCapTokens,
-} from "../../../../plus/src/context/threshold-setting.ts";
+} from "../../../../plus/src/context/plus-settings.ts";
 
 const THRESHOLD_ITEM_ID = "autocompact-threshold";
 const THRESHOLD_VALUES = ["70%", "80%", "85%", "90%", "95%"];

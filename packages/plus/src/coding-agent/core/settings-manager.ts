@@ -20,6 +20,16 @@
  * index.ts — sees the layered factory. For an agent dir that is neither a hub
  * profile dir nor paired with the marker the factory delegates to the original
  * implementation unchanged, so plain pi keeps its exact single-file behavior.
+ *
+ * The patch also adds a `setExternalEditorCommand(command)` /
+ * `getExternalEditorSetting()` instance-method pair alongside the upstream
+ * read-side `getExternalEditorCommand` (which honors VISUAL/EDITOR fallbacks):
+ * the getter returns the raw persisted value (undefined when unset) so an
+ * embedded host can tell "no editor chosen" from a fallback, and the setter
+ * lets the plus desktop persist its editor choice so it shares pipi's Ctrl+G
+ * editor setting instead of a private store. An embedded host writing through
+ * the layered factory also gets the shadow strip for free (externalEditor is
+ * a general key → base file wins).
  */
 export * from "../../../../coding-agent/src/core/settings-manager.ts";
 
@@ -138,6 +148,57 @@ function routeMergedSettings(
 	}
 
 	return { base, profile, baseChanged, profileChanged };
+}
+
+/** Structural view of the private write internals, for the patched setter below. */
+interface SettingsManagerWriteInternals {
+	globalSettings: { externalEditor?: string };
+	markModified(field: string): void;
+	save(): void;
+}
+
+// Upstream reads externalEditor (getExternalEditorCommand) but only ever sets it
+// by hand-editing settings.json; embedded hosts need a setter. Same private
+// mutation idiom as the create patch — the write queues through the instance's
+// own save(), so the layered storage routing (general key -> base file, with
+// stale profile shadows stripped) applies. Callers awaiting persistence must
+// flush() the manager.
+const prototypePatch = UpstreamSettingsManager.prototype as unknown as {
+	setExternalEditorCommand(this: SettingsManagerWriteInternals, command: string | undefined): void;
+	getExternalEditorSetting(this: SettingsManagerWriteInternals): string | undefined;
+};
+prototypePatch.setExternalEditorCommand = function (command: string | undefined): void {
+	if (command === undefined) {
+		delete this.globalSettings.externalEditor;
+	} else {
+		this.globalSettings.externalEditor = command;
+	}
+	this.markModified("externalEditor");
+	this.save();
+};
+// Raw read counterpart of the setter: upstream's getExternalEditorCommand folds
+// in $VISUAL/$EDITOR (and a nano/notepad default), so a host managing the
+// persisted value needs the un-fallbacked one.
+prototypePatch.getExternalEditorSetting = function (): string | undefined {
+	const configured = this.globalSettings.externalEditor;
+	return typeof configured === "string" && configured.trim() !== "" ? configured : undefined;
+};
+
+// Surface the patched method on the declared class for in-repo type consumers
+// (the runtime bundle bakes the wrapper over the upstream module).
+declare module "../../../../coding-agent/src/core/settings-manager.ts" {
+	interface SettingsManager {
+		/**
+		 * Persist the external editor command (pi-plus addition; undefined removes
+		 * the key and restores the $VISUAL/$EDITOR fallback). Queued write — flush().
+		 */
+		setExternalEditorCommand(command: string | undefined): void;
+		/**
+		 * Raw persisted external editor command (pi-plus addition; undefined when
+		 * unset — unlike getExternalEditorCommand, no $VISUAL/$EDITOR fallback).
+		 */
+		getExternalEditorSetting(): string | undefined;
+	}
 }
 
 const upstreamCreate = UpstreamSettingsManager.create.bind(UpstreamSettingsManager);

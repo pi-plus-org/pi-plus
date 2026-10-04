@@ -6,17 +6,17 @@ export { registerContextGuard } from "./context-guard/index.ts";
 export { registerUserHooks } from "./hooks/index.ts";
 export { registerInit } from "./init/index.ts";
 export { registerMemory } from "./memory/index.ts";
-export { registerPlan } from "./plan/index.ts";
 export {
 	createPermissionsExtension,
 	gatePermissionToolCall,
-	parsePermissionMode,
 	PERMISSION_MODE_LABELS,
 	PERMISSION_MODES,
 	type PermissionMode,
 	type PermissionModeState,
 	type PermissionsExtensionOptions,
+	parsePermissionMode,
 } from "./permissions/index.ts";
+export { registerPlan } from "./plan/index.ts";
 export { registerRecap } from "./recap/index.ts";
 export { registerSubagent } from "./subagent/index.ts";
 export { registerTasks } from "./tasks/index.ts";
