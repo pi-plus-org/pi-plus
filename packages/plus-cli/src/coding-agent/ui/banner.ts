@@ -86,7 +86,7 @@ export const PLUS_VERSION = resolvePlusVersion();
 /** Shorten $HOME to `~`; guards the HOME-unset / non-prefix cases. */
 function tildeHome(p: string): string {
 	const home = homedir();
-	if (home && (p === home || p.startsWith(home + "/"))) return `~${p.slice(home.length)}`;
+	if (home && (p === home || p.startsWith(`${home}/`))) return `~${p.slice(home.length)}`;
 	return p;
 }
 
@@ -321,7 +321,7 @@ export class BannerComponent {
 	private resumedLine(): string | undefined {
 		if (this.info.resumed === undefined) return undefined;
 		const title = this.info.title();
-		return `resumed ${this.info.resumed}` + (title ? ` · ${title}` : "");
+		return `resumed ${this.info.resumed}${title ? ` · ${title}` : ""}`;
 	}
 
 	/**
@@ -440,7 +440,7 @@ export class BannerComponent {
 		const titleColored = `${accent(APP_LABEL)} ${dim(`v${PLUS_VERSION}`)}`;
 		const fillLen = boxWidth - 1 - 3 - 1 - visibleWidth(titlePlain) - 1 - 1;
 		rows.push(
-			`${this.border(theme, "╭───")} ${titleColored} ${this.border(theme, "─".repeat(Math.max(0, fillLen)) + "╮")}`,
+			`${this.border(theme, "╭───")} ${titleColored} ${this.border(theme, `${"─".repeat(Math.max(0, fillLen))}╮`)}`,
 		);
 
 		// Content rows: │ left │ right │
@@ -544,7 +544,7 @@ export class BannerComponent {
 		const titlePlain = APP_LABEL;
 		const fillLen = boxWidth - 1 - 2 - 1 - visibleWidth(titlePlain) - 1 - 1;
 		rows.push(
-			`${this.border(theme, "╭──")} ${accent(titlePlain)} ${this.border(theme, "─".repeat(Math.max(0, fillLen)) + "╮")}`,
+			`${this.border(theme, "╭──")} ${accent(titlePlain)} ${this.border(theme, `${"─".repeat(Math.max(0, fillLen))}╮`)}`,
 		);
 		rows.push(`${this.border(theme, "│")} ${center(bold(welcome), inner)} ${this.border(theme, "│")}`);
 		for (const artRow of PI_PLUS_LOGO) {

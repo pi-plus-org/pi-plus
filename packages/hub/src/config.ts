@@ -49,7 +49,7 @@ export function writeJson(filePath: string, data: unknown, mode?: number): void 
 	// empty file mid-write.
 	const tmpPath = `${filePath}.tmp-${process.pid}`;
 	try {
-		fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n", { mode });
+		fs.writeFileSync(tmpPath, `${JSON.stringify(data, null, 2)}\n`, { mode });
 		fs.renameSync(tmpPath, filePath);
 	} catch (err) {
 		fs.rmSync(tmpPath, { force: true });

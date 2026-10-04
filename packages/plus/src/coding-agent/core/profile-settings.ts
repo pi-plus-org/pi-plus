@@ -43,9 +43,9 @@ export const PROFILE_SETTINGS_KEYS: readonly string[] = ["defaultProvider", "def
  * dependency-free and this package must not import it.
  */
 export function getProfileDirsDir(): string {
-	const hubDir = process.env["PI_HUB_DIR"];
+	const hubDir = process.env.PI_HUB_DIR;
 	if (hubDir) return join(resolvePath(hubDir), "profiles");
-	const piDir = process.env["PI_HUB_PI_DIR"] || join(homedir(), CONFIG_DIR_NAME);
+	const piDir = process.env.PI_HUB_PI_DIR || join(homedir(), CONFIG_DIR_NAME);
 	return join(resolvePath(piDir), "pi-hub", "profiles");
 }
 
@@ -82,7 +82,7 @@ export function getBaseAgentDir(agentDir?: string): string | undefined {
 	}
 	// Same default the hub uses for its source agent dir (PI_HUB_PI_DIR wins),
 	// so relocating profiles also relocates the base layer.
-	const piDir = process.env["PI_HUB_PI_DIR"];
+	const piDir = process.env.PI_HUB_PI_DIR;
 	if (piDir) return join(resolvePath(piDir), "agent");
 	return join(homedir(), CONFIG_DIR_NAME, "agent");
 }

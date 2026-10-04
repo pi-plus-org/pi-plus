@@ -60,7 +60,7 @@ export function registerMemory(pi: ExtensionAPI, overrides: MemoryExtensionOverr
 		const index = (await deps.storeFor(ctx).readIndex()).trim();
 		if (index === "") return;
 		event.systemPromptOptions.sections[MEMORY_SECTION_NAME] =
-			"Long-term memory index for this project (use the memory_recall tool to load full contents):\n" + index;
+			`Long-term memory index for this project (use the memory_recall tool to load full contents):\n${index}`;
 	});
 
 	// Extraction: once per settled user prompt, subject to throttling.
