@@ -13,7 +13,7 @@ const LEGACY_BUILT_IN_DEFAULT = "__builtin__";
 export function maskToken(token: string): string {
 	if (!token) return "(unset)";
 	if (token.length <= 12) return token;
-	return token.slice(0, 8) + "..." + token.slice(-4);
+	return `${token.slice(0, 8)}...${token.slice(-4)}`;
 }
 
 export function formatModels(p: Profile): string {
@@ -21,7 +21,7 @@ export function formatModels(p: Profile): string {
 	if (models.length === 0) return "(unset)";
 	const joined = models.join(", ");
 	if (joined.length > 28) {
-		return models[0] + ", +" + (models.length - 1) + " more";
+		return `${models[0]}, +${models.length - 1} more`;
 	}
 	return joined;
 }

@@ -230,23 +230,23 @@ describe("session history management", () => {
 		try {
 			writeFileSync(
 				join(dir, "a.jsonl"),
-				[
+				`${[
 					header("id-aaa", "/tmp/a"),
 					msg("a1", "h", "user", "quantum flux analysis"),
 					msg("a2", "a1", "assistant", "the FLUX capacitor hums"),
-				].join("\n") + "\n",
+				].join("\n")}\n`,
 			);
 			writeFileSync(
 				join(dir, "b.jsonl"),
-				[
+				`${[
 					header("id-bbb", "/tmp/b"),
 					JSON.stringify({ type: "session_info", id: "b0", parentId: "h", name: "Zephyr rename target" }),
 					msg("b1", "b0", "user", "unrelated"),
-				].join("\n") + "\n",
+				].join("\n")}\n`,
 			);
 			writeFileSync(
 				join(dir, "c.jsonl"),
-				[header("id-ccc", "/tmp/c"), msg("c1", "h", "user", "plain nothing")].join("\n") + "\n",
+				`${[header("id-ccc", "/tmp/c"), msg("c1", "h", "user", "plain nothing")].join("\n")}\n`,
 			);
 
 			// Body text hit (case-insensitive, not the first message).

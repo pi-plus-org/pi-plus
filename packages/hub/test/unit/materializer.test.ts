@@ -89,7 +89,7 @@ describe("materializeProfile", () => {
 	it("keys auth.json under the provider/model id prefix when present", () => {
 		const dir = mat.materializeProfile("prefixed", { model: "openai/gpt-4o", token: "tok-123" });
 		const auth = JSON.parse(fs.readFileSync(path.join(dir, "auth.json"), "utf-8"));
-		expect(auth["openai"]).toEqual({ type: "api_key", key: "tok-123" });
+		expect(auth.openai).toEqual({ type: "api_key", key: "tok-123" });
 	});
 
 	it("warns and skips auth.json when no provider can be determined", () => {

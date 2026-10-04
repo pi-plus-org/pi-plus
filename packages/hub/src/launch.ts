@@ -32,7 +32,7 @@ export function resolveLaunch(args: string[]): LaunchPlan {
 			}
 			name = value;
 			i++;
-		} else if (arg.startsWith(PROFILE_FLAG + "=")) {
+		} else if (arg.startsWith(`${PROFILE_FLAG}=`)) {
 			name = arg.slice(PROFILE_FLAG.length + 1);
 			if (!name) {
 				throw new Error("Error: --as expects a profile name. Use 'pipi profile list' to see available profiles.");
