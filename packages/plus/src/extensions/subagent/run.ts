@@ -41,19 +41,26 @@ interface InvocationCandidate {
  * How to invoke the pi CLI for a sub-agent, in preference order. The
  * process.argv[1] branch covers both source-mode ./pipi (loader/run-plus.mjs)
  * and the bundled pipi artifact; the PATH fallbacks try pipi first, then pi.
+ *
+ * Under an Electron host (desktop apps embedding the SDK) both self-spawn
+ * candidates are skipped: process.execPath is the app binary and argv[1] the
+ * app entry (dir or asar path), so spawning them relaunches the GUI instead
+ * of running a pi child process. Only the PATH fallbacks can reach the CLI
+ * there; hosts without one should keep the subagent tool excluded.
  */
 export function getPiInvocationCandidates(args: string[]): InvocationCandidate[] {
 	const candidates: InvocationCandidate[] = [];
+	const isElectronHost = typeof process.versions.electron === "string";
 
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-	if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
+	if (!isElectronHost && currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
 		candidates.push({ command: process.execPath, args: [currentScript, ...args] });
 	}
 
 	const execName = path.basename(process.execPath).toLowerCase();
 	const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
-	if (!isGenericRuntime) {
+	if (!isElectronHost && !isGenericRuntime) {
 		candidates.push({ command: process.execPath, args });
 	}
 
