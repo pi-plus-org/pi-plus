@@ -1,6 +1,7 @@
 // Vim modal editing for pi-plus: hidden built-in extension. The "vim" setting in
 // settings.json controls the startup default; /vim toggles it and persists the new
-// state to the agent dir settings.json so it sticks across launches.
+// state to the base agent settings.json (profile-layered, see ./settings.ts) so it
+// sticks across launches.
 // Re-applied on every session_start because interactive-mode resets custom editors when
 // sessions switch/reload (resetExtensionUI), always followed by a fresh session_start.
 

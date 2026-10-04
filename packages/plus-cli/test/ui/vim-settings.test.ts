@@ -1,4 +1,5 @@
-// Tests for the "vim" settings flag reader (project > agent dir > ~/.pi).
+// Tests for the "vim" settings flag reader/writer (project > profile agent dir >
+// base agent dir > ~/.pi; under a hub profile writes go to the base layer).
 
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -118,6 +119,62 @@ describe("writeVimEnabled", () => {
 
 	it("the persisted flag is still overridable per project", () => {
 		writeVimEnabled(true);
+		writeSettings(join(projectDir, ".pi"), { vim: false });
+		assert.equal(readVimEnabled(projectDir), false);
+	});
+});
+
+// Under a hub profile, PI_CODING_AGENT_DIR points at the profile dir and
+// PI_PLUS_BASE_AGENT_DIR marks the base agent dir; general keys like "vim" live in the
+// base file because materialization rewrites (and prunes) the profile file on every launch.
+describe("hub-profile layering", () => {
+	let profileDir: string;
+	let baseDir: string;
+
+	beforeEach(() => {
+		profileDir = mkdtempSync(join(tmpdir(), "vim-profile-"));
+		baseDir = mkdtempSync(join(tmpdir(), "vim-base-"));
+		process.env.PI_CODING_AGENT_DIR = profileDir;
+		process.env.PI_PLUS_BASE_AGENT_DIR = baseDir;
+	});
+
+	afterEach(() => {
+		delete process.env.PI_PLUS_BASE_AGENT_DIR;
+		rmSync(profileDir, { recursive: true, force: true });
+		rmSync(baseDir, { recursive: true, force: true });
+	});
+
+	it("reads the flag from the base agent settings when the profile layer lacks it", () => {
+		writeSettings(baseDir, { vim: true });
+		assert.equal(readVimEnabled(cwdDir), true);
+	});
+
+	it("the profile layer wins over the base layer", () => {
+		writeSettings(baseDir, { vim: true });
+		writeSettings(profileDir, { vim: false });
+		assert.equal(readVimEnabled(cwdDir), false);
+	});
+
+	it("writes go to the base agent settings and preserve other keys", () => {
+		writeSettings(baseDir, { theme: "dark" });
+		assert.equal(writeVimEnabled(true), true);
+		const raw = JSON.parse(readFileSync(join(baseDir, "settings.json"), "utf8")) as Record<string, unknown>;
+		assert.equal(raw.vim, true);
+		assert.equal(raw.theme, "dark");
+		assert.equal(readVimEnabled(cwdDir), true);
+	});
+
+	it("a stale vim shadow in the profile file is dropped on write", () => {
+		writeSettings(profileDir, { vim: false, defaultModel: "kimi" });
+		assert.equal(writeVimEnabled(true), true);
+		assert.equal(readVimEnabled(cwdDir), true);
+		const profileRaw = JSON.parse(readFileSync(join(profileDir, "settings.json"), "utf8")) as Record<string, unknown>;
+		assert.equal("vim" in profileRaw, false);
+		assert.equal(profileRaw.defaultModel, "kimi");
+	});
+
+	it("project settings still win over both layers", () => {
+		writeSettings(baseDir, { vim: true });
 		writeSettings(join(projectDir, ".pi"), { vim: false });
 		assert.equal(readVimEnabled(projectDir), false);
 	});

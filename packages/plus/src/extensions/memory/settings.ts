@@ -1,15 +1,12 @@
 // Memory feature settings reader for pi-plus. The "memory" key is not part of
 // upstream's Settings interface (override policy: upstream stays pristine), so
-// it is read directly from the same settings.json files pi uses. Project
-// settings win over the agent dir, which wins over the base agent dir (the
-// ~/.pi/agent settings a hub profile layers under), which wins over ~/.pi; any
-// error or a non-object value means "fall through to the next source / defaults".
+// it goes through the shared layered settings.json storage
+// (packages/plus/src/coding-agent/core/settings-layers.ts): project settings win
+// over the agent dir, which wins over the base agent dir (the ~/.pi/agent
+// settings a hub profile layers under), which wins over ~/.pi; any error or a
+// non-object value means "fall through to the next source / defaults".
 
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { getAgentDir } from "../../../../coding-agent/src/config.ts";
-import { getBaseSettingsPath } from "../../coding-agent/core/profile-settings.ts";
+import { readLayeredSetting } from "../../coding-agent/core/settings-layers.ts";
 
 export interface MemorySettings {
 	/** Master switch for tools, injection, and auto-extract. Default true. */
@@ -29,40 +26,24 @@ const DEFAULTS: MemorySettings = {
 	extractCooldownMs: 180_000,
 };
 
-function readMemorySettingsFile(path: string): Partial<MemorySettings> | undefined {
-	try {
-		if (!existsSync(path)) return undefined;
-		const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-		const value = raw.memory;
-		if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-		const memory = value as Record<string, unknown>;
-		const settings: Partial<MemorySettings> = {};
-		if (typeof memory.enabled === "boolean") settings.enabled = memory.enabled;
-		if (typeof memory.autoExtract === "boolean") settings.autoExtract = memory.autoExtract;
-		if (typeof memory.extractMinMessages === "number" && Number.isFinite(memory.extractMinMessages)) {
-			settings.extractMinMessages = memory.extractMinMessages;
-		}
-		if (typeof memory.extractCooldownMs === "number" && Number.isFinite(memory.extractCooldownMs)) {
-			settings.extractCooldownMs = memory.extractCooldownMs;
-		}
-		return settings;
-	} catch {
-		return undefined;
+/** Validate one layer's "memory" value; a valid object yields the recognized fields. */
+function parseMemorySettings(value: unknown): Partial<MemorySettings> | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+	const memory = value as Record<string, unknown>;
+	const settings: Partial<MemorySettings> = {};
+	if (typeof memory.enabled === "boolean") settings.enabled = memory.enabled;
+	if (typeof memory.autoExtract === "boolean") settings.autoExtract = memory.autoExtract;
+	if (typeof memory.extractMinMessages === "number" && Number.isFinite(memory.extractMinMessages)) {
+		settings.extractMinMessages = memory.extractMinMessages;
 	}
+	if (typeof memory.extractCooldownMs === "number" && Number.isFinite(memory.extractCooldownMs)) {
+		settings.extractCooldownMs = memory.extractCooldownMs;
+	}
+	return settings;
 }
 
 /** Effective memory settings for `cwd` (project > agent dir > base agent dir > ~/.pi, then defaults). */
 export function readMemorySettings(cwd: string): MemorySettings {
-	const project = readMemorySettingsFile(join(cwd, ".pi", "settings.json"));
-	if (project) return { ...DEFAULTS, ...project };
-	const agent = readMemorySettingsFile(join(getAgentDir(), "settings.json"));
-	if (agent) return { ...DEFAULTS, ...agent };
-	const baseFile = getBaseSettingsPath();
-	if (baseFile && baseFile !== join(getAgentDir(), "settings.json")) {
-		const base = readMemorySettingsFile(baseFile);
-		if (base) return { ...DEFAULTS, ...base };
-	}
-	const home = readMemorySettingsFile(join(homedir(), ".pi", "settings.json"));
-	if (home) return { ...DEFAULTS, ...home };
-	return { ...DEFAULTS };
+	const layer = readLayeredSetting(cwd, "memory", parseMemorySettings);
+	return { ...DEFAULTS, ...(layer ?? {}) };
 }

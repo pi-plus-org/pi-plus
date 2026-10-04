@@ -16,10 +16,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { getAgentDir } from "../../../../coding-agent/src/config.ts";
-import { getBaseSettingsPath } from "../../coding-agent/core/profile-settings.ts";
+import { getSettingsLayerPaths } from "../../coding-agent/core/settings-layers.ts";
 
 export interface SettingsHook {
 	event: string;
@@ -113,15 +110,10 @@ function readSettingsFile(path: string): unknown | undefined {
 
 /** The settings.json files hooks are read from, in increasing precedence order. */
 export function settingsHookFiles(cwd: string): string[] {
-	const agentDirFile = join(getAgentDir(), "settings.json");
-	const files = [join(homedir(), ".pi", "settings.json")];
-	// Under a hub profile the agent dir is the profile copy and the general
-	// hooks live in the base agent settings (layering marker set by pipi);
-	// outside a profile there is no separate base layer.
-	const baseFile = getBaseSettingsPath();
-	if (baseFile && baseFile !== agentDirFile) files.push(baseFile);
-	files.push(agentDirFile, join(cwd, ".pi", "settings.json"));
-	return files;
+	// Shared layer stack (… < base agent dir under a hub profile < agent dir <
+	// project): hooks are additive, so loadSettingsHooks merges every layer
+	// instead of taking the first-wins value like readLayeredSetting.
+	return getSettingsLayerPaths(cwd);
 }
 
 /**
