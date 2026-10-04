@@ -2,24 +2,16 @@
 
 ## [Unreleased]
 
-### Breaking Changes
+## [1.0.2] - 2026-10-04
 
-- Reordered Storage scan arguments so the limit precedes the cursor.
-- Added the required conversation-visible `Storage.entry(conversationId, id, context)` overload.
+### Fixed
 
-### Added
+- Persisted a distinct provider session UUID per conversation and forwarded it for prompt-cache and session affinity ([#10424](https://github.com/earendil-works/pi/issues/10424))
 
-- Added transactional Sessions with typed durable documents, task creation, snapshots, retirement, and commit publications.
-- Added document checkpoint selection, lazy version migration, and `Session.snapshotAsOf()` for rewindable conversation documents.
+## [1.0.1] - 2026-10-03
 
-## [0.87.1] - 2026-09-22
-
-## [0.87.0] - 2026-09-21
-
-## [0.86.1] - 2026-09-20
-
-## [0.86.0] - 2026-09-19
+## [1.0.0] - 2026-10-01
 
 ### Added
 
-- Added the initial Pico durable record contracts and detached in-memory storage implementation.
+- Initial release of `@earendil-works/pi-durable`, a durable agent harness. See the [README](README.md) and the [design document](https://github.com/earendil-works/pi/blob/main/packages/durable/docs/spec.md).

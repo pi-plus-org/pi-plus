@@ -520,7 +520,7 @@ describe("createPlusAgentSessionRuntime", () => {
 		}
 	}, 30000);
 
-	it("fork before the first assistant response throws the CLI's not-saved guard", async () => {
+	it("fork before the session file is first written throws the CLI's not-saved guard", async () => {
 		const cwd = makeTempDir();
 		const agentDir = makeTempDir();
 		const sessionDir = makeTempDir();
@@ -539,14 +539,10 @@ describe("createPlusAgentSessionRuntime", () => {
 		});
 
 		try {
-			// A user entry exists (so the leaf is valid) but the file has not
-			// been flushed yet — SessionManager writes only after the first
-			// assistant message.
-			runtime.session.sessionManager.appendMessage({
-				role: "user",
-				content: [{ type: "text", text: "hi" }],
-				timestamp: Date.now(),
-			});
+			// A setup entry exists (so the leaf is valid) but the file has not
+			// been flushed yet — SessionManager writes only once the session
+			// holds a user or assistant message (upstream #10000 flush rule).
+			runtime.session.sessionManager.appendThinkingLevelChange("off");
 			const leafId = runtime.session.sessionManager.getLeafId();
 			expect(leafId).toBeTruthy();
 			expect(runtime.session.sessionFile && existsSync(runtime.session.sessionFile)).toBe(false);
