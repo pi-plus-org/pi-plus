@@ -1,7 +1,8 @@
 /**
  * Tests for plus/src/extensions/tasks/store.ts — file-backed task store:
  * create/update/delete transitions, dependency edges, id high-water mark,
- * and list filtering. Uses tmpdir stores; no real agent dir is touched.
+ * list filtering, and mutation subscriptions. Uses tmpdir stores; no real
+ * agent dir is touched (subscribeToTasks tests redirect it via env).
  */
 
 import assert from "node:assert/strict";
@@ -9,10 +10,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "vitest";
-import { formatTaskLine, TaskStore } from "../../src/extensions/tasks/store.ts";
+import { ENV_AGENT_DIR } from "../../../coding-agent/src/config.ts";
+import { formatTaskLine, subscribeToTasks, TaskStore } from "../../src/extensions/tasks/store.ts";
 
 let dir: string;
 let store: TaskStore;
+
+/** Let fire-and-forget notification microtasks run before asserting. */
+function flush(): Promise<void> {
+	return new Promise((resolve) => setImmediate(resolve));
+}
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plus-tasks-test-"));
@@ -150,5 +157,82 @@ describe("formatTaskLine", () => {
 			formatTaskLine(tasks.find((t) => t.id === b.id)!),
 			`#${b.id} [in_progress] Write tests (worker) [blocked by #${a.id}]`,
 		);
+	});
+});
+
+describe("subscribe", () => {
+	it("notifies with the post-mutation list on create, update, and delete", async () => {
+		const notifications: string[][] = [];
+		const unsubscribe = store.subscribe((tasks) => notifications.push(tasks.map((t) => `${t.id}:${t.status}`)));
+
+		const a = await store.create({ subject: "A", description: "a" });
+		await store.update(a.id, { status: "in_progress" });
+		await store.update(a.id, { status: "deleted" });
+		await flush();
+
+		unsubscribe();
+		assert.deepEqual(notifications, [["1:pending"], ["1:in_progress"], []]);
+	});
+
+	it("stops notifying after unsubscribe", async () => {
+		const notifications: number[] = [];
+		const unsubscribe = store.subscribe((tasks) => notifications.push(tasks.length));
+		await store.create({ subject: "A", description: "a" });
+		await flush();
+		unsubscribe();
+		await store.create({ subject: "B", description: "b" });
+		await flush();
+		assert.deepEqual(notifications, [1]);
+	});
+
+	it("a throwing listener does not break task operations or other listeners", async () => {
+		const seen: number[] = [];
+		store.subscribe(() => {
+			throw new Error("boom");
+		});
+		store.subscribe((tasks) => seen.push(tasks.length));
+		const task = await store.create({ subject: "A", description: "a" });
+		await flush();
+		assert.equal(task.id, "1");
+		assert.deepEqual(seen, [1]);
+	});
+});
+
+describe("subscribeToTasks", () => {
+	let agentDir: string;
+	let previousAgentDir: string | undefined;
+
+	beforeEach(() => {
+		// Redirect the agent dir so forList writes into a tmpdir. List ids are
+		// unique per test because TaskStore.forList caches one instance per
+		// list id per process, keyed before this env is restored.
+		agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plus-tasks-agentdir-"));
+		previousAgentDir = process.env[ENV_AGENT_DIR];
+		process.env[ENV_AGENT_DIR] = agentDir;
+	});
+
+	afterEach(() => {
+		if (previousAgentDir === undefined) delete process.env[ENV_AGENT_DIR];
+		else process.env[ENV_AGENT_DIR] = previousAgentDir;
+		fs.rmSync(agentDir, { recursive: true, force: true });
+	});
+
+	it("fires immediately with the current list, then on every mutation", async () => {
+		const notifications: string[][] = [];
+		const listId = "subscribe-immediate";
+		const unsubscribe = subscribeToTasks(listId, (tasks) => notifications.push(tasks.map((t) => t.subject)));
+		await flush();
+
+		const store = TaskStore.forList(listId);
+		await store.create({ subject: "A", description: "a" });
+		await store.create({ subject: "B", description: "b" });
+		await flush();
+
+		unsubscribe();
+		assert.deepEqual(notifications, [[], ["A"], ["A", "B"]]);
+	});
+
+	it("returns the same store instance for the same list id", () => {
+		assert.equal(TaskStore.forList("singleton-a"), TaskStore.forList("singleton-a"));
 	});
 });

@@ -58,17 +58,33 @@ function sanitizeListId(listId: string): string {
 	return listId.replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
+/** Listener notified with the full post-mutation task list. */
+export type TaskListListener = (tasks: Task[]) => void;
+
+// One store instance per list id per process, so subscribers (pinned widget,
+// SDK hosts) and mutators (task tools) share the same listener set. All task
+// state is derived from the files on disk, so sharing an instance is safe —
+// the per-instance write queue additionally serializes writes across callers.
+const listStores = new Map<string, TaskStore>();
+
 export class TaskStore {
 	private listDir: string;
 	private queue: Promise<unknown> = Promise.resolve();
+	private listeners = new Set<TaskListListener>();
 
 	private constructor(listDir: string) {
 		this.listDir = listDir;
 	}
 
-	/** Task store for a list id (normally the session id). */
+	/** Task store for a list id (normally the session id); singleton per process. */
 	static forList(listId: string): TaskStore {
-		return new TaskStore(path.join(getAgentDir(), "tasks", sanitizeListId(listId)));
+		const key = sanitizeListId(listId);
+		let store = listStores.get(key);
+		if (!store) {
+			store = new TaskStore(path.join(getAgentDir(), "tasks", key));
+			listStores.set(key, store);
+		}
+		return store;
 	}
 
 	/** Direct constructor for tests with an injected directory. */
@@ -138,6 +154,7 @@ export class TaskStore {
 				blockedBy: [],
 			};
 			this.writeTask(task);
+			this.notify();
 			return task;
 		});
 	}
@@ -170,6 +187,7 @@ export class TaskStore {
 						/* already gone */
 					}
 					updatedFields.push("status");
+					this.notify();
 					return { task: { ...task, status: "deleted" }, updatedFields };
 				}
 				if (input.status !== task.status) {
@@ -194,12 +212,41 @@ export class TaskStore {
 			}
 
 			this.writeTask(task);
+			this.notify();
 			return { task, updatedFields };
 		});
 	}
 
 	get(id: string): Promise<Task | null> {
 		return this.enqueue(async () => this.readTask(id));
+	}
+
+	/**
+	 * Subscribe to mutations of this list. Returns an unsubscribe function.
+	 * Notifications are best-effort fan-out: a throwing listener never breaks
+	 * the task operation that triggered it.
+	 */
+	subscribe(listener: TaskListListener): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	private notify(): void {
+		if (this.listeners.size === 0) return;
+		void this.list().then(
+			(tasks) => {
+				for (const listener of [...this.listeners]) {
+					try {
+						listener(tasks);
+					} catch {
+						/* listener errors must not break task operations */
+					}
+				}
+			},
+			() => {
+				/* a failed re-read skips this notification round */
+			},
+		);
 	}
 
 	/**
@@ -245,4 +292,20 @@ export function formatTaskLine(task: Omit<Task, "status"> & { status: string }):
 	if (task.owner) parts.push(`(${task.owner})`);
 	if (task.blockedBy.length > 0) parts.push(`[blocked by ${task.blockedBy.map((b) => `#${b}`).join(", ")}]`);
 	return parts.join(" ");
+}
+
+/**
+ * Subscribe to a session's task list, for embedding hosts that render a
+ * native task panel (the pi-plus desktop) instead of the CLI's pinned widget.
+ * Fires once immediately with the current list, then after every mutation in
+ * this process. In-process only: writers in another process (a separate CLI
+ * on the same profile) are not observed — hosts run pi in-process, which this
+ * covers. Returns an unsubscribe function.
+ */
+export function subscribeToTasks(listId: string, listener: TaskListListener): () => void {
+	const store = TaskStore.forList(listId);
+	void store.list().then(listener, () => {
+		/* the initial snapshot is best-effort; mutations still notify later */
+	});
+	return store.subscribe(listener);
 }

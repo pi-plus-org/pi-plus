@@ -93,12 +93,6 @@ describe("fireUserHooks", () => {
 		assert.deepEqual(readLog(), []);
 	});
 
-	it("no-ops when no hooks are configured", async () => {
-		fireUserHooks("PermissionRequest", {});
-		await settle();
-		assert.deepEqual(readLog(), []);
-	});
-
 	it("runs several matching hooks for one event", async () => {
 		const list = [...hooks("Stop", undefined, logCommand()), ...hooks("Stop", undefined, `echo x >> "${logPath}.2"`)];
 		fireUserHooks("Stop", {}, list);

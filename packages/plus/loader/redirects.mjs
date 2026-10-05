@@ -26,6 +26,11 @@ export const REDIRECTS = new Map([
 		"packages/coding-agent/src/modes/interactive/interactive-mode.ts",
 		"packages/plus/src/coding-agent/modes/interactive/interactive-mode.ts",
 	],
+	// Footer: right-aligned permission-mode indicator on the cwd line.
+	[
+		"packages/coding-agent/src/modes/interactive/components/footer.ts",
+		"packages/plus/src/coding-agent/modes/interactive/components/footer.ts",
+	],
 	["packages/coding-agent/src/config.ts", "packages/plus/src/coding-agent/core/config.ts"],
 	["packages/agent/src/agent.ts", "packages/plus/src/agent/agent.ts"],
 ]);

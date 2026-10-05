@@ -25,6 +25,10 @@
  *   reimplement the pi-hub file contract
  * - provider login (OAuth login page / API-key setup, pi's /login equivalent,
  *   which pi-plus disables in the TUI) is re-exported from ./auth.ts
+ * - the task store (TaskCreate/TaskUpdate/TaskList/Get backing files under
+ *   <agentDir>/tasks/<sessionId>/) plus subscribeToTasks are re-exported from
+ *   the tasks store module, so hosts can render a native task panel that stays
+ *   in sync without polling the files
  * - the pi-plus context settings (auto-compact threshold percent, context floor,
  *   context window cap — the piPlus block of the base agent settings.json, plus
  *   the generic readPiPlusSettings/updatePiPlusSettings for host-owned keys) are
@@ -38,6 +42,13 @@
 export * from "../../coding-agent/src/index.ts";
 export * from "../../plus/src/context/plus-settings.ts";
 export * from "../../plus/src/extensions/permissions/index.ts";
+export {
+	subscribeToTasks,
+	type Task,
+	type TaskListListener,
+	type TaskStatus,
+	TaskStore,
+} from "../../plus/src/extensions/tasks/store.ts";
 export * from "./auth.ts";
 export * from "./profiles.ts";
 
