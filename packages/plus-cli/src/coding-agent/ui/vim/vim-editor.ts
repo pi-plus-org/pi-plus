@@ -26,6 +26,7 @@ export class VimEditor extends CustomEditor {
 	private modal = createModalState("insert");
 	private redoStack: RedoSnapshot[] = [];
 	private visualScrollOffset = 0;
+	private inBracketedPaste = false;
 
 	getVimMode(): VimMode {
 		return this.modal.mode;
@@ -37,6 +38,21 @@ export class VimEditor extends CustomEditor {
 	}
 
 	override handleInput(data: string): void {
+		// Bracketed paste (terminal-native Cmd+V / right-click paste) must reach
+		// Pi's editor even in normal/visual mode — the modal engine would swallow
+		// it as an unmapped key, making every terminal paste a silent no-op.
+		// Track the paste span and delegate the whole chunk to Pi's handling.
+		if (this.inBracketedPaste) {
+			if (data.includes("\x1b[201~")) this.inBracketedPaste = false;
+			super.handleInput(data);
+			return;
+		}
+		if (data.includes("\x1b[200~")) {
+			if (!data.includes("\x1b[201~")) this.inBracketedPaste = true;
+			super.handleInput(data);
+			return;
+		}
+
 		const snapshot = this.snapshot();
 		const result = handleModalInput(this.modal, snapshot, data);
 		this.modal = result.state;

@@ -187,6 +187,14 @@ describe("mode transitions", () => {
 		assert.deepEqual(update.effects, [{ type: "delegate", input: "\r" }]);
 	});
 
+	it("Cmd+V (super+v CSI-u) delegates in normal and visual modes", () => {
+		const cmdV = "\x1b[118;9u";
+		const normal = handleModalInput(createModalState("normal"), snapshot("foo", pos(0, 0)), cmdV);
+		assert.deepEqual(normal.effects, [{ type: "delegate", input: cmdV }]);
+		const visual = handleModalInput(createModalState("visual"), snapshot("foo", pos(0, 0)), cmdV);
+		assert.deepEqual(visual.effects, [{ type: "delegate", input: cmdV }]);
+	});
+
 	it("v starts a charwise visual selection anchored at the cursor", () => {
 		const update = handleModalInput(createModalState("normal"), snapshot("hello", pos(0, 1)), "v");
 		assert.equal(update.state.mode, "visual");

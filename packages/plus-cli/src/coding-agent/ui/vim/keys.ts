@@ -121,6 +121,9 @@ export const PROTECTED_PI_KEYS: readonly string[] = [
 	"ctrl+l",
 	"ctrl+p",
 	"ctrl+v",
+	// Cmd+V on macOS (kitty protocol reports it with the super modifier); the
+	// KeybindingsManager patch in plus binds it to the clipboard paste action.
+	"super+v",
 	"ctrl+g",
 	"ctrl+c",
 	"ctrl+d",

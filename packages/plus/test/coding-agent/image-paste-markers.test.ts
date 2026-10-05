@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { EditorTheme, Editor as EditorType, TUI } from "@earendil-works/pi-tui";
-import { Editor } from "@earendil-works/pi-tui";
+import { Editor, KeybindingsManager } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { imageMarkerText, transformImagePaths } from "../../src/coding-agent/modes/interactive/image-paste-markers.ts";
 
@@ -259,5 +259,111 @@ describe("handleClipboardPaste prototype patch", () => {
 		await pasteFromClipboard();
 
 		assert.deepEqual(errors, ["Failed to paste from clipboard: clipboard denied"]);
+	});
+});
+
+describe("empty bracketed paste (Cmd+V in menu-paste terminals)", () => {
+	const darwin = process.platform === "darwin";
+	const emptyPaste = "\x1b[200~\x1b[201~";
+
+	it("pastes a clipboard image as a marker when the terminal sends an empty paste", async () => {
+		if (!darwin) return;
+		const editor = new Editor(createTestTUI(), theme);
+		const bytes = new Uint8Array([1, 2, 3, 4]);
+		clipboardMocks.readClipboardImage.mockResolvedValue({ mimeType: "image/png", bytes });
+
+		editor.handleInput(emptyPaste);
+
+		await vi.waitFor(() => {
+			assert.equal(editor.getText(), imageMarkerText(1));
+		});
+		const expanded = editor.getExpandedText();
+		assert.match(expanded, /^\/.*pi-clipboard-.*\.png$/);
+		assert.ok(existsSync(expanded));
+	});
+
+	it("pastes copied file paths, marker-izing images only", async () => {
+		if (!darwin) return;
+		const editor = new Editor(createTestTUI(), theme);
+		const imagePath = writeImage("clip.png");
+		const textPath = join(tempDir, "clip.txt");
+		writeFileSync(textPath, "text");
+		clipboardMocks.readClipboardFilePaths.mockResolvedValue([imagePath, textPath]);
+
+		editor.handleInput(emptyPaste);
+
+		await vi.waitFor(() => {
+			assert.equal(editor.getText(), `${imageMarkerText(1)}\n${textPath}`);
+		});
+		assert.equal(editor.getExpandedText(), `${imagePath}\n${textPath}`);
+	});
+
+	it("pastes clipboard text, transforming image paths in it", async () => {
+		if (!darwin) return;
+		const editor = new Editor(createTestTUI(), theme);
+		const imagePath = writeImage("text.png");
+		clipboardMocks.readClipboardText.mockResolvedValue(`compare ${imagePath} with the mock`);
+
+		editor.handleInput(emptyPaste);
+
+		await vi.waitFor(() => {
+			assert.equal(editor.getText(), `compare ${imageMarkerText(1)} with the mock`);
+		});
+	});
+
+	it("leaves the editor unchanged when the clipboard is empty", async () => {
+		if (!darwin) return;
+		const editor = new Editor(createTestTUI(), theme);
+
+		editor.handleInput(emptyPaste);
+
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(editor.getText(), "");
+	});
+
+	it("a non-empty bracketed paste does not read the clipboard", () => {
+		if (!darwin) return;
+		const editor = new Editor(createTestTUI(), theme);
+
+		paste(editor, "plain text");
+
+		assert.equal(editor.getText(), "plain text");
+		assert.equal(clipboardMocks.readClipboardFilePaths.mock.calls.length, 0);
+		assert.equal(clipboardMocks.readClipboardImage.mock.calls.length, 0);
+		assert.equal(clipboardMocks.readClipboardText.mock.calls.length, 0);
+	});
+});
+
+describe("cmd+v binding for clipboard paste", () => {
+	const darwin = process.platform === "darwin";
+
+	function createManager(): KeybindingsManager {
+		return new KeybindingsManager({
+			"app.clipboard.pasteImage": { defaultKeys: "ctrl+v", description: "Paste" },
+			"app.exit": { defaultKeys: "ctrl+d", description: "Exit" },
+		} as never);
+	}
+
+	it("matches Cmd+V (super+v) for the paste action", () => {
+		if (!darwin) return;
+		const manager = createManager();
+		assert.ok(manager.matches("\x1b[118;9u", "app.clipboard.pasteImage"));
+	});
+
+	it("still matches the default Ctrl+V", () => {
+		const manager = createManager();
+		assert.ok(manager.matches("\x1b[118;5u", "app.clipboard.pasteImage"));
+	});
+
+	it("does not match Cmd+V for other actions", () => {
+		if (!darwin) return;
+		const manager = createManager();
+		assert.ok(!manager.matches("\x1b[118;9u", "app.exit"));
+	});
+
+	it("exposes cmd+v in the resolved keys for hints", () => {
+		if (!darwin) return;
+		const manager = createManager();
+		assert.deepEqual(manager.getKeys("app.clipboard.pasteImage"), ["ctrl+v", "super+v"]);
 	});
 });
