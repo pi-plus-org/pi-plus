@@ -12,24 +12,32 @@
  * the plan file, bash to a read-only allowlist, powershell and non-allowlisted
  * custom tools (subagent unless the read-only "explore" type) are blocked.
  *
- * EnterPlanMode shows the plan with Approve / Stay / Edit options; approval
- * turns plan mode off and returns the approved plan to the model with full
- * tool access. State is per-session in memory (reset on new/resume/fork).
+ * ExitPlanMode shows the plan as rendered markdown with Approve / Stay /
+ * Edit choices (Claude Code style; a plain-text select on non-TUI hosts);
+ * approval turns plan mode off and returns the approved plan to the model
+ * with full tool access. State is per-session in memory (reset on
+ * new/resume/fork).
  *
  * Plan mode is coupled to the permissions extension: activating it switches
  * the shared permission mode to "plan" (so the footer indicator and the
  * permission gate follow), and deactivating restores the mode that was set
- * before plan mode engaged.
+ * before plan mode engaged. The footer indicator is rendered solely by the
+ * permissions layer (plus footer wrapper / host UI) — this extension does
+ * not set its own status slot. The plan gate state itself lives in the
+ * module-level {@link sharedPlanGateState} holder so the permission mode
+ * "plan" gate applies the same plan-file carve-out instead of a second,
+ * carve-out-less gate that would block writes to the plan file itself.
  */
 
 import * as fs from "node:fs";
 import { Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "../../../../coding-agent/src/core/extensions/types.ts";
 import { type PermissionMode, sharedPermissionState } from "../permissions/index.ts";
+import { type PlanReviewChoice, PlanViewComponent } from "./component.ts";
 import { gateToolCall } from "./gate.ts";
 import { planFilePathFor, readPlan, writePlan } from "./plan-file.ts";
 import { buildPlanModeSection, PLAN_MODE_SECTION_NAME } from "./prompt.ts";
-import { createPlanState, type PlanModeState, updateStatus } from "./state.ts";
+import { type PlanModeState, sharedPlanGateState } from "./state.ts";
 import { EnterPlanModeParams, ExitPlanModeParams } from "./tools.ts";
 
 function sessionIdFor(ctx: ExtensionContext): string {
@@ -40,8 +48,53 @@ function sessionIdFor(ctx: ExtensionContext): string {
 	}
 }
 
+/**
+ * Present the plan for approval. In the interactive TUI this is the rendered-
+ * markdown review dialog (Approve / Stay / Edit, Claude Code style); RPC /
+ * headless hosts fall back to the plain-text select. A dismissed dialog
+ * behaves like "stay".
+ */
+async function reviewPlan(ctx: ExtensionContext, plan: string): Promise<PlanReviewChoice | undefined> {
+	if (ctx.mode !== "tui") {
+		const choice = await ctx.ui.select(`Plan ready for review:\n\n${plan}\n\nWhat next?`, [
+			"Approve and proceed",
+			"Stay in plan mode",
+			"Edit plan",
+		]);
+		if (choice === "Approve and proceed") return "approve";
+		if (choice === "Edit plan") return "edit";
+		return "stay";
+	}
+	return ctx.ui.custom<PlanReviewChoice | undefined>(
+		(tui, theme, _kb, done) => {
+			const bodyHeight = Math.max(8, tui.terminal.rows - 14);
+			return new PlanViewComponent({ plan, theme, mode: "review", bodyHeight, onDone: done });
+		},
+		// Overlay: the alt-screen viewport would otherwise swallow pageUp/pageDown
+		// for transcript scrolling before they reach the focused component.
+		{ overlay: true, overlayOptions: { width: "100%" } },
+	);
+}
+
+/** Show the plan read-only (/plan show) — the same markdown view, no choices. */
+async function showPlanView(ctx: ExtensionContext, plan: string): Promise<void> {
+	if (ctx.mode !== "tui") {
+		ctx.ui.notify(plan, "info");
+		return;
+	}
+	await ctx.ui.custom<void>(
+		(tui, theme, _kb, done) => {
+			const bodyHeight = Math.max(8, tui.terminal.rows - 10);
+			return new PlanViewComponent({ plan, theme, mode: "view", bodyHeight, onDone: () => done() });
+		},
+		{ overlay: true, overlayOptions: { width: "100%" } },
+	);
+}
+
 export function registerPlan(pi: ExtensionAPI): void {
-	const state: PlanModeState = createPlanState();
+	// The shared holder: the permissions extension's "plan" gate reads this
+	// same state so both gates agree on the plan-file carve-out.
+	const state: PlanModeState = sharedPlanGateState;
 	// Permission mode in effect before plan mode auto-switched it to "plan";
 	// restored on exit so the user lands back where they were.
 	let prePlanPermissionMode: PermissionMode | undefined;
@@ -53,22 +106,25 @@ export function registerPlan(pi: ExtensionAPI): void {
 			prePlanPermissionMode = sharedPermissionState.mode;
 			sharedPermissionState.mode = "plan";
 		}
-		updateStatus(ctx, state);
 	}
 
-	function deactivate(ctx: ExtensionContext): void {
+	function deactivate(): void {
 		state.enabled = false;
 		state.planFilePath = undefined;
-		if (prePlanPermissionMode !== undefined) {
-			sharedPermissionState.mode = prePlanPermissionMode;
-			prePlanPermissionMode = undefined;
+		// Land back on the pre-plan mode. When plan mode was engaged from the
+		// permissions side (Shift+Tab / /permissions / host UI) there is no
+		// recorded pre-plan mode — drop to "bypass" rather than staying in
+		// "plan", which would keep the read-only gate latched after approval.
+		const restore = prePlanPermissionMode ?? "bypass";
+		prePlanPermissionMode = undefined;
+		if (sharedPermissionState.mode === "plan") {
+			sharedPermissionState.mode = restore;
 		}
-		updateStatus(ctx, state);
 	}
 
 	function toggle(ctx: ExtensionContext): void {
 		if (state.enabled) {
-			deactivate(ctx);
+			deactivate();
 			ctx.ui.notify("Plan mode off — full tool access restored.", "info");
 		} else {
 			activate(ctx);
@@ -98,7 +154,8 @@ export function registerPlan(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("plan", {
-		description: "Toggle plan mode (no args), or /plan show | /plan edit the current plan",
+		description:
+			"Toggle plan mode (no args), /plan <prompt> to plan a task, or /plan show | /plan edit the current plan",
 		handler: async (args, ctx) => {
 			const arg = args.trim();
 			if (arg === "") {
@@ -111,14 +168,22 @@ export function registerPlan(pi: ExtensionAPI): void {
 					return;
 				}
 				const plan = await readPlan(state.planFilePath);
-				ctx.ui.notify(plan.trim().length > 0 ? plan : `Plan file is empty: ${state.planFilePath}`, "info");
+				if (plan.trim().length === 0) {
+					ctx.ui.notify(`Plan file is empty: ${state.planFilePath}`, "info");
+					return;
+				}
+				await showPlanView(ctx, plan);
 				return;
 			}
 			if (arg === "edit") {
 				await editPlan(ctx);
 				return;
 			}
-			ctx.ui.notify("Usage: /plan (toggle) | /plan show | /plan edit", "info");
+			// Anything else is a task to plan: make sure plan mode is on, then
+			// forward the text to the model as a user message (queued as
+			// steering while the agent is streaming).
+			if (!state.enabled) toggle(ctx);
+			pi.sendUserMessage(arg, { deliverAs: "steer" });
 		},
 	});
 
@@ -240,14 +305,10 @@ export function registerPlan(pi: ExtensionAPI): void {
 				);
 			}
 
-			const choice = await ctx.ui.select(`Plan ready for review:\n\n${plan}\n\nWhat next?`, [
-				"Approve and proceed",
-				"Stay in plan mode",
-				"Edit plan",
-			]);
+			const choice = await reviewPlan(ctx, plan);
 
-			if (choice === "Approve and proceed") {
-				deactivate(ctx);
+			if (choice === "approve") {
+				deactivate();
 				return {
 					content: [
 						{
@@ -263,7 +324,7 @@ export function registerPlan(pi: ExtensionAPI): void {
 				};
 			}
 
-			if (choice === "Edit plan") {
+			if (choice === "edit") {
 				const edited = await ctx.ui.editor("Edit the plan", plan);
 				if (edited !== undefined && edited.trim().length > 0) {
 					await writePlan(state.planFilePath, edited);
@@ -330,10 +391,16 @@ export function registerPlan(pi: ExtensionAPI): void {
 			state.enabled = false;
 			state.planFilePath = undefined;
 			// Plan mode is off in the fresh session; undo the auto-switch so the
-			// permission footer/gate return to the pre-plan mode as well.
+			// permission footer/gate return to the pre-plan mode as well. With no
+			// recorded pre-plan mode (plan was engaged from the permissions
+			// side), drop a lingering "plan" mode to bypass — otherwise the
+			// permissions gate would lazily re-engage plan mode without the
+			// plan workflow section for the new session.
 			if (prePlanPermissionMode !== undefined) {
 				sharedPermissionState.mode = prePlanPermissionMode;
 				prePlanPermissionMode = undefined;
+			} else if (sharedPermissionState.mode === "plan") {
+				sharedPermissionState.mode = "bypass";
 			}
 		}
 		if (pi.getFlag("plan") === true && (event.reason === "startup" || event.reason === "new")) {
@@ -348,7 +415,6 @@ export function registerPlan(pi: ExtensionAPI): void {
 		if (state.enabled && !state.planFilePath) {
 			state.planFilePath = planFilePathFor(sessionIdFor(ctx));
 		}
-		updateStatus(ctx, state);
 	});
 }
 

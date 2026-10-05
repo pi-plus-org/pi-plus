@@ -5,25 +5,40 @@
  *
  * Also covers the coupling to the permissions extension: plan mode
  * auto-switches the shared permission mode to "plan" and restores the
- * previous mode on exit.
+ * previous mode on exit, and the `/plan <prompt>` command form forwards the
+ * text to the model (turning plan mode on first).
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext, InputEvent } from "../../../coding-agent/src/core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	InputEvent,
+	RegisteredCommand,
+} from "../../../coding-agent/src/core/extensions/types.ts";
 import { sharedPermissionState } from "../../src/extensions/permissions/index.ts";
 import { registerPlan } from "../../src/extensions/plan/index.ts";
+import { sharedPlanGateState } from "../../src/extensions/plan/state.ts";
 
 interface Harness {
 	handlers: Map<string, (event: unknown, ctx: ExtensionContext) => unknown>;
 	notifications: string[];
+	sentUserMessages: string[];
+	command: (name: string) => RegisteredCommand | undefined;
 	input: (text: string) => unknown;
 	sessionStart: (reason: string) => unknown;
+	runCommand: (args: string) => Promise<void>;
 }
 
 function harness(): Harness {
 	sharedPermissionState.mode = "bypass";
+	sharedPlanGateState.enabled = false;
+	sharedPlanGateState.planFilePath = undefined;
 	const notifications: string[] = [];
+	const sentUserMessages: string[] = [];
+	const commands = new Map<string, RegisteredCommand>();
 	const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
 	const ctx = {
 		ui: {
@@ -35,9 +50,14 @@ function harness(): Harness {
 	} as unknown as ExtensionContext;
 	registerPlan({
 		registerFlag: () => {},
-		registerCommand: () => {},
+		registerCommand: (name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
+			commands.set(name, options as RegisteredCommand);
+		},
 		registerShortcut: () => {},
 		registerTool: () => {},
+		sendUserMessage: (content: string) => {
+			sentUserMessages.push(content);
+		},
 		getFlag: () => false,
 		on: (event: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
 			handlers.set(event, handler);
@@ -50,8 +70,15 @@ function harness(): Harness {
 	return {
 		handlers,
 		notifications,
+		sentUserMessages,
+		command: (name: string) => commands.get(name),
 		input: (text: string) => inputHandler({ type: "input", text, source: "interactive" } as InputEvent, ctx),
 		sessionStart: (reason: string) => sessionStartHandler({ type: "session_start", reason }, ctx),
+		runCommand: async (args: string) => {
+			const plan = commands.get("plan");
+			assert.ok(plan, "plan command must be registered");
+			await plan.handler(args, ctx as unknown as ExtensionCommandContext);
+		},
 	};
 }
 
@@ -109,12 +136,15 @@ describe("plan mode ↔ permission mode coupling", () => {
 		assert.equal(sharedPermissionState.mode, "acceptEdits");
 	});
 
-	it("keeps a manually selected plan permission mode on exit", async () => {
+	it("drops to bypass on exit when the plan permission mode was pre-selected", async () => {
+		// Unified semantics: permission mode "plan" IS plan mode, so exiting
+		// plan mode must not land back in it — that would keep the read-only
+		// gate latched after an approved plan.
 		const h = harness();
 		sharedPermissionState.mode = "plan";
 		await h.input("enter plan mode");
 		await h.input("exit plan mode");
-		assert.equal(sharedPermissionState.mode, "plan");
+		assert.equal(sharedPermissionState.mode, "bypass");
 	});
 
 	it("restores the permission mode when the session resets", async () => {
@@ -124,5 +154,35 @@ describe("plan mode ↔ permission mode coupling", () => {
 		assert.equal(sharedPermissionState.mode, "plan");
 		await h.sessionStart("new");
 		assert.equal(sharedPermissionState.mode, "acceptEdits");
+	});
+});
+
+describe("/plan command", () => {
+	it("toggles plan mode with no args", async () => {
+		const h = harness();
+		await h.runCommand("");
+		assert.ok(h.notifications.some((n) => n.includes("Plan mode on")));
+		assert.equal(sharedPermissionState.mode, "plan");
+		await h.runCommand("");
+		assert.ok(h.notifications.some((n) => n.includes("Plan mode off")));
+		assert.equal(sharedPermissionState.mode, "bypass");
+	});
+
+	it("forwards a prompt argument to the model, turning plan mode on first", async () => {
+		const h = harness();
+		await h.runCommand("refactor the footer component");
+		assert.equal(sharedPermissionState.mode, "plan");
+		assert.deepEqual(h.sentUserMessages, ["refactor the footer component"]);
+		assert.ok(h.notifications.some((n) => n.includes("Plan mode on")));
+	});
+
+	it("forwards the prompt without re-toggling when plan mode is already on", async () => {
+		const h = harness();
+		await h.runCommand("");
+		h.notifications.length = 0;
+		await h.runCommand("also cover the empty state");
+		assert.equal(sharedPermissionState.mode, "plan");
+		assert.deepEqual(h.sentUserMessages, ["also cover the empty state"]);
+		assert.ok(!h.notifications.some((n) => n.includes("Plan mode on")));
 	});
 });
