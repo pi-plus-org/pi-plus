@@ -20,6 +20,20 @@
  *    except that image file paths and clipboard images are registered as
  *    markers via ./image-paste-markers.ts; the editor expands them back to the
  *    real paths at submit time, so what reaches the session is unchanged.
+ *
+ * 3. Cmd+V (super+v) is bound to the clipboard paste action on macOS. A
+ *    terminal-native Cmd+V paste only delivers clipboard *text* (image data
+ *    has no text representation, so the app never sees it), which is why
+ *    image pasting needs the app to receive the key event itself — the same
+ *    reason Ctrl+V is the upstream default. Terminals that forward Cmd+V
+ *    (Kitty keyboard protocol) report it with the super modifier, which pi's
+ *    key decoder already understands; only the binding was missing.
+ *
+ * 4. Terminals that consume Cmd+V as a native menu paste (Paw/xterm.js,
+ *    iTerm2, Terminal.app) never deliver the key event but do deliver an
+ *    EMPTY bracketed paste. On macOS that empty paste makes the editor read
+ *    the clipboard itself (paths, image, text) — Claude Code's mechanism —
+ *    via the image-paste-markers module's handleInput patch.
  */
 export * from "../../../../../coding-agent/src/modes/interactive/interactive-mode.ts";
 
@@ -28,6 +42,7 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Editor } from "@earendil-works/pi-tui";
+import { KeybindingsManager, matchesKey } from "@earendil-works/pi-tui";
 import { InteractiveMode } from "../../../../../coding-agent/src/modes/interactive/interactive-mode.ts";
 import { readClipboardFilePaths, readClipboardText } from "../../../../../coding-agent/src/utils/clipboard.ts";
 import {
@@ -129,3 +144,32 @@ async function handleClipboardPaste(this: ClipboardPasting): Promise<void> {
 (
 	interactiveModePrototype as unknown as { handleClipboardPaste(this: ClipboardPasting): Promise<void> }
 ).handleClipboardPaste = handleClipboardPaste;
+
+const PASTE_IMAGE_ACTION = "app.clipboard.pasteImage";
+const PASTE_IMAGE_CMD_V = "super+v";
+
+// Structural view of the tui KeybindingsManager members patched below.
+interface KeybindingsMatching {
+	matches(data: string, keybinding: string): boolean;
+	getKeys(keybinding: string): string[];
+}
+
+const keybindingsPrototype = KeybindingsManager.prototype as unknown as KeybindingsMatching;
+
+const originalMatches = keybindingsPrototype.matches;
+keybindingsPrototype.matches = function matches(data: string, keybinding: string): boolean {
+	if (originalMatches.call(this, data, keybinding)) return true;
+	if (process.platform === "darwin" && keybinding === PASTE_IMAGE_ACTION) {
+		return matchesKey(data, PASTE_IMAGE_CMD_V);
+	}
+	return false;
+};
+
+const originalGetKeys = keybindingsPrototype.getKeys;
+keybindingsPrototype.getKeys = function getKeys(keybinding: string): string[] {
+	const keys = originalGetKeys.call(this, keybinding);
+	if (process.platform === "darwin" && keybinding === PASTE_IMAGE_ACTION && !keys.includes(PASTE_IMAGE_CMD_V)) {
+		keys.push(PASTE_IMAGE_CMD_V);
+	}
+	return keys;
+};

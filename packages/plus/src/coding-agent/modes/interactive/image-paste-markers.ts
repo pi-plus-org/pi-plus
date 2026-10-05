@@ -7,20 +7,32 @@
  * any pasted/dropped image path display as a compact `[image #N]` marker
  * instead, in the style of Claude Code's `[Image #N]` placeholder.
  *
- * The real path is never lost: a per-editor registry (parallel to the editor's
- * own paste registry) maps marker ids to the verbatim path text, and the
- * `expandPasteMarkers` prototype patch substitutes the path back before submit
- * (`submitValue`) and before external-editor export (`getExpandedText`). The
- * substitution is lossless, so bash-mode (`!`) submits and history entries
- * carry the original path exactly as pasted.
+ * Three prototype patches on the tui Editor, installed at module top level so
+ * every `new Editor(...)` upstream picks them up once this module loads:
  *
- * Patched at module top level, like the other plus wrappers — every
- * `new Editor(...)` upstream picks this up once the interactive-mode wrapper
- * module (which imports this) is loaded through the redirect.
+ * 1. `handlePaste` rewrites image paths in bracketed paste text (drag-and-drop,
+ *    right-click paste, large pastes) to markers before the editor stores it.
+ * 2. `expandPasteMarkers` substitutes the real paths back at submit time
+ *    (`submitValue`) and for external-editor export (`getExpandedText`), so
+ *    bash-mode (`!`) submits and history entries stay lossless.
+ * 3. `handleInput` treats an EMPTY bracketed paste (`\x1b[200~\x1b[201~`) on
+ *    macOS as a paste request and reads the clipboard itself — file paths,
+ *    image, then text. This mirrors Claude Code: terminals like Paw/xterm.js
+ *    consume Cmd+V as a native menu paste (the key event never reaches the
+ *    pty) but still deliver the empty bracketed-paste sequence, which is the
+ *    only signal that an image paste happened.
  */
 
-import { existsSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Editor } from "@earendil-works/pi-tui";
+import { readClipboardFilePaths, readClipboardText } from "../../../../../coding-agent/src/utils/clipboard.ts";
+import {
+	extensionForImageMimeType,
+	readClipboardImage,
+} from "../../../../../coding-agent/src/utils/clipboard-image.ts";
 
 /** Marker text shown in the input for a pasted/dropped image. */
 export function imageMarkerText(id: number): string {
@@ -114,6 +126,7 @@ export function transformImagePaths(editor: Editor, text: string): string {
 interface EditorPrototype {
 	handlePaste(this: Editor, pastedText: string): void;
 	expandPasteMarkers(this: Editor, text: string): string;
+	handleInput(this: Editor, data: string): void;
 }
 
 const editorPrototype = Editor.prototype as unknown as EditorPrototype;
@@ -136,4 +149,63 @@ editorPrototype.expandPasteMarkers = function expandPasteMarkers(this: Editor, t
 		}
 	}
 	return result;
+};
+
+/** Structural view of the Editor members the clipboard paste helper touches. */
+interface EditorInserting {
+	insertTextAtCursor(text: string): void;
+	tui: { requestRender(): void };
+}
+
+/**
+ * Read the macOS clipboard into the editor: copied file paths first, then a
+ * clipboard image (saved to a temp file and registered as a marker), then
+ * plain text. Mirrors upstream handleClipboardPaste's cascade; used when the
+ * terminal signals a paste that carried no text (Cmd+V consumed as a native
+ * menu paste in xterm.js-style terminals).
+ */
+async function pasteClipboardIntoEditor(editor: Editor): Promise<void> {
+	try {
+		const target = editor as unknown as EditorInserting;
+
+		const filePaths = await readClipboardFilePaths();
+		if (filePaths) {
+			target.insertTextAtCursor(transformImagePaths(editor, filePaths.join("\n")));
+			target.tui.requestRender();
+			return;
+		}
+
+		const image = await readClipboardImage();
+		if (image) {
+			const ext = extensionForImageMimeType(image.mimeType) ?? "png";
+			const filePath = join(tmpdir(), `pi-clipboard-${randomUUID()}.${ext}`);
+			writeFileSync(filePath, Buffer.from(image.bytes));
+			target.insertTextAtCursor(registerImageMarker(editor, filePath));
+			target.tui.requestRender();
+			return;
+		}
+
+		const text = await readClipboardText();
+		if (text) {
+			target.insertTextAtCursor(transformImagePaths(editor, text));
+			target.tui.requestRender();
+		}
+	} catch {
+		// Nothing arrived in the editor and there is no status surface here —
+		// stay silent, matching the terminal's own empty-paste behavior.
+	}
+}
+
+// Empty bracketed paste: terminals that consume Cmd+V as a native menu paste
+// (Paw/xterm.js, iTerm2, Terminal.app) deliver only the empty sequence.
+// pi's stdin buffer reassembles pastes, so this arrives as one exact string
+// (terminal.ts re-wraps paste content before it reaches the editor).
+const EMPTY_BRACKETED_PASTE = "\x1b[200~\x1b[201~";
+const originalHandleInput = editorPrototype.handleInput;
+editorPrototype.handleInput = function handleInput(this: Editor, data: string): void {
+	if (process.platform === "darwin" && data === EMPTY_BRACKETED_PASTE) {
+		void pasteClipboardIntoEditor(this);
+		return;
+	}
+	originalHandleInput.call(this, data);
 };

@@ -155,4 +155,33 @@ describe("VimEditor", () => {
 		editor.handleInput("J");
 		assert.equal(editor.getText(), "foo bar");
 	});
+
+	it("terminal paste (bracketed) lands in normal mode instead of being swallowed", () => {
+		const editor = createEditor();
+		editor.setText("foo");
+		toNormal(editor);
+		editor.handleInput("\x1b[200~/tmp/x.png\x1b[201~");
+		assert.equal(editor.getText(), "/tmp/x.pngfoo");
+		assert.equal(editor.getVimMode(), "normal");
+	});
+
+	it("terminal paste (bracketed) lands in visual mode too", () => {
+		const editor = createEditor();
+		editor.setText("hello world");
+		toNormal(editor);
+		editor.handleInput("v");
+		assert.equal(editor.getVimMode(), "visual");
+		editor.handleInput("\x1b[200~pasted\x1b[201~");
+		assert.equal(editor.getText(), "pastedhello world");
+	});
+
+	it("bracketed paste split across chunks is delegated whole", () => {
+		const editor = createEditor();
+		editor.setText("foo");
+		toNormal(editor);
+		editor.handleInput("\x1b[200~first ");
+		assert.equal(editor.getText(), "foo"); // still accumulating, nothing inserted yet
+		editor.handleInput("second\x1b[201~");
+		assert.equal(editor.getText(), "first secondfoo");
+	});
 });
