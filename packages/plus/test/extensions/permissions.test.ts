@@ -12,10 +12,12 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 	TerminalInputHandler,
+	ToolCallEvent,
 } from "../../../coding-agent/src/core/extensions/types.ts";
 import { initTheme, theme } from "../../../coding-agent/src/modes/interactive/theme/theme.ts";
 import {
 	createPermissionsExtension,
+	gatePermissionToolCall,
 	nextPermissionMode,
 	PERMISSION_MODES,
 	type PermissionMode,
@@ -23,8 +25,14 @@ import {
 	permissionStatusText,
 	sharedPermissionState,
 } from "../../src/extensions/permissions/index.ts";
+import { sharedPlanGateState } from "../../src/extensions/plan/state.ts";
 
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+const baseCtx = {
+	cwd: "/tmp",
+	hasUI: false,
+	sessionManager: { getSessionId: () => "session-1" },
+} as unknown as ExtensionContext;
 
 interface Harness {
 	state: { mode: PermissionMode };
@@ -199,5 +207,80 @@ describe("shift+tab cycle", () => {
 		assert.ok(h.terminalUnsubscribed(), "previous session's listener must be unsubscribed");
 		assert.deepEqual(h.terminalInput("\x1b[Z"), { consume: true });
 		assert.equal(h.state.mode, "plan");
+	});
+});
+
+describe("plan permission mode gate", () => {
+	it("shares the plan extension's gate state so the plan file stays writable", async () => {
+		// Regression: the permission "plan" gate used to run with no plan-file
+		// path, so with plan mode active both gates fired and this one blocked
+		// writes to the plan file itself.
+		sharedPlanGateState.enabled = true;
+		sharedPlanGateState.planFilePath = "/tmp/plans/session-1.md";
+		try {
+			const write = {
+				type: "tool_call",
+				toolCallId: "call-1",
+				toolName: "write",
+				input: { path: "/tmp/plans/session-1.md", content: "x" },
+			} as ToolCallEvent;
+			assert.equal(await gatePermissionToolCall(write, "plan", baseCtx), undefined);
+			const other = {
+				type: "tool_call",
+				toolCallId: "call-2",
+				toolName: "write",
+				input: { path: "/tmp/other.md", content: "x" },
+			} as ToolCallEvent;
+			const blocked = await gatePermissionToolCall(other, "plan", baseCtx);
+			assert.ok(blocked?.block, "non-plan-file writes stay blocked");
+		} finally {
+			sharedPlanGateState.enabled = false;
+			sharedPlanGateState.planFilePath = undefined;
+		}
+	});
+
+	it("engages full plan mode on the permissions side: the gate syncs with the mode, so the session plan file is writable", async () => {
+		// Regression: cycling to "plan" via Shift+Tab or /permissions used to
+		// engage a carve-out-less gate with no plan file, so the model could
+		// not write the plan file at all and every block reason lacked the
+		// plan-file path.
+		sharedPlanGateState.enabled = false;
+		sharedPlanGateState.planFilePath = undefined;
+		try {
+			const probe = {
+				type: "tool_call",
+				toolCallId: "call-3",
+				toolName: "bash",
+				input: { command: "ls" },
+			} as ToolCallEvent;
+			assert.equal(await gatePermissionToolCall(probe, "plan", baseCtx), undefined);
+			assert.equal(sharedPlanGateState.enabled, true);
+			assert.ok(sharedPlanGateState.planFilePath, "plan mode must set a plan file path");
+
+			const write = {
+				type: "tool_call",
+				toolCallId: "call-4",
+				toolName: "write",
+				input: { path: sharedPlanGateState.planFilePath, content: "x" },
+			} as ToolCallEvent;
+			assert.equal(await gatePermissionToolCall(write, "plan", baseCtx), undefined);
+		} finally {
+			sharedPlanGateState.enabled = false;
+			sharedPlanGateState.planFilePath = undefined;
+		}
+	});
+
+	it("disengages the plan gate when the mode leaves plan", async () => {
+		sharedPlanGateState.enabled = true;
+		sharedPlanGateState.planFilePath = "/tmp/plans/session-1.md";
+		const probe = {
+			type: "tool_call",
+			toolCallId: "call-5",
+			toolName: "bash",
+			input: { command: "rm -rf /" },
+		} as ToolCallEvent;
+		assert.equal(await gatePermissionToolCall(probe, "bypass", baseCtx), undefined);
+		assert.equal(sharedPlanGateState.enabled, false);
+		assert.equal(sharedPlanGateState.planFilePath, undefined);
 	});
 });

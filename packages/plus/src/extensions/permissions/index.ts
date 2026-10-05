@@ -6,8 +6,13 @@
  * - acceptEdits: read-only and edit/write tools run freely; bash,
  *   powershell and custom tools ask the user first via ctx.ui.confirm
  *   (in UI-less modes nothing can ask, so they run — the bypass default).
- * - plan: fully read-only — delegates to the pi-plus-plan gate (safe bash
- *   allowlist, edit/write and custom tools blocked with a reason).
+ * - plan: full plan mode (Claude Code style) — read-only with a writable
+ *   session plan file; delegates to the pi-plus-plan gate (safe bash
+ *   allowlist, edit/write restricted to the plan file, custom tools blocked
+ *   with a reason). Engaged from either side (/permissions, Shift+Tab, the
+ *   plan extension's entry points, or a host writing the shared mode holder),
+ *   the shared plan gate state is kept in sync with the mode
+ *   (syncPlanGateState) so every entry point behaves identically.
  *
  * The mode lives in a host-owned `PermissionModeState` holder so embedding
  * hosts (pi-plus-desktop) can read and switch it natively (dropdown /
@@ -38,6 +43,8 @@ import type {
 import { isToolCallEventType } from "../../../../coding-agent/src/core/extensions/types.ts";
 import type { Theme } from "../../../../coding-agent/src/modes/interactive/theme/theme.ts";
 import { gateToolCall } from "../plan/gate.ts";
+import { planFilePathFor } from "../plan/plan-file.ts";
+import { sharedPlanGateState } from "../plan/state.ts";
 
 export type PermissionMode = "bypass" | "acceptEdits" | "plan";
 
@@ -60,7 +67,7 @@ export interface PermissionsExtensionOptions {
 export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
 	bypass: "bypass — every tool runs without asking",
 	acceptEdits: "accept edits — file edits run freely; shell and other tools ask first",
-	plan: "plan mode — read-only research; changes are blocked",
+	plan: "plan mode — read-only; the model writes an implementation plan for your approval",
 };
 
 /** Next mode in the canonical cycle (Shift+Tab), wrapping at the end. */
@@ -132,6 +139,34 @@ function summarize(event: ToolCallEvent): string {
 }
 
 /**
+ * Keep the shared plan gate state in sync with the permission mode, so mode
+ * "plan" always means full plan mode (read-only with a writable plan file),
+ * however the mode was switched — /permissions, Shift+Tab, the plan
+ * extension's own activate/deactivate, or a host writing the shared holder
+ * directly (embedding hosts switch the mode natively). Engaging sets the
+ * session plan file path (created lazily); disengaging clears both. Idempotent.
+ */
+function syncPlanGateState(mode: PermissionMode, ctx: ExtensionContext): void {
+	if (mode === "plan") {
+		sharedPlanGateState.enabled = true;
+		if (!sharedPlanGateState.planFilePath) {
+			let sessionId = "default";
+			try {
+				sessionId = ctx.sessionManager.getSessionId() || "default";
+			} catch {
+				// no session context; fall back to the default plan file
+			}
+			sharedPlanGateState.planFilePath = planFilePathFor(sessionId);
+		}
+		return;
+	}
+	if (sharedPlanGateState.enabled) {
+		sharedPlanGateState.enabled = false;
+		sharedPlanGateState.planFilePath = undefined;
+	}
+}
+
+/**
  * Gate one tool call under `mode`. Returns undefined to let it execute, a
  * block result to deny it, or (accept-edits) awaits ctx.ui.confirm. Exported
  * for tests; the extension wires it to the tool_call event.
@@ -141,13 +176,17 @@ export async function gatePermissionToolCall(
 	mode: PermissionMode,
 	ctx: ExtensionContext,
 ): Promise<ToolCallEventResult | undefined> {
+	syncPlanGateState(mode, ctx);
 	if (mode === "bypass") return undefined;
 
-	// Plan mode reuses the pi-plus-plan read-only gate wholesale (its reason
-	// texts point at the plan file and ExitPlanMode, which the plan extension
-	// registers in every SDK/CLI host).
 	if (mode === "plan") {
-		return gateToolCall(event, { enabled: true, planFilePath: undefined }, ctx.cwd);
+		// Plan mode reuses the pi-plus-plan read-only gate wholesale (its reason
+		// texts point at the plan file and ExitPlanMode, which the plan extension
+		// registers in every SDK/CLI host). The shared gate state was just synced,
+		// so the plan-file carve-out always applies — even when the mode was
+		// switched from the permissions side (Shift+Tab / /permissions / host UI)
+		// without the plan extension's own activation path.
+		return gateToolCall(event, sharedPlanGateState, ctx.cwd);
 	}
 
 	// acceptEdits: reads and edits run unattended; everything that shells out
