@@ -12,14 +12,20 @@
  * the plan file, bash to a read-only allowlist, powershell and non-allowlisted
  * custom tools (subagent unless the read-only "explore" type) are blocked.
  *
- * ExitPlanMode shows the plan with Approve / Stay / Edit options; approval
+ * EnterPlanMode shows the plan with Approve / Stay / Edit options; approval
  * turns plan mode off and returns the approved plan to the model with full
  * tool access. State is per-session in memory (reset on new/resume/fork).
+ *
+ * Plan mode is coupled to the permissions extension: activating it switches
+ * the shared permission mode to "plan" (so the footer indicator and the
+ * permission gate follow), and deactivating restores the mode that was set
+ * before plan mode engaged.
  */
 
 import * as fs from "node:fs";
 import { Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "../../../../coding-agent/src/core/extensions/types.ts";
+import { type PermissionMode, sharedPermissionState } from "../permissions/index.ts";
 import { gateToolCall } from "./gate.ts";
 import { planFilePathFor, readPlan, writePlan } from "./plan-file.ts";
 import { buildPlanModeSection, PLAN_MODE_SECTION_NAME } from "./prompt.ts";
@@ -36,16 +42,27 @@ function sessionIdFor(ctx: ExtensionContext): string {
 
 export function registerPlan(pi: ExtensionAPI): void {
 	const state: PlanModeState = createPlanState();
+	// Permission mode in effect before plan mode auto-switched it to "plan";
+	// restored on exit so the user lands back where they were.
+	let prePlanPermissionMode: PermissionMode | undefined;
 
 	function activate(ctx: ExtensionContext): void {
 		state.planFilePath = planFilePathFor(sessionIdFor(ctx));
 		state.enabled = true;
+		if (sharedPermissionState.mode !== "plan") {
+			prePlanPermissionMode = sharedPermissionState.mode;
+			sharedPermissionState.mode = "plan";
+		}
 		updateStatus(ctx, state);
 	}
 
 	function deactivate(ctx: ExtensionContext): void {
 		state.enabled = false;
 		state.planFilePath = undefined;
+		if (prePlanPermissionMode !== undefined) {
+			sharedPermissionState.mode = prePlanPermissionMode;
+			prePlanPermissionMode = undefined;
+		}
 		updateStatus(ctx, state);
 	}
 
@@ -312,9 +329,19 @@ export function registerPlan(pi: ExtensionAPI): void {
 		if (event.reason === "new" || event.reason === "resume" || event.reason === "fork") {
 			state.enabled = false;
 			state.planFilePath = undefined;
+			// Plan mode is off in the fresh session; undo the auto-switch so the
+			// permission footer/gate return to the pre-plan mode as well.
+			if (prePlanPermissionMode !== undefined) {
+				sharedPermissionState.mode = prePlanPermissionMode;
+				prePlanPermissionMode = undefined;
+			}
 		}
 		if (pi.getFlag("plan") === true && (event.reason === "startup" || event.reason === "new")) {
 			state.enabled = true;
+			if (sharedPermissionState.mode !== "plan") {
+				prePlanPermissionMode = sharedPermissionState.mode;
+				sharedPermissionState.mode = "plan";
+			}
 		}
 		// Recompute the plan file path (also covers /reload, where the flag and
 		// enabled state survive but the session id context is fresh).

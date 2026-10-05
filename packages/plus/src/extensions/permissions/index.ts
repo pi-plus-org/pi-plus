@@ -15,6 +15,17 @@
  * `/permissions` command works in both directions: no args opens a picker,
  * `/permissions <mode>` sets it; `onModeChange` lets the host mirror the
  * switch into its own UI.
+ *
+ * The interactive TUI also surfaces the mode next to the cwd in the footer
+ * (bypass / accept-edits / plan, with Claude Code-style icons), rendered by
+ * the plus footer wrapper (packages/plus/src/coding-agent/modes/interactive/
+ * components/footer.ts) reading {@link sharedPermissionState}, and Shift+Tab
+ * cycles forward through PERMISSION_MODES. The cycle is wired as a
+ * terminal-input listener rather than an extension shortcut because
+ * app.thinking.cycle reserves shift+tab; input listeners run before the
+ * editor's action dispatch, so the keystroke reaches us first (this shadows
+ * the thinking-cycle default binding, which users can rebind via
+ * keybindings.json).
  */
 
 import type {
@@ -25,6 +36,7 @@ import type {
 	ToolCallEventResult,
 } from "../../../../coding-agent/src/core/extensions/types.ts";
 import { isToolCallEventType } from "../../../../coding-agent/src/core/extensions/types.ts";
+import type { Theme } from "../../../../coding-agent/src/modes/interactive/theme/theme.ts";
 import { gateToolCall } from "../plan/gate.ts";
 
 export type PermissionMode = "bypass" | "acceptEdits" | "plan";
@@ -50,6 +62,38 @@ export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
 	acceptEdits: "accept edits — file edits run freely; shell and other tools ask first",
 	plan: "plan mode — read-only research; changes are blocked",
 };
+
+/** Next mode in the canonical cycle (Shift+Tab), wrapping at the end. */
+export function nextPermissionMode(mode: PermissionMode): PermissionMode {
+	return PERMISSION_MODES[(PERMISSION_MODES.indexOf(mode) + 1) % PERMISSION_MODES.length];
+}
+
+/**
+ * Footer status text for a mode, styled by severity with Claude Code-style
+ * icons: the bypass default is dim, accept-edits stands out, and plan matches
+ * the plan extension's warning-colored "⏸ plan" indicator.
+ */
+export function permissionStatusText(mode: PermissionMode, theme: Theme): string {
+	switch (mode) {
+		case "bypass":
+			return theme.fg("dim", "✈️ bypass");
+		case "acceptEdits":
+			return theme.fg("accent", "✏️ accept-edits");
+		case "plan":
+			return theme.fg("warning", "⏸ plan");
+	}
+}
+
+/**
+ * Process-wide mode holder, used when the host doesn't pass its own. The
+ * footer wrapper reads this to render the cwd-line indicator, so it must be
+ * shared rather than per-extension-instance.
+ */
+export const sharedPermissionState: PermissionModeState = { mode: "bypass" };
+
+// Raw escape sequences that terminals emit for Shift+Tab (see
+// packages/tui/src/keys.ts): CSI Z, and the CSI-u style variant.
+const SHIFT_TAB_SEQUENCES = new Set(["\x1b[Z", "\x1b[27;2;9~"]);
 
 // Extension-owned tools that manage their own user prompts (plan entry/exit
 // confirmations, task-list edits, ask_user) and are safe to keep available
@@ -133,7 +177,11 @@ export async function gatePermissionToolCall(
 
 /** Build the pi-plus-permissions inline extension for a host. */
 export function createPermissionsExtension(options: PermissionsExtensionOptions = {}): InlineExtension {
-	const state: PermissionModeState = options.state ?? { mode: "bypass" };
+	const state: PermissionModeState = options.state ?? sharedPermissionState;
+	// Shift+Tab listener for the current session; replaced on every
+	// session_start (session replacement clears extension UI subscriptions,
+	// /reload included). Outside the TUI onTerminalInput is a no-op.
+	let shiftTabUnsubscribe: (() => void) | undefined;
 	return {
 		name: "pi-plus-permissions",
 		hidden: true,
@@ -149,6 +197,17 @@ export function createPermissionsExtension(options: PermissionsExtensionOptions 
 			};
 
 			pi.on("tool_call", async (event, ctx) => gatePermissionToolCall(event, state.mode, ctx));
+
+			// The Shift+Tab cycle is TUI-only; onTerminalInput is a no-op
+			// elsewhere, so this is safe to run from every host.
+			pi.on("session_start", async (_event, ctx) => {
+				shiftTabUnsubscribe?.();
+				shiftTabUnsubscribe = ctx.ui.onTerminalInput((data) => {
+					if (!SHIFT_TAB_SEQUENCES.has(data)) return undefined;
+					setMode(nextPermissionMode(state.mode), ctx);
+					return { consume: true };
+				});
+			});
 
 			pi.registerCommand("permissions", {
 				description: "Show or switch the permission mode: /permissions [bypass | accept-edits | plan]",

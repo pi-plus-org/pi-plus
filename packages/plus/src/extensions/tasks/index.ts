@@ -2,7 +2,9 @@
  * Task tracking tools (Claude Code-style, adapted from openclaude's V2 task
  * system): TaskCreate / TaskUpdate / TaskList / TaskGet, backed by a
  * file-per-task store under <agentDir>/tasks/<sessionId>/, plus a /tasks
- * command and a ctrl+shift+t shortcut opening a task-list overlay.
+ * command and a ctrl+shift+t shortcut opening a task-list overlay. Whenever
+ * the session's list is non-empty, a pinned widget above the editor shows the
+ * tasks at a glance; the store's subscription notifies it on every mutation.
  *
  * Use these to break multi-step work into trackable tasks: create the plan up
  * front, mark tasks in_progress while working on them, and complete them as
@@ -18,9 +20,9 @@ import type {
 import { TaskListComponent } from "./component.ts";
 import { formatTaskLine, type Task, TaskStore } from "./store.ts";
 import { TaskCreateParams, TaskGetParams, TaskListParams, TaskUpdateParams } from "./tools.ts";
+import { renderTasksWidgetLines, tasksStatusText } from "./widget.ts";
 
 export const TASKS_SECTION_NAME = "tasks";
-
 /**
  * Nudge the model to actually use the task tools: without a system-prompt
  * mention they sit unused, and also surfaces the current list so a resumed
@@ -49,15 +51,32 @@ export function buildTasksSection(tasks: Task[]): string {
 	return section;
 }
 
-function storeFor(ctx: ExtensionContext): TaskStore {
-	let listId = "default";
+function listIdFor(ctx: ExtensionContext): string {
 	try {
-		listId = ctx.sessionManager.getSessionId() || "default";
+		return ctx.sessionManager.getSessionId() || "default";
 	} catch {
 		/* fall back to the shared default list */
+		return "default";
 	}
-	return TaskStore.forList(listId);
 }
+
+function storeFor(ctx: ExtensionContext): TaskStore {
+	return TaskStore.forList(listIdFor(ctx));
+}
+
+/**
+ * Push the task list into the pinned widget (above the editor) and the footer
+ * status row. Both are no-ops outside the interactive TUI (print/rpc/SDK
+ * hosts), so this is safe to call from every mode.
+ */
+function syncTasksWidget(ctx: ExtensionContext, tasks: Task[]): void {
+	ctx.ui.setWidget("tasks", renderTasksWidgetLines(tasks, ctx.ui.theme), { placement: "aboveEditor" });
+	ctx.ui.setStatus("tasks", tasksStatusText(tasks, ctx.ui.theme));
+}
+
+// Widget subscription for the current session; replaced on every
+// session_start (session replacement resets extension UI, /reload included).
+let widgetUnsubscribe: (() => void) | undefined;
 
 async function showTaskOverlay(ctx: ExtensionCommandContext | ExtensionContext): Promise<void> {
 	if (ctx.mode !== "tui") {
@@ -75,6 +94,17 @@ export function registerTasks(pi: ExtensionAPI): void {
 	// Prompt nudge + current-list recall, mirroring the memory extension.
 	pi.on("before_agent_start", async (event, ctx) => {
 		event.systemPromptOptions.sections[TASKS_SECTION_NAME] = buildTasksSection(await storeFor(ctx).list());
+	});
+
+	// Pinned task widget above the editor: subscribe to the session's list and
+	// re-render on every mutation. The widget slot is cleared on session
+	// replacement, so this re-sets it on every session_start (/reload too);
+	// with no open tasks the widget renders nothing and the slot collapses.
+	pi.on("session_start", async (_event, ctx) => {
+		const store = storeFor(ctx);
+		widgetUnsubscribe?.();
+		syncTasksWidget(ctx, await store.list());
+		widgetUnsubscribe = store.subscribe((tasks) => syncTasksWidget(ctx, tasks));
 	});
 
 	pi.registerTool({

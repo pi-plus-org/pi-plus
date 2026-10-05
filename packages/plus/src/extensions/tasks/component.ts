@@ -8,7 +8,7 @@ import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import type { Theme, ThemeColor } from "../../../../coding-agent/src/modes/interactive/theme/theme.ts";
 import type { Task } from "./store.ts";
 
-const STATUS_ICONS: Record<Task["status"], { icon: string; color: ThemeColor }> = {
+export const STATUS_ICONS: Record<Task["status"], { icon: string; color: ThemeColor }> = {
 	pending: { icon: "○", color: "dim" },
 	in_progress: { icon: "◐", color: "warning" },
 	completed: { icon: "✓", color: "success" },
