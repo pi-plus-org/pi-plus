@@ -303,6 +303,34 @@ describe("generateRecapTitle", () => {
 		);
 	});
 
+	it("salvages a truncated title from a length-capped response", async () => {
+		// A model that rambles past the token cap still yields a usable title:
+		// sanitizeRecapTitle keeps the first line and truncates at a word
+		// boundary, so a "length" stop must not fail the whole recap.
+		const title = await generateRecapTitle({
+			...base,
+			conversationText: "x",
+			model: MODEL,
+			streamFn: fakeStreamFn({
+				content: [{ type: "text", text: "Fix login redirect bug\nand then also polish the" }],
+				stopReason: "length",
+			}),
+		});
+		assert.equal(title, "Fix login redirect bug");
+	});
+
+	it("rejects a length-capped response with no usable text", async () => {
+		await assert.rejects(
+			generateRecapTitle({
+				...base,
+				conversationText: "x",
+				model: MODEL,
+				streamFn: fakeStreamFn({ content: [{ type: "text", text: "   " }], stopReason: "length" }),
+			}),
+			/hit the token cap before producing a usable title/,
+		);
+	});
+
 	it("clamps a too-long conversation, keeping head and tail", async () => {
 		let promptLength = 0;
 		const streamFn = ((..._args: unknown[]) => {

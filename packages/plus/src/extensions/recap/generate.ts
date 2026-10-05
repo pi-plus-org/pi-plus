@@ -12,10 +12,7 @@
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { contentText, normalizeContext, type ProviderHeaders, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import type { Model, TranscriptContext } from "@earendil-works/pi-ai/compat";
-import {
-	completeSummarization,
-	getSummarizationFailure,
-} from "../../../../coding-agent/src/core/compaction/compaction.ts";
+import { completeSummarization } from "../../../../coding-agent/src/core/compaction/compaction.ts";
 import { markNoReasoning } from "../../reasoning/effort.ts";
 import { getRecapPrompt, sanitizeRecapTitle } from "./prompt.ts";
 
@@ -85,11 +82,24 @@ export async function generateRecapTitle(options: RecapGenerationOptions): Promi
 		options.streamFn,
 	);
 
-	const failure = getSummarizationFailure(response, "Recap");
-	if (failure) throw new Error(failure);
+	if (response.stopReason === "error") {
+		throw new Error(`Recap failed: ${response.errorMessage || "Unknown error"}`);
+	}
 	if (response.stopReason === "aborted") throw new Error("Recap generation was aborted");
 
+	// A "length" stop means the model hit the token cap mid-output (e.g. a
+	// provider that reasons by default burns the budget, or the model rambles).
+	// Unlike a compaction checkpoint, a truncated title is harmless:
+	// sanitizeRecapTitle keeps the first line and word-boundary-truncates to
+	// RECAP_MAX_TITLE_CHARS, so salvage whatever partial text survived instead
+	// of failing the whole best-effort recap.
 	const title = sanitizeRecapTitle(contentText(response.content));
-	if (!title) throw new Error("Recap generation produced an empty title");
+	if (!title) {
+		const detail =
+			response.stopReason === "length"
+				? "generation hit the token cap before producing a usable title"
+				: "generation produced an empty title";
+		throw new Error(`Recap failed: ${detail}`);
+	}
 	return title;
 }
