@@ -16,7 +16,11 @@ export {
 	type PermissionsExtensionOptions,
 	parsePermissionMode,
 } from "./permissions/index.ts";
-export { registerPlan } from "./plan/index.ts";
+export {
+	type PlanReviewDialogChoice,
+	type PlanReviewDialogUI,
+	registerPlan,
+} from "./plan/index.ts";
 export { registerRecap } from "./recap/index.ts";
 export { registerSubagent } from "./subagent/index.ts";
 export { registerTasks } from "./tasks/index.ts";

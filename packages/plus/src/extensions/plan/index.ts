@@ -37,7 +37,10 @@ import {
 	notifyActivePermissionModeChange,
 	type PermissionMode,
 } from "../permissions/index.ts";
-import { type PlanReviewChoice, PlanViewComponent } from "./component.ts";
+import { PLAN_REVIEW_CHOICES, type PlanReviewDialogChoice, PlanViewComponent } from "./component.ts";
+
+export type { PlanReviewDialogChoice };
+
 import { gateToolCall } from "./gate.ts";
 import { planFilePathFor, readPlan, writePlan } from "./plan-file.ts";
 import { buildPlanModeSection, PLAN_MODE_SECTION_NAME } from "./prompt.ts";
@@ -53,56 +56,56 @@ function sessionIdFor(ctx: ExtensionContext): string {
 }
 
 /**
- * Pick from a host's dedicated plan-review dialog (pi-plus-desktop renders
- * the plan as markdown with Claude Code style choices). "approveAcceptEdits" /
- * "approveBypass" approve AND select the post-approval permission mode, so
- * the plan runs with the chosen level of automation. undefined = dismissed.
- */
-export type PlanReviewDialogChoice = "approve" | "approveAcceptEdits" | "approveBypass" | "edit" | "stay";
-
-/**
  * Optional {@link ExtensionUIContext} extension SDK hosts provide via
- * createPlusUIContext to take over the plan-review presentation.
+ * createPlusUIContext to take over the plan-review presentation. Must honor
+ * the canonical {@link PlanReviewDialogChoice} set (component.ts) — the ids
+ * and labels are the contract shared with the TUI component and the
+ * plain-text select fallback. undefined = dismissed.
  */
 export interface PlanReviewDialogUI {
 	planReview(plan: string): Promise<PlanReviewDialogChoice | undefined>;
 }
 
-/** Review outcome: the classic choice plus an optional post-approval permission mode. */
+/** Review outcome: approve (always with a permission mode) / edit / stay. */
 interface PlanReviewResult {
-	choice: PlanReviewChoice;
+	choice: "approve" | "edit" | "stay";
 	/** Engage this permission mode on approval (approve-and-run choices). */
 	permissionMode?: PermissionMode;
 }
 
 /**
+ * Map a canonical review pick to the review outcome — the single mapping
+ * every presentation path (host dialog, TUI component, select fallback)
+ * funnels through, so the CLI and embedding hosts can't drift apart.
+ */
+function resolveReviewPick(pick: PlanReviewDialogChoice | undefined): PlanReviewResult {
+	if (pick === "approveAcceptEdits") return { choice: "approve", permissionMode: "acceptEdits" };
+	if (pick === "approveBypass") return { choice: "approve", permissionMode: "bypass" };
+	if (pick === "edit") return { choice: "edit" };
+	return { choice: "stay" };
+}
+
+/**
  * Present the plan for approval. Hosts with a dedicated plan-review dialog
- * (pi-plus-desktop) get Claude Code style approve-and-run choices; the
- * interactive TUI gets the rendered-markdown review component; other RPC /
- * headless hosts fall back to the plain-text select. A dismissed dialog
- * behaves like "stay".
+ * (pi-plus-desktop) render the markdown themselves; the interactive TUI gets
+ * the rendered-markdown review component; other RPC / headless hosts fall
+ * back to the plain-text select. All three present the same canonical
+ * choices (PLAN_REVIEW_CHOICES) and map picks through resolveReviewPick; a
+ * dismissed dialog behaves like "stay".
  */
 async function reviewPlan(ctx: ExtensionContext, plan: string): Promise<PlanReviewResult> {
 	const planReview = (ctx.ui as Partial<PlanReviewDialogUI>).planReview;
 	if (planReview) {
-		const pick = await planReview(plan);
-		if (pick === "approve") return { choice: "approve" };
-		if (pick === "approveAcceptEdits") return { choice: "approve", permissionMode: "acceptEdits" };
-		if (pick === "approveBypass") return { choice: "approve", permissionMode: "bypass" };
-		if (pick === "edit") return { choice: "edit" };
-		return { choice: "stay" };
+		return resolveReviewPick(await planReview(plan));
 	}
 	if (ctx.mode !== "tui") {
-		const choice = await ctx.ui.select(`Plan ready for review:\n\n${plan}\n\nWhat next?`, [
-			"Approve and proceed",
-			"Stay in plan mode",
-			"Edit plan",
-		]);
-		if (choice === "Approve and proceed") return { choice: "approve" };
-		if (choice === "Edit plan") return { choice: "edit" };
-		return { choice: "stay" };
+		const picked = await ctx.ui.select(
+			`Plan ready for review:\n\n${plan}\n\nWhat next?`,
+			PLAN_REVIEW_CHOICES.map((choice) => choice.label),
+		);
+		return resolveReviewPick(PLAN_REVIEW_CHOICES.find((choice) => choice.label === picked)?.id);
 	}
-	const choice = await ctx.ui.custom<PlanReviewChoice | undefined>(
+	const pick = await ctx.ui.custom<PlanReviewDialogChoice | undefined>(
 		(tui, theme, _kb, done) => {
 			const bodyHeight = Math.max(8, tui.terminal.rows - 14);
 			return new PlanViewComponent({ plan, theme, mode: "review", bodyHeight, onDone: done });
@@ -111,7 +114,7 @@ async function reviewPlan(ctx: ExtensionContext, plan: string): Promise<PlanRevi
 		// for transcript scrolling before they reach the focused component.
 		{ overlay: true, overlayOptions: { width: "100%" } },
 	);
-	return { choice: choice ?? "stay" };
+	return resolveReviewPick(pick);
 }
 
 /** Show the plan read-only (/plan show) — the same markdown view, no choices. */
