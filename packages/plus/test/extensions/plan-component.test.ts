@@ -1,7 +1,7 @@
 /**
  * Tests for the plan review dialog (PlanViewComponent): the plan is rendered
  * as markdown (headings/bold stripped of their source syntax), review mode
- * offers the canonical PLAN_REVIEW_CHOICES (approve-with-mode / edit / stay)
+ * offers the canonical PLAN_REVIEW_CHOICES (approve-with-mode / stay)
  * via arrows, digits, and enter, and both modes scroll long plans with
  * pageUp/pageDown.
  */
@@ -31,7 +31,7 @@ beforeAll(() => {
 });
 
 describe("PlanViewComponent rendering", () => {
-	it("renders the plan markdown without raw syntax and shows all four choices", () => {
+	it("renders the plan markdown without raw syntax and shows all three choices", () => {
 		const component = makeComponent("review", "## Step one\n\nDo the **first** thing.");
 		const lines = renderPlain(component);
 		const text = lines.join("\n");
@@ -43,8 +43,8 @@ describe("PlanViewComponent rendering", () => {
 		assert.ok(text.includes("first"));
 		assert.ok(text.includes("Approve & auto-accept edits"));
 		assert.ok(text.includes("Approve & bypass permissions"));
-		assert.ok(text.includes("Edit plan"));
 		assert.ok(text.includes("Stay in plan mode"));
+		assert.ok(!text.includes("Edit plan"));
 	});
 
 	it("view mode renders the plan without the choices and with a close hint", () => {
@@ -68,15 +68,15 @@ describe("PlanViewComponent review choices", () => {
 		const seen: Array<PlanReviewDialogChoice | undefined> = [];
 		const component = makeComponent("review", "Plan body", (choice) => seen.push(choice));
 		component.handleInput("\x1b[B"); // down → Approve & bypass permissions
-		component.handleInput("\x1b[B"); // down → Edit plan
+		component.handleInput("\x1b[B"); // down → Stay in plan mode
 		component.handleInput("\r");
-		assert.deepEqual(seen, ["edit"]);
+		assert.deepEqual(seen, ["stay"]);
 	});
 
 	it("digit keys pick a choice directly", () => {
 		const seen: Array<PlanReviewDialogChoice | undefined> = [];
 		const component = makeComponent("review", "Plan body", (choice) => seen.push(choice));
-		component.handleInput("4");
+		component.handleInput("3");
 		assert.deepEqual(seen, ["stay"]);
 	});
 

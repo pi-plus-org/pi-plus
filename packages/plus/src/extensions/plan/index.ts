@@ -12,8 +12,8 @@
  * the plan file, bash to a read-only allowlist, powershell and non-allowlisted
  * custom tools (subagent unless the read-only "explore" type) are blocked.
  *
- * ExitPlanMode shows the plan as rendered markdown with Approve / Stay /
- * Edit choices (Claude Code style; a plain-text select on non-TUI hosts);
+ * ExitPlanMode shows the plan as rendered markdown with Approve / Stay
+ * choices (Claude Code style; a plain-text select on non-TUI hosts);
  * approval turns plan mode off and returns the approved plan to the model
  * with full tool access. State is per-session in memory (reset on
  * new/resume/fork).
@@ -66,9 +66,9 @@ export interface PlanReviewDialogUI {
 	planReview(plan: string): Promise<PlanReviewDialogChoice | undefined>;
 }
 
-/** Review outcome: approve (always with a permission mode) / edit / stay. */
+/** Review outcome: approve (always with a permission mode) / stay. */
 interface PlanReviewResult {
-	choice: "approve" | "edit" | "stay";
+	choice: "approve" | "stay";
 	/** Engage this permission mode on approval (approve-and-run choices). */
 	permissionMode?: PermissionMode;
 }
@@ -81,7 +81,6 @@ interface PlanReviewResult {
 function resolveReviewPick(pick: PlanReviewDialogChoice | undefined): PlanReviewResult {
 	if (pick === "approveAcceptEdits") return { choice: "approve", permissionMode: "acceptEdits" };
 	if (pick === "approveBypass") return { choice: "approve", permissionMode: "bypass" };
-	if (pick === "edit") return { choice: "edit" };
 	return { choice: "stay" };
 }
 
@@ -378,31 +377,6 @@ export function registerPlan(pi: ExtensionAPI): void {
 								" Implement the approved plan exactly as written:\n\n" +
 								plan +
 								"\n\nBegin implementation now.",
-						},
-					],
-					details: undefined,
-				};
-			}
-
-			if (choice === "edit") {
-				const edited = await ctx.ui.editor("Edit the plan", plan);
-				if (edited !== undefined && edited.trim().length > 0) {
-					await writePlan(state.planFilePath, edited);
-					return {
-						content: [
-							{
-								type: "text",
-								text: `The user edited the plan; updated contents:\n\n${edited}\n\nContinue in plan mode and call ExitPlanMode when ready.`,
-							},
-						],
-						details: undefined,
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: "Plan edit cancelled; the plan file is unchanged. Continue in plan mode and call ExitPlanMode when ready.",
 						},
 					],
 					details: undefined,

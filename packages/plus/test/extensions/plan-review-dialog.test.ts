@@ -2,7 +2,7 @@
  * Tests for the ExitPlanMode review flow: hosts with a dedicated plan-review
  * dialog (pi-plus-desktop) get Claude Code style approve-and-run choices —
  * approve & auto-accept edits, approve & bypass permissions — each leaving
- * plan mode in that permission mode, plus edit / stay. Hosts without the
+ * plan mode in that permission mode, plus stay. Hosts without the
  * handler keep the plain-text select fallback (same canonical choices).
  */
 
@@ -26,7 +26,6 @@ interface Harness {
 	exitPlanMode: (ctx?: { ui?: unknown } & Record<string, unknown>) => Promise<{ text: string }>;
 	notifications: string[];
 	selectCalls: string[];
-	editorCalls: string[];
 	planReviewCalls: string[];
 	/** Resolved value for the next planReview dialog. */
 	nextPlanReview: PlanReviewDialogChoice | undefined;
@@ -38,7 +37,6 @@ function harness(): Harness {
 	sharedPlanGateState.planFilePath = undefined;
 	const notifications: string[] = [];
 	const selectCalls: string[] = [];
-	const editorCalls: string[] = [];
 	const planReviewCalls: string[] = [];
 	let nextPlanReview: PlanReviewDialogChoice | undefined;
 	const commands = new Map<string, RegisteredCommand>();
@@ -52,10 +50,6 @@ function harness(): Harness {
 			theme: { fg: (_color: string, text: string) => text },
 			select: async (title: string) => {
 				selectCalls.push(title);
-				return undefined;
-			},
-			editor: async (title: string) => {
-				editorCalls.push(title);
 				return undefined;
 			},
 			planReview: async (plan: string) => {
@@ -93,7 +87,6 @@ function harness(): Harness {
 	return {
 		notifications,
 		selectCalls,
-		editorCalls,
 		planReviewCalls,
 		get nextPlanReview() {
 			return nextPlanReview;
@@ -145,17 +138,6 @@ describe("ExitPlanMode with a host plan-review dialog", () => {
 		assert.ok(result.text.includes("bypass permissions"));
 	});
 
-	it("edit opens the editor and stays in plan mode", async () => {
-		const h = harness();
-		await enterPlanModeWithPlan(h);
-		h.nextPlanReview = "edit";
-		const result = await h.exitPlanMode();
-		assert.deepEqual(h.editorCalls, ["Edit the plan"]);
-		assert.equal(sharedPlanGateState.enabled, true);
-		assert.equal(sharedPermissionState.mode, "plan");
-		assert.ok(result.text.includes("Plan edit cancelled"));
-	});
-
 	it("stay (and dismiss) keep plan mode active", async () => {
 		const h = harness();
 		await enterPlanModeWithPlan(h);
@@ -191,7 +173,6 @@ describe("ExitPlanMode without a host plan-review dialog", () => {
 					h.selectCalls.push(title);
 					return undefined;
 				},
-				editor: async () => undefined,
 				notify: () => {},
 			},
 		});

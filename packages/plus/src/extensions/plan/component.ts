@@ -16,13 +16,12 @@
 import { type Component, type KeyId, Markdown, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { getMarkdownTheme, type Theme } from "../../../../coding-agent/src/modes/interactive/theme/theme.ts";
 
-export type PlanReviewDialogChoice = "approveAcceptEdits" | "approveBypass" | "edit" | "stay";
+export type PlanReviewDialogChoice = "approveAcceptEdits" | "approveBypass" | "stay";
 
 /** Canonical review choices, one row per picker (TUI list, select fallback, host dialogs). */
 export const PLAN_REVIEW_CHOICES: ReadonlyArray<{ id: PlanReviewDialogChoice; label: string }> = [
 	{ id: "approveAcceptEdits", label: "Approve & auto-accept edits" },
 	{ id: "approveBypass", label: "Approve & bypass permissions" },
-	{ id: "edit", label: "Edit plan" },
 	{ id: "stay", label: "Stay in plan mode" },
 ];
 
@@ -146,7 +145,7 @@ export class PlanViewComponent implements Component {
 			lines.push("");
 			lines.push(
 				truncateToWidth(
-					th.fg("dim", "↑↓ navigate · enter select · 1-4 choose · pgup/pgdn scroll plan · esc stay in plan mode"),
+					th.fg("dim", "↑↓ navigate · enter select · 1-3 choose · pgup/pgdn scroll plan · esc stay in plan mode"),
 					width,
 				),
 			);
