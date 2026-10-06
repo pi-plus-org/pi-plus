@@ -32,7 +32,11 @@
 import * as fs from "node:fs";
 import { Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "../../../../coding-agent/src/core/extensions/types.ts";
-import { type PermissionMode, sharedPermissionState } from "../permissions/index.ts";
+import {
+	getActivePermissionState,
+	notifyActivePermissionModeChange,
+	type PermissionMode,
+} from "../permissions/index.ts";
 import { type PlanReviewChoice, PlanViewComponent } from "./component.ts";
 import { gateToolCall } from "./gate.ts";
 import { planFilePathFor, readPlan, writePlan } from "./plan-file.ts";
@@ -49,23 +53,56 @@ function sessionIdFor(ctx: ExtensionContext): string {
 }
 
 /**
- * Present the plan for approval. In the interactive TUI this is the rendered-
- * markdown review dialog (Approve / Stay / Edit, Claude Code style); RPC /
+ * Pick from a host's dedicated plan-review dialog (pi-plus-desktop renders
+ * the plan as markdown with Claude Code style choices). "approveAcceptEdits" /
+ * "approveBypass" approve AND select the post-approval permission mode, so
+ * the plan runs with the chosen level of automation. undefined = dismissed.
+ */
+export type PlanReviewDialogChoice = "approve" | "approveAcceptEdits" | "approveBypass" | "edit" | "stay";
+
+/**
+ * Optional {@link ExtensionUIContext} extension SDK hosts provide via
+ * createPlusUIContext to take over the plan-review presentation.
+ */
+export interface PlanReviewDialogUI {
+	planReview(plan: string): Promise<PlanReviewDialogChoice | undefined>;
+}
+
+/** Review outcome: the classic choice plus an optional post-approval permission mode. */
+interface PlanReviewResult {
+	choice: PlanReviewChoice;
+	/** Engage this permission mode on approval (approve-and-run choices). */
+	permissionMode?: PermissionMode;
+}
+
+/**
+ * Present the plan for approval. Hosts with a dedicated plan-review dialog
+ * (pi-plus-desktop) get Claude Code style approve-and-run choices; the
+ * interactive TUI gets the rendered-markdown review component; other RPC /
  * headless hosts fall back to the plain-text select. A dismissed dialog
  * behaves like "stay".
  */
-async function reviewPlan(ctx: ExtensionContext, plan: string): Promise<PlanReviewChoice | undefined> {
+async function reviewPlan(ctx: ExtensionContext, plan: string): Promise<PlanReviewResult> {
+	const planReview = (ctx.ui as Partial<PlanReviewDialogUI>).planReview;
+	if (planReview) {
+		const pick = await planReview(plan);
+		if (pick === "approve") return { choice: "approve" };
+		if (pick === "approveAcceptEdits") return { choice: "approve", permissionMode: "acceptEdits" };
+		if (pick === "approveBypass") return { choice: "approve", permissionMode: "bypass" };
+		if (pick === "edit") return { choice: "edit" };
+		return { choice: "stay" };
+	}
 	if (ctx.mode !== "tui") {
 		const choice = await ctx.ui.select(`Plan ready for review:\n\n${plan}\n\nWhat next?`, [
 			"Approve and proceed",
 			"Stay in plan mode",
 			"Edit plan",
 		]);
-		if (choice === "Approve and proceed") return "approve";
-		if (choice === "Edit plan") return "edit";
-		return "stay";
+		if (choice === "Approve and proceed") return { choice: "approve" };
+		if (choice === "Edit plan") return { choice: "edit" };
+		return { choice: "stay" };
 	}
-	return ctx.ui.custom<PlanReviewChoice | undefined>(
+	const choice = await ctx.ui.custom<PlanReviewChoice | undefined>(
 		(tui, theme, _kb, done) => {
 			const bodyHeight = Math.max(8, tui.terminal.rows - 14);
 			return new PlanViewComponent({ plan, theme, mode: "review", bodyHeight, onDone: done });
@@ -74,6 +111,7 @@ async function reviewPlan(ctx: ExtensionContext, plan: string): Promise<PlanRevi
 		// for transcript scrolling before they reach the focused component.
 		{ overlay: true, overlayOptions: { width: "100%" } },
 	);
+	return { choice: choice ?? "stay" };
 }
 
 /** Show the plan read-only (/plan show) — the same markdown view, no choices. */
@@ -102,23 +140,35 @@ export function registerPlan(pi: ExtensionAPI): void {
 	function activate(ctx: ExtensionContext): void {
 		state.planFilePath = planFilePathFor(sessionIdFor(ctx));
 		state.enabled = true;
-		if (sharedPermissionState.mode !== "plan") {
-			prePlanPermissionMode = sharedPermissionState.mode;
-			sharedPermissionState.mode = "plan";
+		// Couple through the holder the permissions gate actually reads (a
+		// host-injected per-tab state in embedders), not the module default —
+		// otherwise the gate's per-tool-call sync tears plan mode straight back
+		// down on the first tool call.
+		const permissionState = getActivePermissionState();
+		if (permissionState.mode !== "plan") {
+			prePlanPermissionMode = permissionState.mode;
+			permissionState.mode = "plan";
+			notifyActivePermissionModeChange("plan");
 		}
 	}
 
-	function deactivate(): void {
+	function deactivate(restoreOverride?: PermissionMode): void {
 		state.enabled = false;
 		state.planFilePath = undefined;
 		// Land back on the pre-plan mode. When plan mode was engaged from the
 		// permissions side (Shift+Tab / /permissions / host UI) there is no
 		// recorded pre-plan mode — drop to "bypass" rather than staying in
 		// "plan", which would keep the read-only gate latched after approval.
-		const restore = prePlanPermissionMode ?? "bypass";
+		// An explicit override (approve-and-run review choices) wins over both.
+		const restore = restoreOverride ?? prePlanPermissionMode ?? "bypass";
 		prePlanPermissionMode = undefined;
-		if (sharedPermissionState.mode === "plan") {
-			sharedPermissionState.mode = restore;
+		const permissionState = getActivePermissionState();
+		if (restoreOverride !== undefined) {
+			permissionState.mode = restoreOverride;
+			notifyActivePermissionModeChange(restoreOverride);
+		} else if (permissionState.mode === "plan") {
+			permissionState.mode = restore;
+			notifyActivePermissionModeChange(restore);
 		}
 	}
 
@@ -305,17 +355,24 @@ export function registerPlan(pi: ExtensionAPI): void {
 				);
 			}
 
-			const choice = await reviewPlan(ctx, plan);
+			const { choice, permissionMode } = await reviewPlan(ctx, plan);
 
 			if (choice === "approve") {
-				deactivate();
+				deactivate(permissionMode);
+				const modeNote =
+					permissionMode === "acceptEdits"
+						? ' The user chose "approve & auto-accept edits": permission mode is now acceptEdits — file edits run without asking; shell and other tools still ask first.'
+						: permissionMode === "bypass"
+							? ' The user chose "approve & bypass permissions": permission mode is now bypass — execute the plan fully automatically.'
+							: "";
 				return {
 					content: [
 						{
 							type: "text",
 							text:
-								"User has approved your plan. Plan mode is now OFF and you have full tool access. " +
-								"Implement the approved plan exactly as written:\n\n" +
+								"User has approved your plan. Plan mode is now OFF and you have full tool access." +
+								modeNote +
+								" Implement the approved plan exactly as written:\n\n" +
 								plan +
 								"\n\nBegin implementation now.",
 						},
@@ -397,17 +454,22 @@ export function registerPlan(pi: ExtensionAPI): void {
 			// permissions gate would lazily re-engage plan mode without the
 			// plan workflow section for the new session.
 			if (prePlanPermissionMode !== undefined) {
-				sharedPermissionState.mode = prePlanPermissionMode;
+				const permissionState = getActivePermissionState();
+				permissionState.mode = prePlanPermissionMode;
+				notifyActivePermissionModeChange(permissionState.mode);
 				prePlanPermissionMode = undefined;
-			} else if (sharedPermissionState.mode === "plan") {
-				sharedPermissionState.mode = "bypass";
+			} else if (getActivePermissionState().mode === "plan") {
+				getActivePermissionState().mode = "bypass";
+				notifyActivePermissionModeChange("bypass");
 			}
 		}
 		if (pi.getFlag("plan") === true && (event.reason === "startup" || event.reason === "new")) {
 			state.enabled = true;
-			if (sharedPermissionState.mode !== "plan") {
-				prePlanPermissionMode = sharedPermissionState.mode;
-				sharedPermissionState.mode = "plan";
+			const permissionState = getActivePermissionState();
+			if (permissionState.mode !== "plan") {
+				prePlanPermissionMode = permissionState.mode;
+				permissionState.mode = "plan";
+				notifyActivePermissionModeChange("plan");
 			}
 		}
 		// Recompute the plan file path (also covers /reload, where the flag and

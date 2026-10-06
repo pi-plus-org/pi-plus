@@ -98,6 +98,39 @@ export function permissionStatusText(mode: PermissionMode, theme: Theme): string
  */
 export const sharedPermissionState: PermissionModeState = { mode: "bypass" };
 
+/**
+ * Holder the plan extension couples to. Embedding hosts (pi-plus-desktop)
+ * inject a per-tab state via createPermissionsExtension; plan-mode engage/exit
+ * must read/write THAT holder, because the permissions gate re-syncs the
+ * shared plan gate state from its own holder's mode on every tool call — if
+ * the plan extension coupled to the module default while the gate held a
+ * custom "bypass" holder, the first tool call would silently tear plan mode
+ * down (ExitPlanMode then fails with "Plan mode is not active"). Registered
+ * by the factory, last-write-wins: the CLI runs one interactive session per
+ * process, and embedders register with each runtime so the newest wins.
+ */
+let activePermissionState: PermissionModeState | undefined;
+let activeModeChangeNotifier: ((mode: PermissionMode) => void) | undefined;
+
+/** Register the holder (and optional change notifier) plan-mode coupling uses. Factory-time. */
+export function setActivePermissionState(
+	state: PermissionModeState,
+	onModeChange?: (mode: PermissionMode) => void,
+): void {
+	activePermissionState = state;
+	activeModeChangeNotifier = onModeChange;
+}
+
+/** Holder plan-mode coupling reads/writes; the module default until a factory registers one. */
+export function getActivePermissionState(): PermissionModeState {
+	return activePermissionState ?? sharedPermissionState;
+}
+
+/** Mirror a plan-side mode switch into the host UI (the registered onModeChange, if any). */
+export function notifyActivePermissionModeChange(mode: PermissionMode): void {
+	activeModeChangeNotifier?.(mode);
+}
+
 // Raw escape sequences that terminals emit for Shift+Tab (see
 // packages/tui/src/keys.ts): CSI Z, and the CSI-u style variant.
 const SHIFT_TAB_SEQUENCES = new Set(["\x1b[Z", "\x1b[27;2;9~"]);
@@ -217,6 +250,7 @@ export async function gatePermissionToolCall(
 /** Build the pi-plus-permissions inline extension for a host. */
 export function createPermissionsExtension(options: PermissionsExtensionOptions = {}): InlineExtension {
 	const state: PermissionModeState = options.state ?? sharedPermissionState;
+	setActivePermissionState(state, options.onModeChange);
 	// Shift+Tab listener for the current session; replaced on every
 	// session_start (session replacement clears extension UI subscriptions,
 	// /reload included). Outside the TUI onTerminalInput is a no-op.
