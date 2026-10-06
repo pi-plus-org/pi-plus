@@ -20,22 +20,11 @@ import { isToolCallEventType } from "../../../../coding-agent/src/core/extension
 import { isPlanFileTarget } from "./plan-file.ts";
 import type { PlanModeState } from "./state.ts";
 
-// Destructive/mutating commands blocked in plan mode.
+// Destructive/mutating commands blocked in plan mode. The file-mutating
+// basics must sit at a command position (start or after &&/;/||/|) so flag
+// combos like `rg -ln` don't trip the `ln` pattern.
 const DESTRUCTIVE_PATTERNS = [
-	/\brm\b/i,
-	/\brmdir\b/i,
-	/\bmv\b/i,
-	/\bcp\b/i,
-	/\bmkdir\b/i,
-	/\btouch\b/i,
-	/\bchmod\b/i,
-	/\bchown\b/i,
-	/\bchgrp\b/i,
-	/\bln\b/i,
-	/\btee\b/i,
-	/\btruncate\b/i,
-	/\bdd\b/i,
-	/\bshred\b/i,
+	/(?:^|&&|;|\|\||\|)\s*(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|chgrp|ln|tee|truncate|dd|shred)\b/i,
 	/(^|[^<])>(?!>)/,
 	/>>/,
 	/\bnpm\s+(install|uninstall|update|ci|link|publish)/i,
@@ -111,11 +100,21 @@ const SAFE_PATTERNS = [
 	/^\s*eza\b/,
 ];
 
-/** Both lists must agree: not destructive AND matches a known-safe prefix. */
+/**
+ * Both lists must agree: not destructive AND matches a known-safe prefix.
+ *
+ * A leading chain of `cd <dir> &&` / `cd <dir>;` hops is stripped before the
+ * safe-prefix check — the model routinely scopes research commands to a
+ * directory this way, and the hop itself only changes the working directory.
+ * The destructive test still runs against the FULL command, so
+ * `cd x && rm y` stays blocked.
+ */
 export function isSafeCommand(command: string): boolean {
 	const isDestructive = DESTRUCTIVE_PATTERNS.some((p) => p.test(command));
-	const isSafe = SAFE_PATTERNS.some((p) => p.test(command));
-	return !isDestructive && isSafe;
+	if (isDestructive) return false;
+	const rest = command.replace(/^(?:\s*cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;))+\s*/, "");
+	const isSafe = SAFE_PATTERNS.some((p) => p.test(rest));
+	return isSafe;
 }
 
 // Custom tools that stay usable in plan mode. EnterPlanMode/ExitPlanMode are

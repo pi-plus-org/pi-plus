@@ -50,21 +50,30 @@ describe("registerUserHooks wiring", () => {
 		fireCalls.length = 0;
 		const { fire } = harness();
 		fire({ type: "ui_prompt_start", reason: "ui_prompt", kind: "custom" });
-		assert.deepEqual(fireCalls, [{ event: "PermissionRequest", fields: { permission: "custom", mode: undefined } }]);
+		assert.deepEqual(fireCalls, [
+			{ event: "PermissionRequest", fields: { permission: "custom", mode: undefined, cwd: undefined } },
+		]);
 	});
 
 	it("passes the session mode so hook scripts can ignore headless sessions", () => {
 		fireCalls.length = 0;
 		const { fire } = harness();
 		fire({ type: "agent_settled" }, { mode: "rpc" } as ExtensionContext);
-		assert.deepEqual(fireCalls, [{ event: "Stop", fields: { mode: "rpc" } }]);
+		assert.deepEqual(fireCalls, [{ event: "Stop", fields: { mode: "rpc", cwd: undefined } }]);
 		fire({ type: "tool_execution_start", toolCallId: "c1", toolName: "ask_user", args: {} }, {
 			mode: "tui",
 		} as ExtensionContext);
 		assert.deepEqual(fireCalls[1], {
 			event: "PreToolUse",
-			fields: { tool_name: "ask_user", toolName: "ask_user", mode: "tui" },
+			fields: { tool_name: "ask_user", toolName: "ask_user", mode: "tui", cwd: undefined },
 		});
+	});
+
+	it("passes the session cwd so hooks fire in the session's directory", () => {
+		fireCalls.length = 0;
+		const { fire } = harness();
+		fire({ type: "agent_settled" }, { mode: "rpc", cwd: "/tmp/project" } as ExtensionContext);
+		assert.deepEqual(fireCalls, [{ event: "Stop", fields: { mode: "rpc", cwd: "/tmp/project" } }]);
 	});
 
 	it("tool_execution_start fires PreToolUse with tool_name and toolName", () => {
@@ -72,7 +81,10 @@ describe("registerUserHooks wiring", () => {
 		const { fire } = harness();
 		fire({ type: "tool_execution_start", toolCallId: "c1", toolName: "ask_user", args: {} });
 		assert.deepEqual(fireCalls, [
-			{ event: "PreToolUse", fields: { tool_name: "ask_user", toolName: "ask_user", mode: undefined } },
+			{
+				event: "PreToolUse",
+				fields: { tool_name: "ask_user", toolName: "ask_user", mode: undefined, cwd: undefined },
+			},
 		]);
 	});
 
@@ -80,6 +92,6 @@ describe("registerUserHooks wiring", () => {
 		fireCalls.length = 0;
 		const { fire } = harness();
 		fire({ type: "agent_settled" });
-		assert.deepEqual(fireCalls, [{ event: "Stop", fields: { mode: undefined } }]);
+		assert.deepEqual(fireCalls, [{ event: "Stop", fields: { mode: undefined, cwd: undefined } }]);
 	});
 });

@@ -69,6 +69,24 @@ describe("fireUserHooks", () => {
 		assert.equal(entry.cwd, process.cwd());
 	});
 
+	it("uses fields.cwd for the payload and the hook child's working directory", async () => {
+		const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plus-session-"));
+		try {
+			fireUserHooks(
+				"Stop",
+				{ cwd: sessionDir },
+				hooks("Stop", undefined, `pwd >> "${logPath}.pwd" && cat >> "${logPath}"`),
+			);
+			await waitFor(() => fs.existsSync(`${logPath}.pwd`));
+			const [entry] = readLog();
+			assert.equal(entry.cwd, sessionDir);
+			assert.equal(entry.hook_event, "Stop");
+			assert.equal(fs.readFileSync(`${logPath}.pwd`, "utf8").trim(), fs.realpathSync(sessionDir));
+		} finally {
+			fs.rmSync(sessionDir, { recursive: true, force: true });
+		}
+	});
+
 	it("includes both tool_name and toolName for PreToolUse", async () => {
 		fireUserHooks(
 			"PreToolUse",
