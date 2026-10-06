@@ -32,6 +32,30 @@ describe("isSafeCommand", () => {
 		}
 	});
 
+	it("allows leading cd hops before a read-only command", () => {
+		for (const cmd of [
+			"cd /repo && rg -ln foo src/ -g '*.ts'",
+			"cd /repo && wc -l a.ts b.ts",
+			"cd /repo && grep -rn foo a.ts | head -40",
+			"cd /repo; git status",
+			'cd "/path/with space" && cat file',
+			"cd a && cd b && ls",
+		]) {
+			assert.ok(isSafeCommand(cmd), `expected safe: ${cmd}`);
+		}
+	});
+
+	it("still blocks destructive commands behind a cd hop", () => {
+		for (const cmd of [
+			"cd /repo && rm -rf node_modules",
+			"cd /repo; git add .",
+			"cd /repo && cat file && rm other",
+			"cd /repo && echo x > file.txt",
+		]) {
+			assert.ok(!isSafeCommand(cmd), `expected blocked: ${cmd}`);
+		}
+	});
+
 	it("blocks mutating commands", () => {
 		for (const cmd of [
 			"rm -rf node_modules",

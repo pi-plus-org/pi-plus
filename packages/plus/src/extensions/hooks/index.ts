@@ -12,7 +12,10 @@
  * and the project .pi settings.json files
  * are merged; fires are async fire-and-forget. The payload includes the
  * session `mode` (tui/rpc/json/print) so hook scripts can ignore headless
- * sessions, matching the interactive-only guard of agent-dir extensions.
+ * sessions, matching the interactive-only guard of agent-dir extensions, and
+ * the session `cwd`, which the payload uses instead of the process cwd (they
+ * differ for SDK hosts whose process cwd is not the session's, e.g. the
+ * desktop app running with cwd "/").
  */
 
 import type { ExtensionAPI } from "../../../../coding-agent/src/core/extensions/types.ts";
@@ -20,12 +23,17 @@ import { fireUserHooks } from "./fire.ts";
 
 export function registerUserHooks(pi: ExtensionAPI): void {
 	pi.on("ui_prompt_start", (event, ctx) => {
-		fireUserHooks("PermissionRequest", { permission: event.kind, mode: ctx?.mode });
+		fireUserHooks("PermissionRequest", { permission: event.kind, mode: ctx?.mode, cwd: ctx?.cwd });
 	});
 	pi.on("tool_execution_start", (event, ctx) => {
-		fireUserHooks("PreToolUse", { tool_name: event.toolName, toolName: event.toolName, mode: ctx?.mode });
+		fireUserHooks("PreToolUse", {
+			tool_name: event.toolName,
+			toolName: event.toolName,
+			mode: ctx?.mode,
+			cwd: ctx?.cwd,
+		});
 	});
 	pi.on("agent_settled", (_event, ctx) => {
-		fireUserHooks("Stop", { mode: ctx?.mode });
+		fireUserHooks("Stop", { mode: ctx?.mode, cwd: ctx?.cwd });
 	});
 }
