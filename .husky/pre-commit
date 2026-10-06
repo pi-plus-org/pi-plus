@@ -35,9 +35,12 @@ if [ $RUN_BROWSER_SMOKE -eq 1 ]; then
   fi
 fi
 
-# Restage files that were previously staged and may have been modified by formatting
+# Restage files that were previously staged and may have been modified by formatting.
+# Only restage paths still tracked in the index: files staged for deletion (e.g. via
+# git rm --cached) that remain on disk must not be re-added, and git add on an
+# ignored path would fail under sh -e.
 for file in $STAGED_FILES; do
-  if [ -f "$file" ]; then
+  if [ -f "$file" ] && git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
     git add "$file"
   fi
 done
