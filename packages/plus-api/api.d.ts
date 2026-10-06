@@ -96,7 +96,7 @@ export declare function notifyActivePermissionModeChange(mode: PermissionMode): 
  * "approveBypass" approve AND select the post-approval permission mode, so
  * the plan runs with the chosen level of automation. undefined = dismissed.
  */
-export type PlanReviewDialogChoice = "approve" | "approveAcceptEdits" | "approveBypass" | "edit" | "stay";
+export type PlanReviewDialogChoice = "approveAcceptEdits" | "approveBypass" | "edit" | "stay";
 
 /**
  * Optional ExtensionUIContext extension SDK hosts provide via

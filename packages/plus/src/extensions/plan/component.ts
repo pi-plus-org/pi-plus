@@ -1,23 +1,32 @@
 /**
  * TUI surface for plan review (modeled on the TaskListComponent from the
- * tasks extension): ExitPlanMode renders the plan file as markdown with
- * Approve / Stay / Edit choices (Claude Code style), and /plan show reuses
- * the same view read-only. The plan body scrolls (pageUp/pageDown, and
- * up/down in view mode) so long plans stay reviewable in a small terminal.
+ * tasks extension): ExitPlanMode renders the plan file as markdown with the
+ * review choices, and /plan show reuses the same view read-only. The plan
+ * body scrolls (pageUp/pageDown, and up/down in view mode) so long plans
+ * stay reviewable in a small terminal.
+ *
+ * The choice set is canonical here and shared by every host: the TUI
+ * component, hosts with a dedicated plan-review dialog (pi-plus-desktop —
+ * the ids/labels are the contract), and the plain-text select fallback all
+ * render PLAN_REVIEW_CHOICES and map picks through the same resolver in
+ * plan/index.ts. Approval ALWAYS picks the post-approval permission mode
+ * (auto-accept edits or bypass) — there is no mode-less "approve".
  */
 
 import { type Component, type KeyId, Markdown, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { getMarkdownTheme, type Theme } from "../../../../coding-agent/src/modes/interactive/theme/theme.ts";
 
-export type PlanReviewChoice = "approve" | "stay" | "edit";
+export type PlanReviewDialogChoice = "approveAcceptEdits" | "approveBypass" | "edit" | "stay";
+
+/** Canonical review choices, one row per picker (TUI list, select fallback, host dialogs). */
+export const PLAN_REVIEW_CHOICES: ReadonlyArray<{ id: PlanReviewDialogChoice; label: string }> = [
+	{ id: "approveAcceptEdits", label: "Approve & auto-accept edits" },
+	{ id: "approveBypass", label: "Approve & bypass permissions" },
+	{ id: "edit", label: "Edit plan" },
+	{ id: "stay", label: "Stay in plan mode" },
+];
 
 export type PlanViewMode = "review" | "view";
-
-const REVIEW_CHOICES: Array<{ id: PlanReviewChoice; label: string }> = [
-	{ id: "approve", label: "Approve and proceed" },
-	{ id: "stay", label: "Stay in plan mode" },
-	{ id: "edit", label: "Edit plan" },
-];
 
 export interface PlanViewComponentOptions {
 	plan: string;
@@ -25,14 +34,14 @@ export interface PlanViewComponentOptions {
 	mode: PlanViewMode;
 	/** Maximum number of body lines to render before scrolling kicks in. */
 	bodyHeight: number;
-	onDone: (choice: PlanReviewChoice | undefined) => void;
+	onDone: (choice: PlanReviewDialogChoice | undefined) => void;
 }
 
 export class PlanViewComponent implements Component {
 	private plan: string;
 	private theme: Theme;
 	private mode: PlanViewMode;
-	private onDone: (choice: PlanReviewChoice | undefined) => void;
+	private onDone: (choice: PlanReviewDialogChoice | undefined) => void;
 	private markdown: Markdown;
 	private bodyHeight: number;
 	private scrollOffset = 0;
@@ -80,15 +89,15 @@ export class PlanViewComponent implements Component {
 			return;
 		}
 		if (matchesKey(data, "down") || data === "j") {
-			this.selectedIndex = Math.min(REVIEW_CHOICES.length - 1, this.selectedIndex + 1);
+			this.selectedIndex = Math.min(PLAN_REVIEW_CHOICES.length - 1, this.selectedIndex + 1);
 			return;
 		}
 		if (matchesKey(data, "enter")) {
-			const choice = REVIEW_CHOICES[this.selectedIndex];
+			const choice = PLAN_REVIEW_CHOICES[this.selectedIndex];
 			if (choice) this.onDone(choice.id);
 			return;
 		}
-		const direct = REVIEW_CHOICES.find((_, index) => matchesKey(data, String(index + 1) as KeyId));
+		const direct = PLAN_REVIEW_CHOICES.find((_, index) => matchesKey(data, String(index + 1) as KeyId));
 		if (direct) {
 			this.onDone(direct.id);
 			return;
@@ -127,8 +136,8 @@ export class PlanViewComponent implements Component {
 
 		lines.push("");
 		if (this.mode === "review") {
-			for (let index = 0; index < REVIEW_CHOICES.length; index++) {
-				const choice = REVIEW_CHOICES[index];
+			for (let index = 0; index < PLAN_REVIEW_CHOICES.length; index++) {
+				const choice = PLAN_REVIEW_CHOICES[index];
 				const selected = index === this.selectedIndex;
 				const marker = selected ? th.fg("accent", "→") : " ";
 				const label = selected ? th.fg("accent", choice.label) : th.fg("text", choice.label);
@@ -137,7 +146,7 @@ export class PlanViewComponent implements Component {
 			lines.push("");
 			lines.push(
 				truncateToWidth(
-					th.fg("dim", "↑↓ navigate · enter select · 1-3 choose · pgup/pgdn scroll plan · esc stay in plan mode"),
+					th.fg("dim", "↑↓ navigate · enter select · 1-4 choose · pgup/pgdn scroll plan · esc stay in plan mode"),
 					width,
 				),
 			);

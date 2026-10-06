@@ -42,6 +42,9 @@
 export * from "../../coding-agent/src/index.ts";
 export * from "../../plus/src/context/plus-settings.ts";
 export * from "../../plus/src/extensions/permissions/index.ts";
+
+import type { PlanReviewDialogChoice } from "../../plus/src/extensions/plan/index.ts";
+export type { PlanReviewDialogChoice, PlanReviewDialogUI };
 export {
 	subscribeToTasks,
 	type Task,
@@ -79,6 +82,7 @@ import {
 } from "../../coding-agent/src/index.ts";
 import { theme } from "../../coding-agent/src/modes/interactive/theme/theme.ts";
 import {
+	type PlanReviewDialogUI,
 	registerAskUser,
 	registerCd,
 	registerContextGuard,
@@ -123,6 +127,14 @@ export interface PlusUIDialogHandlers {
 	input(title: string, placeholder?: string): Promise<string | undefined>;
 	/** Show a multi-line editor, or undefined when cancelled. */
 	editor?(title: string, prefill?: string): Promise<string | undefined>;
+	/**
+	 * Dedicated plan-review dialog (ExitPlanMode). The host renders the plan
+	 * markdown and offers Claude Code style choices; "approveAcceptEdits" /
+	 * "approveBypass" approve the plan AND set the post-approval permission
+	 * mode. Return undefined when dismissed (stays in plan mode). Omit to fall
+	 * back to the plain-text select.
+	 */
+	planReview?(plan: string): Promise<PlanReviewDialogChoice | undefined>;
 	/** Show a notification (defaults to ignored). */
 	notify?(message: string, type?: "info" | "warning" | "error"): void;
 }
@@ -140,7 +152,7 @@ export function createPlusUIContext(handlers: PlusUIDialogHandlers): ExtensionUI
 		initTheme();
 		themeInitialized = true;
 	}
-	return {
+	const ui: ExtensionUIContext & Partial<PlanReviewDialogUI> = {
 		select: (title, options) => handlers.select(title, options),
 		confirm: (title, message) => handlers.confirm(title, message),
 		input: (title, placeholder) => handlers.input(title, placeholder),
@@ -172,6 +184,12 @@ export function createPlusUIContext(handlers: PlusUIDialogHandlers): ExtensionUI
 		getToolsExpanded: () => false,
 		setToolsExpanded: () => {},
 	};
+	// Optional host extensions ride along only when the host provides them, so
+	// hosts without a plan-review dialog keep the classic select fallback.
+	if (handlers.planReview) {
+		ui.planReview = (plan) => handlers.planReview!(plan);
+	}
+	return ui;
 }
 
 export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions {
