@@ -74,6 +74,40 @@ describe("isSafeCommand", () => {
 		assert.ok(!isSafeCommand("cat file && rm other"));
 		assert.ok(!isSafeCommand("ls; git add ."));
 	});
+
+	it("allows stderr-null and fd-dup redirects on read-only commands", () => {
+		for (const cmd of [
+			"ls src 2>/dev/null",
+			"wc -l a.ts b.ts 2>/dev/null | tail -30",
+			"find . -name '*.ts' 2>&1",
+			"cd /repo && ls b.ts 2> /dev/null",
+			"echo hi >&2",
+		]) {
+			assert.ok(isSafeCommand(cmd), `expected safe: ${cmd}`);
+		}
+	});
+
+	it("blocks redirects writing to real files", () => {
+		for (const cmd of ["ls > listing.txt", "ls >> listing.txt", "wc -l a.ts 2> errors.txt"]) {
+			assert.ok(!isSafeCommand(cmd), `expected blocked: ${cmd}`);
+		}
+	});
+
+	it("does not trip the editor patterns on flag letters", () => {
+		for (const cmd of [
+			"find . -name '*.ts' | grep -vi test | head -30",
+			"grep -rn edit src/ | sort",
+			'find . -name "*.vim" -type f',
+		]) {
+			assert.ok(isSafeCommand(cmd), `expected safe: ${cmd}`);
+		}
+	});
+
+	it("still blocks editors in command position", () => {
+		for (const cmd of ["vim file.ts", "ls; code .", "cat f | nano -", "echo $(vi f)", "find . | xargs vim"]) {
+			assert.ok(!isSafeCommand(cmd), `expected blocked: ${cmd}`);
+		}
+	});
 });
 
 describe("gateToolCall", () => {

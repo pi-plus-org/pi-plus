@@ -21,12 +21,15 @@ import { isPlanFileTarget } from "./plan-file.ts";
 import type { PlanModeState } from "./state.ts";
 
 // Destructive/mutating commands blocked in plan mode. The file-mutating
-// basics must sit at a command position (start or after &&/;/||/|) so flag
-// combos like `rg -ln` don't trip the `ln` pattern.
+// basics must sit at a command position (start, or after ; & | ` or an
+// opening paren), so flag combos like `rg -ln` don't trip the `ln` pattern.
 const DESTRUCTIVE_PATTERNS = [
-	/(?:^|&&|;|\|\||\|)\s*(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|chgrp|ln|tee|truncate|dd|shred)\b/i,
-	/(^|[^<])>(?!>)/,
-	/>>/,
+	/(?:^|[;&|(`])\s*(rm|rmdir|mv|cp|mkdir|touch|chmod|chown|chgrp|ln|tee|truncate|dd|shred)\b/i,
+	// File-writing redirects are destructive, but stderr-nulling and fd dups
+	// (`2>/dev/null`, `2>&1`, `>&2`) are harmless read-only idioms the model
+	// appends to nearly every research command — the old bare `>(?!>)` check
+	// flagged them and blocked the whole command.
+	/(?:^|[^<])>(?!>|&|\s*\/dev\/null)/,
 	/\bnpm\s+(install|uninstall|update|ci|link|publish)/i,
 	/\byarn\s+(add|remove|install|publish)/i,
 	/\bpnpm\s+(add|remove|install|publish)/i,
@@ -43,7 +46,11 @@ const DESTRUCTIVE_PATTERNS = [
 	/\bshutdown\b/i,
 	/\bsystemctl\s+(start|stop|restart|enable|disable)/i,
 	/\bservice\s+\S+\s+(start|stop|restart)/i,
-	/\b(vim?|nano|emacs|code|subl)\b/i,
+	// Editors stay a word-boundary check (not command-position-anchored) so
+	// `xargs vim` keeps blocking, but the lookbehind skips flag letters and
+	// dotted/path/arg-joined mentions — `grep -vi foo` matched bare `vi`
+	// before and was denied as "interactive editor", as did `-name *.vim`.
+	/(?<![\w.=-])(vim?|nano|emacs|code|subl)\b/i,
 ];
 
 // Safe read-only commands allowed in plan mode.

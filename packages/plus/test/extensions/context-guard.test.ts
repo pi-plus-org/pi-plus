@@ -22,6 +22,29 @@ function userMessage(text: string, timestamp = NOW): AgentMessage {
 	return { role: "user", content: [{ type: "text", text }], timestamp } as AgentMessage;
 }
 
+function assistantMessage(text: string, timestamp = NOW): AgentMessage {
+	return {
+		role: "assistant",
+		content: [
+			{ type: "thinking", thinking: "planning" },
+			{ type: "text", text },
+		],
+		stopReason: "stop",
+		timestamp,
+	} as AgentMessage;
+}
+
+function toolResultMessage(text: string, timestamp = NOW): AgentMessage {
+	return {
+		role: "toolResult",
+		toolCallId: "call-1",
+		toolName: "bash",
+		content: [{ type: "text", text }],
+		isError: false,
+		timestamp,
+	} as AgentMessage;
+}
+
 function entry(id: string, messages: AgentMessage[]): ProjectedSessionEntry {
 	const sourceEntry = {
 		type: "message",
@@ -91,9 +114,20 @@ function captureGuard() {
 	registerContextGuard(pi);
 	const turnEnd = (event: never, ctx: ExtensionContext): TurnEndResult =>
 		handlers.get("turn_end")?.(event, ctx) as TurnEndResult;
+	const messageEnd = (event: never, ctx: ExtensionContext): TurnEndResult =>
+		handlers.get("message_end")?.(event, ctx) as TurnEndResult;
+	const dispatch = (event: string): void => {
+		handlers.get(event)?.({ type: event } as never, {} as ExtensionContext);
+	};
 	const sessionStart = (event: never, ctx: ExtensionContext): Promise<unknown> =>
 		Promise.resolve(handlers.get("session_start")?.(event, ctx));
-	return { turnEnd, sessionStart };
+	return {
+		turnEnd,
+		messageEnd,
+		agentStart: () => dispatch("agent_start"),
+		agentSettled: () => dispatch("agent_settled"),
+		sessionStart,
+	};
 }
 
 beforeEach(() => {
@@ -181,6 +215,133 @@ describe("turn_end: relevance pruning", () => {
 		const { ctx } = fakeCtx({ projection: [entry("e1", [userMessage("tiny")])] });
 		const { turnEnd } = captureGuard();
 		assert.equal(turnEnd({ type: "turn_end" } as never, ctx), undefined);
+	});
+});
+
+describe("message_end: per-message detection (thinking, tool use, response)", () => {
+	it("forces compaction at the tool result, before turn_end, and fires only once per run", () => {
+		process.env.PI_MAX_ACTIVE_MESSAGES = "3";
+		const projection = [
+			entry("e1", [userMessage("one")]),
+			entry("e2", [userMessage("two")]),
+			entry("e3", [userMessage("three")]),
+		];
+		const { ctx, fake } = fakeCtx({ projection });
+		const { messageEnd, turnEnd } = captureGuard();
+
+		// Still under the cap: the projection has 3 active messages and this is the 4th…
+		// limit=3, active becomes 4 > 3 -> force trigger fires mid-run.
+		messageEnd({ type: "message_end", message: toolResultMessage("fourth result") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+
+		// Run-scoped guard: later tool results of the still-draining batch do not re-fire.
+		messageEnd({ type: "message_end", message: toolResultMessage("fifth result") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+
+		// The interrupted run's turn_end does not request compaction again either.
+		turnEnd({ type: "turn_end" } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+	});
+
+	it("resets the run guard on agent_start and agent_settled", () => {
+		process.env.PI_MAX_ACTIVE_MESSAGES = "3";
+		const projection = [
+			entry("e1", [userMessage("one")]),
+			entry("e2", [userMessage("two")]),
+			entry("e3", [userMessage("three")]),
+		];
+		const { ctx, fake } = fakeCtx({ projection });
+		const { messageEnd, agentStart, agentSettled } = captureGuard();
+
+		messageEnd({ type: "message_end", message: toolResultMessage("fourth") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+
+		messageEnd({ type: "message_end", message: toolResultMessage("fifth") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+
+		agentStart();
+		messageEnd({ type: "message_end", message: toolResultMessage("sixth") } as never, ctx);
+		assert.equal(fake.compactCalls, 2);
+
+		agentSettled();
+		messageEnd({ type: "message_end", message: toolResultMessage("seventh") } as never, ctx);
+		assert.equal(fake.compactCalls, 3);
+	});
+
+	it("detects assistant (thinking/response) and user messages too", () => {
+		process.env.PI_MAX_ACTIVE_MESSAGES = "3";
+		const projection = [
+			entry("e1", [userMessage("one")]),
+			entry("e2", [userMessage("two")]),
+			entry("e3", [userMessage("three")]),
+		];
+		const { ctx, fake } = fakeCtx({ projection });
+		const { messageEnd } = captureGuard();
+
+		// An assistant message ending over the cap forces compaction immediately.
+		messageEnd({ type: "message_end", message: assistantMessage("reply") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+
+		// Run-scoped guard: later messages of the same run — user prompts and
+		// assistant replies alike — are still detected but do not re-fire.
+		messageEnd({ type: "message_end", message: userMessage("four") } as never, ctx);
+		messageEnd({ type: "message_end", message: assistantMessage("reply two") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+	});
+
+	it("respects PI_DISABLE_COMPACT", () => {
+		process.env.PI_MAX_ACTIVE_MESSAGES = "3";
+		process.env.PI_DISABLE_COMPACT = "1";
+		const projection = [
+			entry("e1", [userMessage("one")]),
+			entry("e2", [userMessage("two")]),
+			entry("e3", [userMessage("three")]),
+			entry("e4", [userMessage("four")]),
+		];
+		const { ctx, fake } = fakeCtx({ projection });
+		const { messageEnd } = captureGuard();
+
+		messageEnd({ type: "message_end", message: userMessage("five") } as never, ctx);
+		messageEnd({ type: "message_end", message: toolResultMessage("five") } as never, ctx);
+		assert.equal(fake.compactCalls, 0);
+	});
+
+	it("detects the threshold at a tool result and emits prune drafts at turn_end", () => {
+		process.env.PI_PRUNE_TAIL_TURNS = "1";
+		const big = "x".repeat(8000); // ~2000 tokens, over the 1918 threshold
+		const projection = [
+			entry("old", [userMessage(big, NOW - 60_000), userMessage("old follow-up", NOW - 59_000)]),
+			entry("recent", [userMessage("latest question")]),
+		];
+		const { ctx, fake } = fakeCtx({ projection });
+		const { messageEnd, turnEnd } = captureGuard();
+
+		// Per-message detection cannot return boundary drafts: it compacts nothing.
+		const midRun = messageEnd({ type: "message_end", message: toolResultMessage("tool output") } as never, ctx);
+		assert.equal(midRun, undefined);
+		assert.equal(fake.compactCalls, 0);
+
+		// The turn boundary then emits the prune drafts as before.
+		const result = turnEnd({ type: "turn_end" } as never, ctx);
+		assert.deepEqual(result?.entries, [{ type: "context_edit", targetId: "old", replacement: null }]);
+	});
+
+	it("detects the threshold at an assistant message (thinking/response) and marks the turn", () => {
+		process.env.PI_PRUNE_TAIL_TURNS = "1";
+		const big = "x".repeat(8000); // ~2000 tokens, over the 1918 threshold
+		const projection = [
+			entry("old", [userMessage(big, NOW - 60_000), userMessage("old follow-up", NOW - 59_000)]),
+			entry("recent", [userMessage("latest question")]),
+		];
+		const { ctx, fake } = fakeCtx({ projection });
+		const { messageEnd, turnEnd } = captureGuard();
+
+		const midRun = messageEnd({ type: "message_end", message: assistantMessage("reply") } as never, ctx);
+		assert.equal(midRun, undefined);
+		assert.equal(fake.compactCalls, 0);
+
+		const result = turnEnd({ type: "turn_end" } as never, ctx);
+		assert.deepEqual(result?.entries, [{ type: "context_edit", targetId: "old", replacement: null }]);
 	});
 });
 
