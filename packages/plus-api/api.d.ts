@@ -73,11 +73,52 @@ export declare function gatePermissionToolCall(
 /** Build the pi-plus-permissions inline extension for a host. */
 export declare function createPermissionsExtension(options?: PermissionsExtensionOptions): InlineExtension;
 
+/**
+ * Holder the plan extension couples to (see plan/index.ts): embedding hosts
+ * (pi-plus-desktop) inject a per-tab state via createPermissionsExtension,
+ * and plan-mode engage/exit must read/write THAT holder, because the
+ * permissions gate re-syncs the shared plan gate state from its own holder's
+ * mode on every tool call — coupling to the module default would let the
+ * first tool call silently tear plan mode down. Registered by the factory,
+ * last-write-wins; falls back to the module default until one registers.
+ */
+export declare function setActivePermissionState(
+	state: PermissionModeState,
+	onModeChange?: (mode: PermissionMode) => void,
+): void;
+export declare function getActivePermissionState(): PermissionModeState;
+/** Mirror a plan-side mode switch into the host UI (the registered onModeChange, if any). */
+export declare function notifyActivePermissionModeChange(mode: PermissionMode): void;
+
+/**
+ * Pick from a host's dedicated plan-review dialog (pi-plus-desktop renders
+ * the plan as markdown with Claude Code style choices). "approveAcceptEdits" /
+ * "approveBypass" approve AND select the post-approval permission mode, so
+ * the plan runs with the chosen level of automation. undefined = dismissed.
+ */
+export type PlanReviewDialogChoice = "approve" | "approveAcceptEdits" | "approveBypass" | "edit" | "stay";
+
+/**
+ * Optional ExtensionUIContext extension SDK hosts provide via
+ * createPlusUIContext to take over the plan-review presentation.
+ */
+export interface PlanReviewDialogUI {
+	planReview(plan: string): Promise<PlanReviewDialogChoice | undefined>;
+}
+
 export interface PlusUIDialogHandlers {
 	select(title: string, options: string[]): Promise<string | undefined>;
 	confirm(title: string, message: string): Promise<boolean>;
 	input(title: string, placeholder?: string): Promise<string | undefined>;
 	editor?(title: string, prefill?: string): Promise<string | undefined>;
+	/**
+	 * Dedicated plan-review dialog (ExitPlanMode). The host renders the plan
+	 * markdown and offers Claude Code style choices; "approveAcceptEdits" /
+	 * "approveBypass" approve the plan AND set the post-approval permission
+	 * mode. Return undefined when dismissed (stays in plan mode). Omit to fall
+	 * back to the plain-text select.
+	 */
+	planReview?(plan: string): Promise<PlanReviewDialogChoice | undefined>;
 	notify?(message: string, type?: "info" | "warning" | "error"): void;
 }
 
