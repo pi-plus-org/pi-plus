@@ -1,4 +1,7 @@
 <p align="center">
+  <img alt="pi-plus logo" src="assets/pi-plus-logo.png" width="128" />
+</p>
+<p align="center">
   <a href="https://www.npmjs.com/package/pi-plus"><img alt="npm" src="https://img.shields.io/npm/v/pi-plus?style=flat-square" /></a>
   <a href="https://nodejs.org"><img alt="node" src="https://img.shields.io/badge/node-%E2%89%A5%2022.19-339933?style=flat-square" /></a>
 </p>
