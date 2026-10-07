@@ -9,8 +9,9 @@
  * "exit plan mode", or launches with --plan. While active, a <plan_mode>
  * system-prompt section drives the workflow and the
  * tool_call gate (gate.ts) enforces read-only: edit/write are restricted to
- * the plan file, bash to a read-only allowlist, powershell and non-allowlisted
- * custom tools (subagent unless the read-only "explore" type) are blocked.
+ * the plan file, bash and powershell to a read-only command allowlist, and
+ * non-allowlisted custom tools (subagent unless the read-only "explore" type)
+ * are blocked.
  *
  * ExitPlanMode shows the plan as rendered markdown with Approve / Stay
  * choices (Claude Code style; a plain-text select on non-TUI hosts);
