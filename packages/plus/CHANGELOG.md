@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Windows without a usable shell: the built-in `bash` tool requires Git Bash (or bash on PATH) and failed on every call otherwise, inside the model loop. The `AgentSession` wrapper (`src/coding-agent/core/agent-session.ts`) now detects that case in its constructor — Windows, no user-configured `shellPath`, and `getShellConfig()` finding no bash — and excludes the `bash` tool while swapping `powershell` into its slot in the initial active toolset, so the model gets a working shell with honest PowerShell semantics. Machines with Git Bash, a user-set `shellPath`, and non-Windows platforms are untouched. Applies to both the `pipi` CLI and `pi-plus-sdk` sessions, since the SDK's `createAgentSession` resolves `AgentSession` through the same wrapper.
+- Settings command hooks on Windows (`src/extensions/hooks/fire.ts`): hook commands were spawned with `bash -c` unconditionally, which throws ENOENT on Windows (swallowed, so hooks silently never fired). They now spawn via `cmd.exe` (`shell: true`, `windowsHide`) on Windows and keep `bash -c` elsewhere. Probing for bash on Windows was deliberately rejected — `System32\bash.exe` (the WSL launcher) passes a naive probe but would run hooks in the wrong environment.
+
 ### Added
 
 - `/plan <prompt>` (plan extension `src/extensions/plan/`): any argument other than the `show` / `edit` subcommands turns plan mode on (when off) and forwards the text to the model as a user message (queued as steering while the agent is streaming), so a task can be kicked straight into the read-only planning phase from the command line.

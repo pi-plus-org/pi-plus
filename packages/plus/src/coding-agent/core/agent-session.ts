@@ -14,6 +14,10 @@
  * - AgentSession constructor -> applies time-based micro-compact (clearing stale
  *   tool results) once per (re)opened session, before the first request rebuilds
  *   the dead prompt-cache prefix (see plus/src/context/microcompact.ts)
+ * - AgentSession constructor -> on Windows without any bash (no Git Bash, none
+ *   on PATH) and no user-configured shellPath, the built-in "bash" tool can
+ *   never succeed, so it is excluded and "powershell" takes its slot in the
+ *   active toolset (see applyWindowsShellFallback below)
  */
 export * from "../../../../coding-agent/src/core/agent-session.ts";
 
@@ -23,9 +27,40 @@ import {
 } from "../../../../coding-agent/src/core/agent-session.ts";
 import type { CompactionResult } from "../../../../coding-agent/src/core/compaction/compaction.ts";
 import type { ContextUsage } from "../../../../coding-agent/src/core/extensions/types.ts";
+import { getShellConfig } from "../../../../coding-agent/src/utils/shell.ts";
 import { createAsyncSerializer } from "../../compaction/serialize.ts";
 import { applyIdleMicroCompact } from "../../context/microcompact.ts";
 import { getContextUsagePlus } from "../../context/usage.ts";
+
+/**
+ * Windows shell fallback: the built-in "bash" tool requires Git Bash (or bash
+ * on PATH) and fails on every call otherwise, inside the model loop. When no
+ * bash is resolvable and the user has not set shellPath, exclude "bash" and
+ * swap it for "powershell" in the initial active toolset, so the model gets a
+ * working shell with honest PowerShell semantics. Non-Windows platforms, a
+ * user-set shellPath, and machines with a resolvable bash are untouched.
+ */
+export function applyWindowsShellFallback(config: AgentSessionConfig): AgentSessionConfig {
+	if (process.platform !== "win32") return config;
+	try {
+		if (config.settingsManager.getShellPath()) return config;
+		getShellConfig(); // throws on Windows when no bash is available
+		return config;
+	} catch {
+		const active = [
+			...new Set(
+				(config.initialActiveToolNames ?? ["read", "bash", "edit", "write"]).map((name) =>
+					name === "bash" ? "powershell" : name,
+				),
+			),
+		];
+		return {
+			...config,
+			excludedToolNames: [...new Set([...(config.excludedToolNames ?? []), "bash"])],
+			initialActiveToolNames: active,
+		};
+	}
+}
 
 export class AgentSession extends UpstreamAgentSession {
 	// Serializes manual compact() calls (resume-triggered, /compact, RPC, SDK)
@@ -35,7 +70,7 @@ export class AgentSession extends UpstreamAgentSession {
 	private readonly serializeCompaction = createAsyncSerializer();
 
 	constructor(config: AgentSessionConfig) {
-		super(config);
+		super(applyWindowsShellFallback(config));
 		try {
 			applyIdleMicroCompact(this.sessionManager);
 		} catch (error) {
