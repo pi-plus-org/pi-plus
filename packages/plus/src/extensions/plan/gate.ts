@@ -3,12 +3,14 @@
  *
  * While plan mode is active every tool call passes through `gateToolCall`:
  * built-in read-only tools (read/grep/find/ls) flow through, edit/write are
- * blocked unless they target the session plan file, bash must match a
- * read-only command allowlist (two-list check ported from the coding-agent
- * plan-mode example), powershell is blocked outright, and unknown custom
- * tools are blocked unless explicitly allowlisted (subagent is additionally
- * restricted to the read-only "explore" agent type — a "worker" sub-agent
- * would otherwise do the writes plan mode forbids).
+ * blocked unless they target the session plan file, bash and powershell must
+ * each match a read-only command allowlist (two-list check ported from the
+ * coding-agent plan-mode example, with PowerShell-native cmdlet/alias
+ * patterns alongside the POSIX ones — on Windows without Git Bash powershell
+ * is the primary shell, so blocking it outright would block all research),
+ * and unknown custom tools are blocked unless explicitly allowlisted
+ * (subagent is additionally restricted to the read-only "explore" agent type
+ * — a "worker" sub-agent would otherwise do the writes plan mode forbids).
  *
  * A blocked call becomes an error tool result whose text is `reason`, so the
  * model reads why it was denied; every reason names the plan file and
@@ -51,6 +53,12 @@ const DESTRUCTIVE_PATTERNS = [
 	// dotted/path/arg-joined mentions — `grep -vi foo` matched bare `vi`
 	// before and was denied as "interactive editor", as did `-name *.vim`.
 	/(?<![\w.=-])(vim?|nano|emacs|code|subl)\b/i,
+	// PowerShell-native mutating cmdlets and aliases (Remove-Item family,
+	// content writers, process/service/computer control). Windows package
+	// managers join the Unix ones above.
+	/\b(Remove-Item|Move-Item|Copy-Item|Rename-Item|New-Item|Set-Content|Add-Content|Clear-Content|Set-Item|Set-ItemProperty|New-ItemProperty|Remove-ItemProperty|Stop-Process|Start-Process|Stop-Service|Restart-Service|Restart-Computer|Stop-Computer|Clear-RecycleBin|Set-ExecutionPolicy|Out-File)\b/i,
+	/\b(del|erase|rd)\b/i,
+	/\b(winget|choco|scoop)\s+(install|uninstall|upgrade)\b/i,
 ];
 
 // Safe read-only commands allowed in plan mode.
@@ -105,6 +113,10 @@ const SAFE_PATTERNS = [
 	/^\s*fd\b/,
 	/^\s*bat\b/,
 	/^\s*eza\b/,
+	// PowerShell-native read-only cmdlets and aliases (many POSIX names above
+	// are also PowerShell aliases — ls/cat/pwd/sort/ps — so both sets coexist).
+	/^\s*(Get-ChildItem|dir|gci|Get-Content|gc|type|Select-String|sls|Get-Location|gl|Get-Item|gi|Get-Command|gcm|Measure-Object|measure|Get-Date|Get-Process|Get-ItemProperty|Resolve-Path|Test-Path|Where-Object|Select-Object|Sort-Object|Format-Table|ft|Format-List|fl)\b/i,
+	/^\s*(Invoke-WebRequest|iwr|curl\.exe)\b/i,
 ];
 
 /**
@@ -178,13 +190,11 @@ export function gateToolCall(event: ToolCallEvent, state: PlanModeState, cwd: st
 		return blocked(readOnlyReason(state.planFilePath, `writing ${event.input.path}`));
 	}
 
-	if (isToolCallEventType("bash", event)) {
+	// bash and powershell share the schema ({command, timeout?}) and the same
+	// read-only allowlist; on Windows without Git Bash powershell IS the shell.
+	if (isToolCallEventType("bash", event) || isToolCallEventType("powershell", event)) {
 		if (isSafeCommand(event.input.command)) return undefined;
 		return blocked(readOnlyReason(state.planFilePath, `running \`${event.input.command}\``));
-	}
-
-	if (isToolCallEventType("powershell", event)) {
-		return blocked(readOnlyReason(state.planFilePath, "powershell"));
 	}
 
 	// Custom / extension tools.

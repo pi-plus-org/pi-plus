@@ -151,10 +151,28 @@ describe("gateToolCall", () => {
 		assert.match(blocked?.reason ?? "", /npm install/);
 	});
 
-	it("blocks powershell outright", () => {
+	it("restricts powershell to the same read-only allowlist as bash", () => {
 		const state = enabledState();
-		const blocked = gateToolCall(event("powershell", { command: "Get-ChildItem" }), state, CWD);
-		assert.equal(blocked?.block, true);
+		// Read-only cmdlets and aliases flow through.
+		assert.equal(gateToolCall(event("powershell", { command: "Get-ChildItem" }), state, CWD), undefined);
+		assert.equal(
+			gateToolCall(event("powershell", { command: "Get-Content .\\package.json" }), state, CWD),
+			undefined,
+		);
+		assert.equal(gateToolCall(event("powershell", { command: "ls -la C:/资料" }), state, CWD), undefined);
+		assert.equal(gateToolCall(event("powershell", { command: "git status" }), state, CWD), undefined);
+		// Mutating cmdlets and unknown commands stay blocked.
+		for (const command of [
+			"Remove-Item x",
+			"New-Item x",
+			"Set-Content x y",
+			"del x",
+			"winget install git",
+			"Invoke-Expression x",
+		]) {
+			const blocked = gateToolCall(event("powershell", { command }), state, CWD);
+			assert.equal(blocked?.block, true, `expected block: ${command}`);
+		}
 	});
 
 	it("allows only the explore subagent", () => {
