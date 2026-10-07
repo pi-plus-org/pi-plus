@@ -23,6 +23,7 @@ export {
 	loadProfiles,
 	materializeProfile,
 	profileDirFor,
+	refreshSharedLinks,
 	removeProfile,
 	removeProfileDir,
 	removeProfileModel,

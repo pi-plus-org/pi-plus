@@ -292,6 +292,10 @@ export function refreshSharedLinks(dir: string): void {
 	// itself. removeStaleLink would treat the real content (e.g. sessions) as a
 	// stale copy and delete it out from under the parent process.
 	if (path.resolve(AGENT_DIR) === path.resolve(dir)) return;
+	// Never-materialized profile: nothing to repair, and linking anyway would
+	// create the dir (via the copy fallback) for a profile this machine has
+	// never used.
+	if (!fs.existsSync(dir)) return;
 	for (const name of SHARED_DIR_LINKS) {
 		linkOrCopy(path.join(AGENT_DIR, name), path.join(dir, name), true);
 	}

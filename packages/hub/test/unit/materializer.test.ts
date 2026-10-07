@@ -575,6 +575,15 @@ describe("refreshSharedLinks self-link guard", () => {
 	});
 	afterEach(teardown);
 
+	it("is a no-op when the profile dir does not exist", async () => {
+		// A stored profile this machine never materialized: refreshing must not
+		// create its dir (the symlink/copy fallback would), only materialization
+		// or an actual tab may do that.
+		const missing = path.join(tmpDir, "pi-hub", "profiles", "ghost");
+		mat.refreshSharedLinks(missing);
+		expect(fs.existsSync(missing)).toBe(false);
+	});
+
 	it("is a no-op when AGENT_DIR equals the profile dir (nested launch)", async () => {
 		// Simulate a nested launch under a materialized profile: the child pi
 		// process inherits PI_CODING_AGENT_DIR=<profile dir>, so AGENT_DIR ===
