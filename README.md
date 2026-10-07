@@ -1,164 +1,117 @@
 <p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
+  <a href="https://www.npmjs.com/package/pi-plus"><img alt="npm" src="https://img.shields.io/npm/v/pi-plus?style=flat-square" /></a>
+  <a href="https://nodejs.org"><img alt="node" src="https://img.shields.io/badge/node-%E2%89%A5%2022.19-339933?style=flat-square" /></a>
 </p>
+
+# pi-plus
+
+pi-plus layers a full-featured agent experience on top of the minimal [pi](https://pi.dev) harness — plan mode, subagents, task lists, persistent memory, hooks, auto-titled sessions, context-guarded compaction, reasoning effort levels, and named provider profiles — and ships it as a single global command: **`pipi`**.
+
+Everything pi-plus adds lives in this repo's `packages/plus*` layer; the upstream pi packages stay pristine so they can be resynced without merge conflicts. Upstream fixes propagate automatically.
+
 <p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
+  <img alt="pi-plus CLI session: welcome banner, plain tool blocks, recap-titled footer" src="assets/pi-plus-demo.gif" width="820" />
 </p>
-
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-# Pi
-
-Pi is a minimal, extensible agent harness that you can make your own.
-
-Adapt Pi to your workflows, not the other way around. Customize Pi with [extensions](packages/coding-agent/docs/extensions.md), [skills](packages/coding-agent/docs/skills.md), [prompt templates](packages/coding-agent/docs/prompt-templates.md), and [themes](packages/coding-agent/docs/themes.md). Bundle them as [Pi packages](packages/coding-agent/docs/packages.md) and share via npm or git.
-
-Pi ships with powerful defaults but skips features like sub-agents and plan mode. Ask Pi to build what you want, or install a package that does it your way.
-
-Use Pi [interactively](packages/coding-agent/docs/usage.md), automate it in [print or JSON mode](packages/coding-agent/docs/cli.md), control it over [RPC](packages/coding-agent/docs/rpc.md), or build apps with the [Pi TypeScript SDK](packages/coding-agent/docs/sdk.md). See [OpenClaw](https://github.com/OpenClaw/OpenClaw) for a real-world integration.
 
 ## Getting started
 
-Install the command-line interface:
+```bash
+npm install -g --ignore-scripts pi-plus
+```
+
+This installs `pipi` (it never claims pi's own `pi` command). Requires Node.js 22.19 or newer.
+
+Add a provider profile (interactive OAuth / API-key sign-in included):
 
 ```bash
-curl -fsSL https://pi.dev/install.sh | sh
+pipi profile add work -p anthropic --sign-in
+pipi use work
 ```
 
-On Windows:
-
-```shell
-powershell -c "irm https://pi.dev/install.ps1 | iex"
-```
-
-The installer pins all dependencies and updates Pi with `pi update`. Alternatively, install directly with npm, which does not pin transitive dependencies:
-
-```bash
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-```
-
-Pi requires Node.js 22.19 or newer. The macOS, Linux, and Windows installers can install it if needed. Pi does not require dependency lifecycle scripts for a normal npm installation.
-
-Start Pi in the directory where you want it to work:
+Then start a session wherever you want it to work:
 
 ```bash
 cd /path/to/project
-pi
+pipi
 ```
 
-For a built-in AI provider, run `/login` inside Pi to connect a subscription or API key. Then give Pi a task.
+## Profiles
 
-See the [documentation](https://pi.dev/docs/latest) for full setup and usage instructions, or [visit pi.dev](https://pi.dev) for demos.
+pi-plus wraps pi with **hub profiles**: named provider/model/thinking/token bundles stored in `~/.pi/profiles.json`, each materialized into an isolated agent dir under `~/.pi/pi-hub/profiles/<name>/`.
 
-## Run with Nix
+| Command | Effect |
+|---------|--------|
+| `pipi profile add <name> -p <provider>` | Create a profile; add `--sign-in` for the provider's interactive login |
+| `pipi profile list / view / default` | Inspect profiles, switch the default |
+| `pipi profile update / remove / rename` | Manage existing profiles |
+| `pipi use <name>` / `pipi unuse` | Pin the current project to a profile, or unpin |
+| `pipi --as <name>` | Run one session under a specific profile |
+
+`pipi profile add` with no credential invokes the provider's interactive login (OAuth page or API-key setup) against the profile dir; the TUI `/login` redirects to this flow.
+
+## What you get on top of pi
+
+- **Plan mode** — `/plan` (or Shift+Tab) engages a read-only mode with a writable session plan file and a safe-bash allowlist, so plans get reviewed before edits.
+- **Subagents** — a `Subagent` tool for delegated parallel work.
+- **Task lists** — `/tasks` structured todo tracking across the session.
+- **Memory** — `/memory` persistent notes that survive compaction.
+- **Ask-user** — the agent can surface interactive clarification questions instead of guessing.
+- **Hooks** — fire shell commands on session lifecycle events, run in the session cwd.
+- **Permission modes** — Claude Code–style gating on every tool call: `bypass` / `accept-edits` / `plan`, via `/permissions`, Shift+Tab, or a host-driven mode holder.
+- **Context guard** — per-message threshold detection: warnings, blocking limit, auto-compact tuned to the effective context window, 3-failure circuit breaker, idle micro-compaction of stale tool results.
+- **Compaction** — single full-conversation summaries (Claude-style 9-section prompt) with post-compact re-injection of recently read files, the active plan, and invoked skills.
+- **Reasoning effort** — `low` / `medium` / `high` / `max` levels, adaptive thinking, `ultrathink` keyword; footer shows the active level.
+- **Recap auto-titles** — the session gets a ≤8-word title after the first exchange and every compaction; it lands in the tab title and the resume list until you rename it manually.
+- **Plain tool blocks** — tool status reads as text, never colored blocks.
+- **Tab title + spinner** — terminal tab brands as `pi+ - [session title -] dir` with a braille busy spinner.
+- **Vim modal editing** — `/vim` or `"vim": true`: insert/normal/visual modes, motions with counts, `d c y` operators, undo/redo, prompt search.
+- **Settings rows** — `/settings` gains auto-compact threshold, context floor, and context-window cap.
+- **Shell completion** — `pipi completion bash|zsh` covers hub subcommands (with dynamic profile names) plus pi's native commands.
+
+The welcome banner, compact/plain degradation on narrow terminals, and `resumed <id> · <title>` on resume/fork come with the UI layer.
+
+## Useful environment variables
+
+| Var | Effect |
+|-----|--------|
+| `PI_EFFORT_LEVEL` | `off`/`auto`/`low`/`medium`/`high`/`max` reasoning effort |
+| `PI_MAX_CONTEXT_TOKENS` | Cap the model context window |
+| `PI_AUTOCOMPACT_PCT_OVERRIDE` | Auto-compact threshold as % of the effective window |
+| `PI_DISABLE_AUTO_COMPACT` | Disable threshold-triggered compaction |
+
+The full table (plus compaction/thinking knobs) lives in [`packages/plus/README.md`](packages/plus/README.md).
+
+## Build apps on it
+
+Library hosts embedding pi in-process use **`pi-plus-sdk`** ([`packages/plus-api`](packages/plus-api)):
 
 ```bash
-nix run github:earendil-works/pi/stable
+npm install --ignore-scripts pi-plus-sdk
 ```
-
-`stable` points at the latest release. Install it with `nix profile add github:earendil-works/pi/stable` and update with `nix profile upgrade pi`. Use a release tag such as `github:earendil-works/pi/v1.0.0` to pin a version, or `github:earendil-works/pi` for unreleased changes on `main`. Nix builds Pi from source.
-
-Supports ARM64 and x86-64 on Linux and macOS. Use `nix build .` or `nix run .` to build or run your checkout.
-
-Nix builds are offline, so the bundled model data comes from a pi.dev model catalog revision pinned in `nix/model-catalog.json`. At runtime, Pi still overlays newer catalog data from pi.dev as usual. The Nix workflow replaces the pin on `main` when it no longer matches the checkout, for example after a provider is added or gains a new model type. To refresh it by hand:
-
-```bash
-npm run update:model-catalog-pin
-```
-
-## Packages
-
-This monorepo contains the Pi CLI and its supporting libraries.
-
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/chord](packages/chord)** | Standalone application-composition runtime for services, replicated state, RPC, and plugins |
-| **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-durable](packages/durable)** | Durable conversation, task, and document runtime |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
-
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
-
-## Permissions & Containerization
-
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
-
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
-
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi/).
 
 ## Development
 
 ```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
+npm install --ignore-scripts   # never runs lifecycle scripts
+npm run build:offline          # build all packages, reusing existing model data
+npm run check                  # biome + pinned deps + shrinkwrap + tsgo typecheck
+
+cd packages/plus-cli
+./pipi --no-env                # run pipi from TypeScript sources with the override layer active
 ```
 
-## Building standalone binaries from release source
+Tests: `npx vitest run` inside `packages/plus`, `packages/plus-cli`, or `packages/plus-api`; `./test.sh` at the repo root runs the full non-e2e suite in an isolated HOME.
 
-GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:
+### Repo layout
 
-```bash
-VERSION="<release-version>"
-tar -xzf "pi-${VERSION}-source.tar.gz"
-cd "pi-${VERSION}"
-./scripts/build-binaries.sh --offline-model-data --platform linux-x64 --out "$PWD/out"
-```
-
-The archive includes release model data and native prebuilds. `--offline-model-data` uses that model data without refreshing provider catalogs. The script installs dependencies and builds the executable with its runtime assets; pass `--skip-install` if dependencies are already provided.
-
-## Supply-chain hardening
-
-We treat npm dependency changes as reviewed code changes.
-
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent install lock.
-- The pi.dev installer installs from `packages/coding-agent/install-lock/`, generated from the root lockfile, to pin transitive deps. The npm package does not pin transitive deps.
-- Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before tagging a release.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Install lock generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
-
-## Share your OSS coding agent sessions
-
-If you use Pi or other coding agents for open source work, please share your sessions.
-
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
-
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
-
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
-
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
-
-I regularly publish my own `pi-mono` work sessions here:
-
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
+| Path | Description |
+|------|-------------|
+| [`packages/plus`](packages/plus) | Shared override core: context detection, compaction, reasoning, the ten non-TUI extensions |
+| [`packages/plus-cli`](packages/plus-cli) | The `pi-plus` npm artifact: `pipi` CLI — hub profiles, completion, banner, vim, tab title |
+| [`packages/plus-api`](packages/plus-api) | The `pi-plus-sdk` npm artifact: embeddable library entry over the shared core |
+| [`packages/hub`](packages/hub) | Named pi profiles with per-profile materialized agent dirs |
+| `packages/ai`, `packages/agent`, `packages/coding-agent`, `packages/tui`, … | Upstream pi packages — kept pristine; overrides are wired in only through loader/bundle redirects |
 
 ## License
 
 MIT
-
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
