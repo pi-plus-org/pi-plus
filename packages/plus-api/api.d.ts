@@ -228,6 +228,12 @@ export declare function removeProfileModel(name: string, model: string): string;
 export declare function renameProfile(oldName: string, newName: string): void;
 export declare function profileDirFor(name: string): string;
 export declare function materializeProfile(name: string, profile: Profile): string;
+/** Re-create the shared source→profile links (sessions, extensions, …) for an
+ *  already-materialized profile dir. Link-only repair: unlike materializeProfile
+ *  it never writes auth.json/settings.json, so it is safe to run at startup for
+ *  every stored profile (adopts profile-only content into the source when the
+ *  shared dir was never linked). No-op when the dir does not exist. */
+export declare function refreshSharedLinks(dir: string): void;
 export declare function removeProfileDir(name: string): void;
 export declare function syncProfilePackagesToSource(profileDir: string): boolean;
 
