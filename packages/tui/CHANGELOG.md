@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `Box.setPaddingX(...)` and `Text.setPaddingX(...)` ([#10557](https://github.com/earendil-works/pi/pull/10557) by [@rwachtler](https://github.com/rwachtler))
+
+### Fixed
+
+- Fixed Markdown links not being clickable in Herdr: `TERM_PROGRAM=herdr` is now detected as supporting OSC 8 hyperlinks ([#10573](https://github.com/earendil-works/pi/issues/10573))
+
+## [1.0.4] - 2026-10-05
+
+## [1.0.3] - 2026-10-05
+
+### Changed
+
+- `Home`/`End` now always move the editor cursor to the line start/end; fullscreen transcript top/bottom moved to `Ctrl+Home`/`Ctrl+End`, which no longer move the editor cursor ([#10314](https://github.com/earendil-works/pi/issues/10314))
+
 ## [1.0.2] - 2026-10-04
 
 ## [1.0.1] - 2026-10-03
