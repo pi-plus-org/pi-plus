@@ -532,6 +532,35 @@ describe("materializeProfile", () => {
 		expect(fs.existsSync(path.join(link, "stale-copy.jsonl"))).toBe(false);
 	});
 
+	it("links shared dirs even when the source dir does not exist yet (fresh machine)", () => {
+		// No ~/.pi/agent/sessions at materialization time: the link must still be
+		// created, otherwise the first profile session diverges into a private
+		// profile dir the source-side SessionManager.listAll() never lists.
+		const dir = mat.materializeProfile("work", baseProfile);
+		const link = path.join(dir, "sessions");
+		expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+		expect(fs.realpathSync(link)).toBe(fs.realpathSync(path.join(agentDir, "sessions")));
+		// Writes through the link must land in the shared source dir.
+		fs.mkdirSync(path.join(link, "--proj--"), { recursive: true });
+		fs.writeFileSync(path.join(link, "--proj--", "s.jsonl"), "{}");
+		expect(fs.existsSync(path.join(agentDir, "sessions", "--proj--", "s.jsonl"))).toBe(true);
+	});
+
+	it("adopts a profile-private sessions dir into the source instead of deleting it", () => {
+		// Layout produced by the fresh-machine bug: the profile accumulated a
+		// real sessions dir while the source dir never existed. Re-materializing
+		// must move that content into the source and link, not rm -r it.
+		const dir = path.join(tmpDir, "pi-hub", "profiles", "work");
+		fs.mkdirSync(path.join(dir, "sessions", "--proj--"), { recursive: true });
+		fs.writeFileSync(path.join(dir, "sessions", "--proj--", "only-copy.jsonl"), "{}");
+
+		mat.materializeProfile("work", baseProfile);
+		const link = path.join(dir, "sessions");
+		expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+		expect(fs.existsSync(path.join(agentDir, "sessions", "--proj--", "only-copy.jsonl"))).toBe(true);
+		expect(fs.existsSync(path.join(link, "--proj--", "only-copy.jsonl"))).toBe(true);
+	});
+
 	it("is idempotent", () => {
 		mat.materializeProfile("work", baseProfile);
 		const dir = mat.materializeProfile("work", baseProfile);
