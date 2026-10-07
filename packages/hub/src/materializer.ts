@@ -232,12 +232,22 @@ export function writeModelsFile(dir: string, profile: Profile): void {
 	logger.debug(`writeModelsFile: wrote ${file}`);
 }
 
-function removeStaleLink(linkPath: string): void {
+function removeStaleLink(linkPath: string, target: string): void {
 	try {
 		const stat = fs.lstatSync(linkPath);
 		if (stat.isSymbolicLink() || stat.isFile()) {
 			fs.rmSync(linkPath, { force: true });
 		} else if (stat.isDirectory()) {
+			if (!fs.existsSync(target)) {
+				// A real dir with no shared source: content was written while no
+				// link existed (fresh machine, source not yet created at first
+				// materialization). Here the profile copy IS the canonical
+				// content — move it into place instead of deleting it, then link.
+				logger.info(`refreshSharedLinks: adopting profile-only dir into source: ${linkPath} -> ${target}`);
+				fs.mkdirSync(path.dirname(target), { recursive: true });
+				fs.renameSync(linkPath, target);
+				return;
+			}
 			// Stale copy fallback from a previous run. Leaving it would make every
 			// future run hit EEXIST on the symlink and fall back to copying the whole
 			// source dir again — and the stale copy would shadow the shared source.
@@ -251,11 +261,21 @@ function removeStaleLink(linkPath: string): void {
 }
 
 function linkOrCopy(target: string, linkPath: string, isDir: boolean): void {
-	removeStaleLink(linkPath);
-	if (!fs.existsSync(target)) return; // nothing to share
+	removeStaleLink(linkPath, target);
+	if (!fs.existsSync(target)) {
+		if (!isDir) return; // nothing to share yet — a file link would dangle
+		// Fresh machine: the source dir may not exist at first materialization.
+		// Create it so the link is never dangling (a junction/symlink whose
+		// target is missing breaks later mkdir-through-link, e.g. the first
+		// session's getDefaultSessionDir) — without this, everything the
+		// profile writes diverges into a private profile dir the source-side
+		// SessionManager.listAll() never sees.
+		fs.mkdirSync(target, { recursive: true });
+	}
 	try {
 		fs.symlinkSync(target, linkPath, isDir ? "junction" : "file");
 	} catch (err) {
+		if (!fs.existsSync(target)) return;
 		logger.warn(`Symlink failed for ${target}, falling back to copy`, err);
 		if (isDir) {
 			fs.cpSync(target, linkPath, { recursive: true });
