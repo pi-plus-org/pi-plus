@@ -4,6 +4,7 @@
 
 ### Added
 
+- The web search extension (`pi-plus-web-search`, shared core `packages/plus/src/extensions/web-search/`) is registered in the `pipi` CLI: `WebSearch` searches the web through the provider chain selected by `WEB_SEARCH_PROVIDER`/`*_API_KEY` env vars (keyless DuckDuckGo fallback last) and `WebFetch` reads a URL as text, both returning citation-ready results.
 - The `/init` command (shared core, `packages/plus/src/extensions/init/`): analyzes the codebase and creates `AGENTS.md` at the cwd root, or suggests improvements when it already exists; pi loads `AGENTS.md` automatically.
 - `pipi profile add <name> -p <provider>` with no token/model/url/thinking/--set now invokes that provider's interactive login after saving the profile: the OAuth login page opens in the browser (or the API-key setup prompts run in the terminal) and the credential is persisted into the profile's isolated agent dir (`~/.pi/pi-hub/profiles/<name>/auth.json`), so the profile is ready to launch. A cancelled or failed login keeps the profile and suggests `pipi profile update <name> -t <key>`. The CLI injects the flow via hub's `dispatchHubCommand` `login` hook; the flow itself lives in the shared core (`packages/plus/src/auth/login.ts`).
 - The interactive TUI's `/login` is disabled: it shows a status line pointing at `pipi profile add <name> -p <provider>` instead of starting the login flow, and it no longer appears in autocomplete or `/help` (via the `interactive-mode` and `slash-commands` redirect wrappers in the shared core).

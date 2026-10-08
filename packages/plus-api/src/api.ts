@@ -103,6 +103,7 @@ import {
 	registerSubagent,
 	registerTasks,
 	registerUserHooks,
+	registerWebSearch,
 } from "../../plus/src/extensions/index.ts";
 
 /**
@@ -121,6 +122,7 @@ export const plusSdkExtensionFactories: InlineExtension[] = [
 	{ name: "pi-plus-context-guard", factory: registerContextGuard, hidden: true },
 	{ name: "pi-plus-cd", factory: registerCd, hidden: true },
 	{ name: "pi-plus-init", factory: registerInit, hidden: true },
+	{ name: "pi-plus-web-search", factory: registerWebSearch, hidden: true },
 ];
 
 /**
