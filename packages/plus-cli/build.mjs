@@ -211,6 +211,9 @@ writeFileSync(
 			dependencies,
 			engines: { node: ">=22.19.0" },
 			publishConfig: { access: "public" },
+			// npm Trusted Publishing verifies the staged repository.url against the
+			// provenance repo (the GitHub repo running the workflow) — it must not be empty.
+			repository: { type: "git", url: "https://github.com/pi-plus-org/pi-plus" },
 			license: "MIT",
 		},
 		null,
