@@ -80,6 +80,13 @@ await session.prompt("Review this repository");
   `<agentDir>/settings.json` compaction flag (not a per-session setting), so a host
   toggle labeled per-session would surprise users — it also flips behavior for the
   `pipi` CLI sharing that agent dir.
+- Session recap failures are observable: the recap extension (auto-titles the
+  session after the first prompt and every compaction) publishes every failed title
+  call to `subscribeToRecapFailures(listener)` — `{ sessionId, reason: "timeout" |
+  "error", message }` — so a host can surface "session name not set" in its own UI
+  or trigger a retry. In-process only (one process hosts the session). Hosts that
+  wire `ui.notify` also receive the failure as a transcript warning through the
+  notify bridge.
 - The staged `package.json` has an `exports` map, so deep imports are not reachable;
   `api.d.ts` re-exports the `@earendil-works/pi-coding-agent` types (exact-pinned
   dependency, type resolution only — the runtime is self-contained).

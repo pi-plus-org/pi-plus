@@ -29,6 +29,11 @@
  *   <agentDir>/tasks/<sessionId>/) plus subscribeToTasks are re-exported from
  *   the tasks store module, so hosts can render a native task panel that stays
  *   in sync without polling the files
+ * - session recap failures (the auto-title call timing out or erroring after
+ *   the first prompt / a compaction) are published to subscribeToRecapFailures,
+ *   re-exported from the recap events module, so hosts can show their own
+ *   recap status; hosts that wire PlusUIDialogHandlers.notify also receive the
+ *   transcript warning through the notify bridge
  * - the pi-plus context settings (auto-compact threshold percent, context floor,
  *   context window cap — the piPlus block of the base agent settings.json, plus
  *   the generic readPiPlusSettings/updatePiPlusSettings for host-owned keys) are
@@ -45,6 +50,11 @@ export * from "../../plus/src/extensions/permissions/index.ts";
 
 import type { PlanReviewDialogChoice } from "../../plus/src/extensions/plan/index.ts";
 export type { PlanReviewDialogChoice, PlanReviewDialogUI };
+export {
+	type RecapFailure,
+	type RecapFailureReason,
+	subscribeToRecapFailures,
+} from "../../plus/src/extensions/recap/events.ts";
 export {
 	subscribeToTasks,
 	type Task,

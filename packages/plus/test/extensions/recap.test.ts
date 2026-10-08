@@ -8,7 +8,12 @@ import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "../../../coding-agent/src/core/extensions/types.ts";
-import { generateRecapTitle, type RecapGenerationOptions } from "../../src/extensions/recap/generate.ts";
+import { publishRecapFailure, type RecapFailure, subscribeToRecapFailures } from "../../src/extensions/recap/events.ts";
+import {
+	generateRecapTitle,
+	RecapAbortedError,
+	type RecapGenerationOptions,
+} from "../../src/extensions/recap/generate.ts";
 import { type RecapDeps, registerRecap } from "../../src/extensions/recap/index.ts";
 import { sanitizeRecapTitle } from "../../src/extensions/recap/prompt.ts";
 
@@ -38,12 +43,15 @@ interface CtxOverrides {
 	entries?: unknown[];
 	persisted?: boolean;
 	messages?: AgentMessage[];
+	/** Records transcript warnings the extension surfaces via ctx.ui.notify. */
+	onNotify?: (message: string, type?: "info" | "warning" | "error") => void;
 }
 
 function fakeCtx(overrides: CtxOverrides = {}): ExtensionContext {
 	return {
 		mode: "tui",
 		model: MODEL,
+		ui: { notify: overrides.onNotify ?? (() => {}) },
 		sessionManager: {
 			getEntries: () => overrides.entries ?? [],
 			getSessionName: () => overrides.name,
@@ -231,6 +239,85 @@ describe("recap failure policy", () => {
 		assert.equal(logged.length, 1);
 		assert.match(String(logged[0]), /session recap failed/);
 	});
+
+	it("warns in the transcript and publishes a timeout failure without logging an error", async () => {
+		const logged: unknown[] = [];
+		console.error = (...args: unknown[]) => {
+			logged.push(args);
+		};
+		const notifications: [string, string | undefined][] = [];
+		const failures: RecapFailure[] = [];
+		const unsubscribe = subscribeToRecapFailures((failure) => failures.push(failure));
+		try {
+			const h = captureRecap(() => Promise.reject(new RecapAbortedError()));
+			const ctx = fakeCtx({
+				messages: [userMessage("solo"), assistantMessage("reply")],
+				onNotify: (message, type) => notifications.push([message, type]),
+			});
+			await h.fire("session_start", { type: "session_start", reason: "new" }, ctx);
+			await h.fire("agent_settled", { type: "agent_settled" }, ctx);
+			assert.deepEqual(h.names, []);
+			// The benign timeout replaces the stderr dump with a transcript warning.
+			assert.equal(logged.length, 0);
+			assert.deepEqual(notifications, [
+				["Session recap timed out; the session name was left unchanged.", "warning"],
+			]);
+			assert.deepEqual(failures, [
+				{ sessionId: "session-1", reason: "timeout", message: "Recap title generation timed out" },
+			]);
+		} finally {
+			unsubscribe();
+		}
+	});
+
+	it("warns, logs, and publishes an error failure for provider errors", async () => {
+		const logged: unknown[] = [];
+		console.error = (...args: unknown[]) => {
+			logged.push(args);
+		};
+		const notifications: [string, string | undefined][] = [];
+		const failures: RecapFailure[] = [];
+		const unsubscribe = subscribeToRecapFailures((failure) => failures.push(failure));
+		try {
+			const h = captureRecap(() => Promise.reject(new Error("provider down")));
+			const ctx = fakeCtx({
+				messages: [userMessage("solo"), assistantMessage("reply")],
+				onNotify: (message, type) => notifications.push([message, type]),
+			});
+			await h.fire("session_start", { type: "session_start", reason: "new" }, ctx);
+			await h.fire("agent_settled", { type: "agent_settled" }, ctx);
+			assert.deepEqual(h.names, []);
+			assert.equal(logged.length, 1);
+			assert.match(String(logged[0]), /session recap failed/);
+			assert.deepEqual(notifications, [["Session recap failed: provider down", "warning"]]);
+			assert.deepEqual(failures, [{ sessionId: "session-1", reason: "error", message: "provider down" }]);
+		} finally {
+			unsubscribe();
+		}
+	});
+});
+
+describe("recap failure subscriptions", () => {
+	it("notifies subscribers and stops after unsubscribe", () => {
+		const failures: RecapFailure[] = [];
+		const unsubscribe = subscribeToRecapFailures((failure) => failures.push(failure));
+		publishRecapFailure({ sessionId: "s", reason: "timeout", message: "m" });
+		assert.deepEqual(failures, [{ sessionId: "s", reason: "timeout", message: "m" }]);
+		unsubscribe();
+		publishRecapFailure({ sessionId: "s", reason: "error", message: "m2" });
+		assert.equal(failures.length, 1);
+	});
+
+	it("isolates a throwing subscriber", () => {
+		const unsubscribe = subscribeToRecapFailures(() => {
+			throw new Error("boom");
+		});
+		try {
+			assert.doesNotThrow(() => publishRecapFailure({ sessionId: "s", reason: "error", message: "m" }));
+		} finally {
+			unsubscribe();
+		}
+	});
 });
 
 describe("sanitizeRecapTitle", () => {
@@ -300,6 +387,20 @@ describe("generateRecapTitle", () => {
 				streamFn: fakeStreamFn({ stopReason: "error", errorMessage: "boom" }),
 			}),
 			/Recap failed: boom/,
+		);
+	});
+
+	it("rejects with RecapAbortedError on an aborted response", async () => {
+		// The 30s timeout manifests as stopReason "aborted"; the dedicated error
+		// type lets the caller surface it as a benign timeout rather than an error.
+		await assert.rejects(
+			generateRecapTitle({
+				...base,
+				conversationText: "x",
+				model: MODEL,
+				streamFn: fakeStreamFn({ stopReason: "aborted" }),
+			}),
+			RecapAbortedError,
 		);
 	});
 
