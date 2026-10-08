@@ -39,6 +39,7 @@ import {
 	registerSubagent,
 	registerTasks,
 	registerUserHooks,
+	registerWebSearch,
 } from "../../../plus/src/extensions/index.ts";
 import { dispatchCompletion } from "../completion/index.ts";
 import { registerPlainTools, registerTabTitle } from "../extensions/index.ts";
@@ -133,7 +134,9 @@ export async function main(args: string[], options?: MainOptions) {
 	// status reads as text, consistent with the subagent tool's word-based
 	// status; pi-plus-init adds /init, which analyzes the codebase and creates
 	// or improves AGENTS.md at the cwd root (pi already loads AGENTS.md into
-	// every session, so the extension only owns the command); pi-plus-permissions
+	// every session, so the extension only owns the command); pi-plus-web-search
+	// adds WebSearch (provider chain over WEB_SEARCH_PROVIDER/*_API_KEY env vars,
+	// keyless DuckDuckGo fallback last) and WebFetch (URL → text); pi-plus-permissions
 	// adds the /permissions command and the tool-call permission gate (bypass |
 	// accept-edits | plan; bypass is the default, so behavior stays pi-like until
 	// the user switches — in TUI mode accept-edits prompts through the dialog UI).
@@ -156,6 +159,7 @@ export async function main(args: string[], options?: MainOptions) {
 			{ name: "pi-plus-hooks", factory: registerUserHooks, hidden: true },
 			{ name: "pi-plus-context-guard", factory: registerContextGuard, hidden: true },
 			{ name: "pi-plus-init", factory: registerInit, hidden: true },
+			{ name: "pi-plus-web-search", factory: registerWebSearch, hidden: true },
 			{ name: "pi-plus-tab-title", factory: registerTabTitle, hidden: true },
 			{ name: "pi-plus-plain-tools", factory: registerPlainTools, hidden: true },
 		],

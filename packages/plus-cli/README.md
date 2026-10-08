@@ -11,8 +11,8 @@ not own pi's command). Library hosts embedding pi in-process use the separate
 
 ## What this layer adds on top of the shared core
 
-The context-detection/compaction/reasoning overrides and the ten non-TUI extensions
-(subagent, tasks, memory, plan, ask-user, hooks, context-guard, recap, /cd, /init) live in
+The context-detection/compaction/reasoning overrides and the eleven non-TUI extensions
+(subagent, tasks, memory, plan, ask-user, hooks, context-guard, recap, /cd, /init, web-search) live in
 [`../plus`](../plus) and are shared with the SDK. This package adds the CLI-only pieces:
 
 1. **Hub profiles** (`src/coding-agent/main.ts` wrapper, backed by `@earendil-works/pi-hub` = [`../hub`](../hub)) — named pi profiles (provider/models/thinking/token/base URL) stored in `~/.pi/profiles.json`, materialized into isolated agent dirs under `~/.pi/pi-hub/profiles/<name>/`. Adds `pipi profile …`, `pipi use` / `pipi unuse`, and the `pipi --as <name>` flag. The wrapper resolves the profile, sets `PI_CODING_AGENT_DIR` in-process (read lazily by `getAgentDir()`), and delegates to the original `main`. `pipi profile add <name> -p <provider>` with no credential — or `pipi profile add/update <name> --sign-in` for an explicit sign-in that overwrites the profile token — invokes the provider's interactive login (OAuth page / API-key setup) against the profile dir via hub's injected `login` hook, using `loginProvider` from [`../plus`](../plus)`/src/auth/login.ts` (the same entry `pi-plus-sdk` re-exports for embedded hosts); the TUI `/login` is disabled by core redirect wrappers in favour of this flow.

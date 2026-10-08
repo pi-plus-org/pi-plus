@@ -24,3 +24,4 @@ export {
 export { registerRecap } from "./recap/index.ts";
 export { registerSubagent } from "./subagent/index.ts";
 export { registerTasks } from "./tasks/index.ts";
+export { registerWebSearch } from "./web-search/index.ts";
