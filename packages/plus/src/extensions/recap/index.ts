@@ -18,15 +18,23 @@
  *
  * Recaps are best-effort: everything runs serialized through
  * createAsyncSerializer (a first-prompt recap and an overflow-compaction
- * recap must not overlap), fire-and-forget, and failures are logged, never
- * surfaced. Unpersisted sessions (no session file) are skipped.
+ * recap must not overlap) and fire-and-forget. Failures never disrupt the
+ * session: a timeout (the title call's 30s cap) warns once in the transcript,
+ * a provider error warns there too and stays on stderr, and both are
+ * published to subscribeToRecapFailures (events.ts) for SDK hosts.
+ * Unpersisted sessions (no session file) are skipped.
  */
 
 import { serializeConversation } from "../../../../coding-agent/src/core/compaction/utils.ts";
-import type { ExtensionAPI, ExtensionContext } from "../../../../coding-agent/src/core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ExtensionUIContext,
+} from "../../../../coding-agent/src/core/extensions/types.ts";
 import { convertToLlm } from "../../../../coding-agent/src/core/messages.ts";
 import { createAsyncSerializer } from "../../compaction/serialize.ts";
-import { generateRecapTitle, type RecapGenerationOptions } from "./generate.ts";
+import { publishRecapFailure } from "./events.ts";
+import { generateRecapTitle, RecapAbortedError, type RecapGenerationOptions } from "./generate.ts";
 
 /** Custom entry marking "this session name was auto-set by the recap". */
 const RECAP_ENTRY_TYPE = "pi-plus-session-recap";
@@ -51,6 +59,13 @@ interface RecapContextSnapshot {
 	sessionId: string;
 	model: RecapGenerationOptions["model"] | undefined;
 	registry: Pick<ExtensionContext["modelRegistry"], "getApiKeyAndHeaders">;
+	/**
+	 * Warning sink for the transcript, read synchronously while the event
+	 * handler runs: the fire-and-forget callback cannot touch `ctx.ui` (its
+	 * getter asserts the runtime is still active). In headless modes this is a
+	 * no-op; SDK hosts additionally observe failures via subscribeToRecapFailures.
+	 */
+	notify: ExtensionUIContext["notify"];
 }
 
 export function registerRecap(pi: ExtensionAPI, deps: RecapDeps = {}): void {
@@ -103,7 +118,24 @@ export function registerRecap(pi: ExtensionAPI, deps: RecapDeps = {}): void {
 				// write is correctly refused. The title is intentionally
 				// discarded — best-effort by design, not an error worth logging.
 				if (error instanceof Error && error.message.includes("extension ctx is stale")) return;
-				console.error("pi-plus: session recap failed:", error);
+				// Surface the failure: a transcript warning for the user and a
+				// RecapFailure for SDK hosts / other subscribers. A timeout is the
+				// benign, expected outcome of the fire-and-forget call, so it
+				// warns without the stderr noise a genuine provider error keeps.
+				const timedOut = error instanceof RecapAbortedError;
+				const detail = error instanceof Error ? error.message : String(error);
+				publishRecapFailure({
+					sessionId: snapshot.sessionId,
+					reason: timedOut ? "timeout" : "error",
+					message: timedOut ? "Recap title generation timed out" : detail,
+				});
+				snapshot.notify(
+					timedOut
+						? "Session recap timed out; the session name was left unchanged."
+						: `Session recap failed: ${detail}`,
+					"warning",
+				);
+				if (!timedOut) console.error("pi-plus: session recap failed:", error);
 			}
 		}).catch(() => {});
 	};
@@ -139,6 +171,7 @@ export function registerRecap(pi: ExtensionAPI, deps: RecapDeps = {}): void {
 		sessionId: ctx.sessionManager.getSessionId(),
 		model: ctx.model,
 		registry: ctx.modelRegistry,
+		notify: ctx.ui.notify,
 	});
 
 	pi.on("agent_settled", (_event, ctx) => {

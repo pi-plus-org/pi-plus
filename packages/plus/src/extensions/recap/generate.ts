@@ -25,6 +25,19 @@ const RECAP_TIMEOUT_MS = 30_000;
 /** Bound the serialized conversation sent with the prompt (titles need a skim). */
 const RECAP_MAX_CONVERSATION_CHARS = 12_000;
 
+/**
+ * Thrown when the title call aborts — by default the recap's own 30s timeout,
+ * or an abort signal a caller injected. Distinguishing aborts from provider
+ * errors lets the caller surface a timeout as a benign warning instead of an
+ * error log.
+ */
+export class RecapAbortedError extends Error {
+	constructor() {
+		super("Recap generation was aborted");
+		this.name = "RecapAbortedError";
+	}
+}
+
 export interface RecapGenerationOptions {
 	/** Serialized conversation or compaction summary (see index.ts callers). */
 	conversationText: string;
@@ -85,7 +98,7 @@ export async function generateRecapTitle(options: RecapGenerationOptions): Promi
 	if (response.stopReason === "error") {
 		throw new Error(`Recap failed: ${response.errorMessage || "Unknown error"}`);
 	}
-	if (response.stopReason === "aborted") throw new Error("Recap generation was aborted");
+	if (response.stopReason === "aborted") throw new RecapAbortedError();
 
 	// A "length" stop means the model hit the token cap mid-output (e.g. a
 	// provider that reasons by default burns the budget, or the model rambles).

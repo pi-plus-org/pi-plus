@@ -50,6 +50,7 @@ import {
 	setContextFloorTokens,
 	setContextWindowCapTokens,
 	setDefaultProfile,
+	subscribeToRecapFailures,
 	syncProfilePackagesToSource,
 	THINKING_LEVELS,
 	updateProfile,
@@ -123,6 +124,7 @@ describe("api entry exports", () => {
 		expect(typeof createPlusAgentSession).toBe("function");
 		expect(typeof createPlusUIContext).toBe("function");
 		expect(Array.isArray(plusSdkExtensionFactories)).toBe(true);
+		expect(typeof subscribeToRecapFailures).toBe("function");
 		// Upstream re-exports used by SDK hosts.
 		expect(typeof createAgentSession).toBe("function");
 		expect(typeof SessionManager.inMemory).toBe("function");

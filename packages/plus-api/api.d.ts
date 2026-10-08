@@ -124,6 +124,33 @@ export interface PlusUIDialogHandlers {
 
 export declare function createPlusUIContext(handlers: PlusUIDialogHandlers): ExtensionUIContext;
 
+// --- pi-plus-session-recap failure feed (shared core, recap/events.ts) -------
+
+/** Why a recap run failed: the auto-title call timed out, or the provider errored. */
+export type RecapFailureReason = "timeout" | "error";
+
+/** One failed session-recap run. */
+export interface RecapFailure {
+	/** Session that owned the recap run. */
+	sessionId: string;
+	reason: RecapFailureReason;
+	/** Human-readable detail (timeout note or the provider error message). */
+	message: string;
+}
+
+/**
+ * Subscribe to session recap failures from every session in this process: the
+ * auto-title LLM call (after the first prompt and after every compaction)
+ * hitting its 30s timeout ("timeout") or a provider error ("error"). Fires
+ * after each failed run; returns an unsubscribe function. In-process only —
+ * hosts embed pi-plus in-process, which this covers. Hosts that also wire
+ * PlusUIDialogHandlers.notify receive the same failure as a transcript warning
+ * through the notify bridge.
+ */
+export declare function subscribeToRecapFailures(
+	listener: (failure: RecapFailure) => void,
+): () => void;
+
 export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions {
 	extensionFactories?: InlineExtension[];
 	ui?: PlusUIDialogHandlers;
