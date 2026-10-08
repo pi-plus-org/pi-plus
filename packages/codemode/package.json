@@ -1,6 +1,6 @@
 {
 	"name": "@earendil-works/pi-codemode",
-	"version": "1.5.2",
+	"version": "1.1.0",
 	"description": "Sandboxed JavaScript execution where the only capability is calling injected tools",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -21,16 +21,6 @@
 			"types": "./dist/source.d.ts",
 			"import": "./dist/source.js"
 		},
-		"./portable": {
-			"source": "./src/portable.ts",
-			"types": "./dist/portable.d.ts",
-			"import": "./dist/portable.js"
-		},
-		"./cloudflare": {
-			"source": "./src/cloudflare.ts",
-			"types": "./dist/cloudflare.d.ts",
-			"import": "./dist/cloudflare.js"
-		},
 		"./worker": {
 			"source": "./src/runtime/worker.ts",
 			"types": "./dist/runtime/worker.d.ts",
@@ -42,7 +32,7 @@
 		"README.md"
 	],
 	"scripts": {
-		"clean": "node ../../scripts/package-files.mjs clean dist",
+		"clean": "shx rm -rf dist",
 		"build": "tsc -p tsconfig.build.json",
 		"test": "vitest --run",
 		"prepublishOnly": "npm run clean && npm run build"
@@ -52,9 +42,7 @@
 		"codemode",
 		"sandbox",
 		"quickjs",
-		"wasm",
-		"cloudflare",
-		"durable-objects"
+		"wasm"
 	],
 	"author": "Earendil Works",
 	"license": "MIT",
@@ -70,6 +58,7 @@
 		"quickjs-wasi": "3.6.2"
 	},
 	"devDependencies": {
-		"vitest": "4.1.12"
+		"shx": "0.3.4",
+		"vitest": "4.1.11"
 	}
 }

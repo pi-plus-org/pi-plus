@@ -53,7 +53,6 @@ export async function executeBashWithOperations(
 ): Promise<BashResult> {
 	const outputChunks: string[] = [];
 	let outputBytes = 0;
-	let discardedOutput = false;
 	const maxOutputBytes = DEFAULT_MAX_BYTES * 2;
 
 	let tempFilePath: string | undefined;
@@ -96,7 +95,6 @@ export async function executeBashWithOperations(
 		while (outputBytes > maxOutputBytes && outputChunks.length > 1) {
 			const removed = outputChunks.shift()!;
 			outputBytes -= removed.length;
-			discardedOutput = true;
 		}
 
 		// Stream to callback
@@ -142,7 +140,7 @@ export async function executeBashWithOperations(
 		output: truncationResult.truncated ? truncationResult.content : fullOutput,
 		exitCode: cancelled ? undefined : (exitCode ?? undefined),
 		cancelled,
-		truncated: discardedOutput || truncationResult.truncated,
+		truncated: truncationResult.truncated,
 		fullOutputPath: tempFilePath,
 	};
 }

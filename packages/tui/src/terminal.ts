@@ -614,6 +614,17 @@ export class ProcessTerminal implements Terminal {
 		}
 	}
 
+	setProgramStatus(status: ProgramStatus): void {
+		this.programStatus = status.state === "clear" ? undefined : status;
+		if (this.programStatusSupported) process.stdout.write(formatProgramStatus(status));
+	}
+
+	private writeProgramStatus(): void {
+		if (this.programStatusSupported && this.programStatus) {
+			process.stdout.write(formatProgramStatus(this.programStatus));
+		}
+	}
+
 	setProgress(active: boolean): void {
 		if (active) {
 			// OSC 9;4;3 - indeterminate progress
