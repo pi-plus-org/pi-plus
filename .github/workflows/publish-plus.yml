@@ -4,6 +4,10 @@ name: Publish pi-plus packages
 # npmjs on every push to main, mirroring .claude/scripts/pipi-publish.sh and
 # pipi-sdk-publish.sh: auto patch-bump past max(local, registry) version,
 # build offline, sanity-check the tarball, publish, then commit the bump.
+#
+# Uses npm Trusted Publishing (OIDC): no npm token is stored in GitHub. The
+# pi-plus and pi-plus-sdk packages on npmjs trust this repo's publish-plus.yml
+# workflow running in the "npm-publish" environment.
 
 on:
   push:
@@ -17,12 +21,14 @@ concurrency:
 
 permissions:
   contents: write
+  id-token: write # npm Trusted Publishing (OIDC)
 
 jobs:
   publish:
     # The version-bump commit this workflow pushes starts with this prefix;
     # without the guard, every publish would trigger another push and loop forever.
     if: "${{ !startsWith(github.event.head_commit.message, 'feat(plus): release pi-plus') }}"
+    environment: npm-publish # must match the environment named in the npmjs trusted publisher config
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,15 +40,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Trusted publishing needs npm >= 11.5 (node 22 ships npm 10).
+      - name: Upgrade npm
+        run: npm install --global npm@11
+
       - name: Install dependencies
         run: npm ci --ignore-scripts
-
-      - name: Authenticate with npmjs
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
-          echo "Authenticated as $(npm whoami)"
 
       # Auto patch-bump past both the local version and the registry version,
       # so re-runs always move forward and never collide with published versions.
