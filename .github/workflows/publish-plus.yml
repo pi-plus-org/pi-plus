@@ -1,0 +1,179 @@
+name: Publish pi-plus packages
+
+# Publishes pi-plus (packages/plus-cli) and pi-plus-sdk (packages/plus-api) to
+# npmjs on every push to main, mirroring .claude/scripts/pipi-publish.sh and
+# pipi-sdk-publish.sh: auto patch-bump past max(local, registry) version,
+# build offline, sanity-check the tarball, publish, then commit the bump.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: publish-plus
+  # Never cancel a run mid-publish — an interrupted publish could leave the
+  # registry ahead of the repo without the bump commit landing.
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    # The version-bump commit this workflow pushes starts with this prefix;
+    # without the guard, every publish would trigger another push and loop forever.
+    if: "${{ !startsWith(github.event.head_commit.message, 'feat(plus): release pi-plus') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Authenticate with npmjs
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+          echo "Authenticated as $(npm whoami)"
+
+      # Auto patch-bump past both the local version and the registry version,
+      # so re-runs always move forward and never collide with published versions.
+      - name: Resolve and bump versions
+        id: versions
+        run: |
+          set -euo pipefail
+          bump() {
+            local pkg_json="$1" registry_name="$2" out_prefix="$3"
+            local local_version registry_version next_version
+            local_version="$(node -p "require('./$pkg_json').version")"
+            registry_version="$(npm view "$registry_name" version 2>/dev/null || echo "0.0.0")"
+            next_version="$(node -e '
+          const semver = require("semver");
+          const [a, b] = process.argv.slice(1);
+          const max = semver.gt(a, b) ? a : b;
+          console.log(semver.inc(max, "patch"));
+          ' "$local_version" "$registry_version")"
+            echo "Version: $registry_name $local_version (local), $registry_version (registry) -> $next_version"
+            if [[ "$local_version" != "$next_version" ]]; then
+              node -e '
+          const fs = require("fs");
+          const path = process.argv[1];
+          const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+          pkg.version = process.argv[2];
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, "\t")}\n`);
+          ' "$pkg_json" "$next_version"
+              echo "${out_prefix}_bumped=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${out_prefix}_bumped=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "${out_prefix}_next=$next_version" >> "$GITHUB_OUTPUT"
+          }
+          bump packages/plus-cli/package.json pi-plus cli
+          bump packages/plus-api/package.json pi-plus-sdk sdk
+          npm install --package-lock-only --ignore-scripts >/dev/null
+
+      # Shared by both publish scripts (identical commands); run once instead
+      # of twice. meta.json is generated (gitignored), so hydrate it before
+      # build:offline's staleness check.
+      - name: Build
+        run: |
+          npm run hydrate:model-data
+          npm run build:offline
+
+      - name: Publish pi-plus (CLI)
+        run: |
+          set -euo pipefail
+          node packages/plus-cli/build.mjs
+
+          # Sanity-check the tarball contents.
+          pack_json="$(cd packages/plus-cli/dist/npm && npm pack --dry-run --json --ignore-scripts)"
+          node -e '
+          const files = JSON.parse(process.argv[1])[0].files.map((f) => f.path);
+          const required = ["pipi.js", "package.json", "modes/interactive/theme/dark.json", "core/export-html/template.html"];
+          const missing = required.filter((f) => !files.includes(f));
+          if (missing.length > 0) {
+            console.error(`error: missing from the pack tarball: ${missing.join(", ")}`);
+            process.exit(1);
+          }
+          const forbidden = files.filter((f) => f.startsWith("dist/") || f.startsWith("src/") || f.startsWith("loader/"));
+          if (forbidden.length > 0) {
+            console.error(`error: unexpected entries in the pack tarball: ${forbidden.join(", ")}`);
+            process.exit(1);
+          }
+          console.log(`tarball OK: ${files.length} files`);
+          ' "$pack_json"
+
+          (cd packages/plus-cli/dist/npm && npm publish --access public --ignore-scripts)
+
+      - name: Publish pi-plus-sdk
+        run: |
+          set -euo pipefail
+          node packages/plus-api/build.mjs
+
+          # Sanity-check the tarball contents.
+          pack_json="$(cd packages/plus-api/dist/npm && npm pack --dry-run --json --ignore-scripts)"
+          node -e '
+          const files = JSON.parse(process.argv[1])[0].files.map((f) => f.path);
+          const required = ["api.js", "api.d.ts", "package.json", "modes/interactive/theme/dark.json", "core/export-html/template.html"];
+          const missing = required.filter((f) => !files.includes(f));
+          if (missing.length > 0) {
+            console.error(`error: missing from the pack tarball: ${missing.join(", ")}`);
+            process.exit(1);
+          }
+          const forbidden = files.filter((f) => f.startsWith("dist/") || f.startsWith("src/") || f.startsWith("build/"));
+          if (forbidden.length > 0) {
+            console.error(`error: unexpected entries in the pack tarball: ${forbidden.join(", ")}`);
+            process.exit(1);
+          }
+          console.log(`tarball OK: ${files.length} files`);
+          ' "$pack_json"
+
+          # The staged types dependency (api.d.ts re-exports the upstream SDK)
+          # is an exact pin to the workspace coding-agent version; consumers
+          # resolve it from the registry, so it must already be published.
+          types_pin="$(cd packages/plus-api/dist/npm && node -p "require(\"./package.json\").dependencies[\"@earendil-works/pi-coding-agent\"]")"
+          if ! npm view "@earendil-works/pi-coding-agent@$types_pin" version >/dev/null 2>&1; then
+            echo "error: staged types dependency @earendil-works/pi-coding-agent@$types_pin is not on the registry yet." >&2
+            echo "Publish that upstream version first (or sync the workspace to a released one)." >&2
+            exit 1
+          fi
+          echo "Types dependency @earendil-works/pi-coding-agent@$types_pin is on the registry"
+
+          (cd packages/plus-api/dist/npm && npm publish --access public --ignore-scripts)
+
+          # npmjs can take a while before a freshly published version is
+          # resolvable through the registry API — poll until it appears.
+          next_version="${{ steps.versions.outputs.sdk_next }}"
+          deadline=$((SECONDS + 600))
+          while true; do
+            if npm view "pi-plus-sdk@$next_version" version --registry https://registry.npmjs.org --prefer-online >/dev/null 2>&1; then
+              echo "pi-plus-sdk@$next_version is available on npmjs"
+              break
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "error: pi-plus-sdk@$next_version still not on npmjs after 600s — publish succeeded but propagation looks stuck; check https://www.npmjs.com/package/pi-plus-sdk/v/$next_version" >&2
+              exit 1
+            fi
+            echo "Waiting for pi-plus-sdk@$next_version to appear on npmjs..."
+            sleep 5
+          done
+
+      - name: Commit version bumps
+        if: ${{ steps.versions.outputs.cli_bumped == 'true' || steps.versions.outputs.sdk_bumped == 'true' }}
+        run: |
+          set -euo pipefail
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          git add packages/plus-cli/package.json packages/plus-api/package.json package-lock.json
+          # PI_ALLOW_LOCKFILE_CHANGE is required by the repo's pre-commit hook
+          # for lockfile commits (no-op in CI, where hooks are not installed).
+          PI_ALLOW_LOCKFILE_CHANGE=1 git commit -m "feat(plus): release pi-plus v${{ steps.versions.outputs.cli_next }}, pi-plus-sdk v${{ steps.versions.outputs.sdk_next }}"
+          git push origin "HEAD:${{ github.ref_name }}"
