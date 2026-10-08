@@ -7,9 +7,9 @@
  *   node scripts/release.mjs <x.y.z>
  *
  * Steps:
- * 1. Check the npm version and for uncommitted changes
- * 2. Verify every public workspace package is registered on npm,
- *    pin the newest model catalog for Nix, and build with it
+ * 1. Check for uncommitted changes
+ * 2. Verify every public workspace package is registered on npm
+ *    and refresh the Nix model catalog pin if it is stale
  * 3. Bump version via npm run version:xxx or set an explicit version
  * 4. Update CHANGELOG.md files: [Unreleased] -> [version] - date
  * 5. Regenerate release artifacts
@@ -23,8 +23,8 @@
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { findPackageDirectories } from "./package-workspaces.mjs";
 import { getPublicWorkspacePackages } from "./release-packages.mjs";
-import { hydrateModelCatalogBytes, updateModelCatalogPin } from "./update-model-catalog-pin.mjs";
 
 const RELEASE_TARGET = process.argv[2];
 const BUMP_TYPES = new Set(["major", "minor", "patch"]);
@@ -83,48 +83,6 @@ function assertPackagesAreRegisteredWithNpm() {
 	}
 
 	console.log("  All public workspace packages are registered on npm\n");
-}
-
-const MODEL_CATALOG_PIN = "nix/model-catalog.json";
-
-// Release tags are immutable, so the tagged Nix pin must already build the
-// release. Pin the newest catalog unconditionally (`--if-stale` only avoids pin
-// churn on main), then run the Nix build's steps: hydrate the checkout's model
-// data from it and build offline. This catches e.g. source that references a
-// model the catalog lacks. On failure, restore the committed pin so the
-// worktree is clean for a rerun.
-async function pinAndBuildWithNewestModelCatalog() {
-	const root = process.cwd();
-	const committedPin = readFileSync(MODEL_CATALOG_PIN, "utf8");
-	const restored = `${MODEL_CATALOG_PIN} was restored. Run \`npm run generate:models\` to restore local model data, then rerun the release.`;
-	let revision;
-	let result;
-	try {
-		const pin = await updateModelCatalogPin(root);
-		revision = pin.revision;
-		console.log(`  Pinned model catalog ${revision}`);
-		hydrateModelCatalogBytes(root, pin.bytes);
-		console.log("$ npm run build:offline");
-		const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-		result = spawnSync(npm, ["run", "build:offline"], { stdio: "inherit" });
-	} finally {
-		if (result?.status !== 0) writeFileSync(MODEL_CATALOG_PIN, committedPin);
-	}
-	// Only a build that ran and exited non-zero says anything about the catalog.
-	if (result.error || result.signal) {
-		const cause = result.error ? result.error.message : `it was stopped by ${result.signal}`;
-		console.error(`Error: npm run build:offline did not complete: ${cause}.\n${restored}`);
-		process.exit(1);
-	}
-	if (result.status !== 0) {
-		console.error(
-			`Error: the build with the newest published model catalog ${revision} failed; the Nix build of the release tag would fail too.\n` +
-				"If the errors concern model IDs, types, or APIs, the catalog predates main: publish one from main (Publish Model Catalog workflow).\n" +
-				"Otherwise fix the build (e.g. run `npm ci --ignore-scripts` if node_modules is out of date).\n" +
-				restored,
-		);
-		process.exit(1);
-	}
 }
 
 function compareVersions(a, b) {
@@ -195,7 +153,7 @@ function bumpOrSetVersion(target) {
 		}
 
 		console.log(`Setting explicit version (${target})...`);
-		run(`npm version ${target} --workspace packages --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts`);
+		run(`npm version ${target} --workspaces --no-git-tag-version --no-workspaces-update && node scripts/sync-versions.js && npm install --package-lock-only --ignore-scripts`);
 	}
 
 	// npm version can temporarily install the previous workspace versions before
@@ -208,8 +166,8 @@ function bumpOrSetVersion(target) {
 }
 
 function getChangelogs() {
-	return getPublicWorkspacePackages()
-		.map(({ directory }) => join(directory, "CHANGELOG.md"))
+	return findPackageDirectories()
+		.map((directory) => join(directory, "CHANGELOG.md"))
 		.filter((path) => existsSync(path));
 }
 
@@ -254,18 +212,7 @@ function addUnreleasedSection() {
 // Main flow
 console.log("\n=== Release Script ===\n");
 
-// 1. Check the npm version and for uncommitted changes
-// The release rewrites package-lock.json. npm 10 (bundled with Node 22) drops the `libc`
-// fields that tell npm which native packages are glibc and which are musl builds.
-console.log("Checking npm version...");
-const npmVersion = run("npm --version", { silent: true }).trim();
-if (Number(npmVersion.split(".")[0]) < 11) {
-	console.error(`Error: the release needs npm 11 or newer to write package-lock.json; found npm ${npmVersion}.`);
-	console.error("Run `npm install -g npm@11` or use a Node version that bundles npm 11 or newer.");
-	process.exit(1);
-}
-console.log(`  npm ${npmVersion}\n`);
-
+// 1. Check for uncommitted changes
 console.log("Checking for uncommitted changes...");
 const status = run("git status --porcelain", { silent: true });
 if (status && status.trim()) {
@@ -278,10 +225,11 @@ console.log("  Working directory clean\n");
 // 2. Verify npm package registration before modifying the worktree.
 assertPackagesAreRegisteredWithNpm();
 
-// Pin and verify the Nix model catalog before modifying versions, so the pin
-// lands in the release commit and a failure leaves the worktree clean.
-console.log("Pinning and building with the newest model catalog for Nix...");
-await pinAndBuildWithNewestModelCatalog();
+// Release tags are immutable, so the tagged Nix pin must already build the
+// release. Refresh it before the version bump, while pi.dev still knows the
+// current version, so it lands in the release commit.
+console.log("Refreshing the Nix model catalog pin if stale...");
+run("node scripts/update-model-catalog-pin.mjs --if-stale");
 console.log();
 
 // 3. Bump or set version

@@ -55,23 +55,25 @@ test("selects the newest catalog a Pi version supports", () => {
 	assert.equal(selectModelCatalog(index, undefined)?.revision, mixedApiRevision);
 });
 
-test("serves Pi user agents the catalog for their version", () => {
+test("redirects Pi user agents to an explicit catalog version", () => {
 	// Regression test for #9099: released clients identify themselves only by User-Agent.
 	assert.deepEqual(
 		parseModelCatalogRequest(
 			"https://pi.dev/api/models/providers/openrouter?types=chat%2Cimage",
 			"pi/0.84.4 (linux; node/v22.0.0; x64)",
 		),
-		{ kind: "catalog", piVersion: "0.84.4", representation: "typed" },
+		{
+			kind: "redirect",
+			location: "https://pi.dev/api/models/providers/openrouter?types=chat%2Cimage&pi-version=0.84.4",
+		},
 	);
 	assert.deepEqual(parseModelCatalogRequest("https://pi.dev/api/models", "pi/0.84.4"), {
-		kind: "catalog",
-		piVersion: "0.84.4",
-		representation: "legacy",
+		kind: "redirect",
+		location: "https://pi.dev/api/models?pi-version=0.84.4",
 	});
 });
 
-test("serves explicit and unversioned catalog requests", () => {
+test("serves explicit and unversioned catalog requests without redirecting", () => {
 	assert.deepEqual(
 		parseModelCatalogRequest("https://pi.dev/api/models?pi-version=0.83.0", "pi/0.85.1 (linux; node/v22.0.0; x64)"),
 		{ kind: "catalog", piVersion: "0.83.0", representation: "legacy" },
