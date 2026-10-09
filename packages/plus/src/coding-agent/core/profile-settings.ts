@@ -31,10 +31,26 @@ export const ENV_BASE_AGENT_DIR = "PI_PLUS_BASE_AGENT_DIR";
 /**
  * settings.json keys that are profile-scoped: stored in the profile's
  * settings.json and never written to the base agent settings.json.
- * Mirrored in packages/hub/src/types.ts (PROFILE_SETTINGS_KEYS) — hub is
- * dependency-free so the two lists must be kept in sync manually.
+ * `enabledModels` belongs here because the model scope is derived from the
+ * profile's declared models: a profile that does not own the key would let a
+ * stale base-layer scope (left behind by an earlier profile) outrank its
+ * `defaultModel` at startup — pi's initial model selection prefers the first
+ * scoped model over the saved default.
+ * Mirrored in packages/hub/src/types.ts (PROFILE_SETTINGS_KEYS /
+ * isProfileScopedSettingsKey) — hub is dependency-free so the two must be
+ * kept in sync manually.
  */
-export const PROFILE_SETTINGS_KEYS: readonly string[] = ["defaultProvider", "defaultModel", "defaultThinkingLevel"];
+export const PROFILE_SETTINGS_KEYS: readonly string[] = [
+	"defaultProvider",
+	"defaultModel",
+	"defaultThinkingLevel",
+	"enabledModels",
+];
+
+/** True when a settings key is profile-scoped (routed to the profile layer, never the base). */
+export function isProfileScopedSettingsKey(key: string): boolean {
+	return PROFILE_SETTINGS_KEYS.includes(key);
+}
 
 /**
  * Directory where hub materializes profile agent dirs, mirroring
