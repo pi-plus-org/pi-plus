@@ -20,8 +20,9 @@
  * createAsyncSerializer (a first-prompt recap and an overflow-compaction
  * recap must not overlap) and fire-and-forget. Failures never disrupt the
  * session: a timeout (the title call's 30s cap) warns once in the transcript,
- * a provider error warns there too and stays on stderr, and both are
- * published to subscribeToRecapFailures (events.ts) for SDK hosts.
+ * a provider error warns there too — plus a stderr log in headless modes,
+ * which have no notify UI — and both are published to
+ * subscribeToRecapFailures (events.ts) for SDK hosts.
  * Unpersisted sessions (no session file) are skipped.
  */
 
@@ -38,6 +39,19 @@ import { generateRecapTitle, RecapAbortedError, type RecapGenerationOptions } fr
 
 /** Custom entry marking "this session name was auto-set by the recap". */
 const RECAP_ENTRY_TYPE = "pi-plus-session-recap";
+
+/** Max chars of provider error text shown in the transcript warning. */
+const RECAP_NOTIFY_DETAIL_MAX_CHARS = 200;
+
+/**
+ * Flatten an error message into one truncated line: provider failures carry
+ * whole JSON error bodies (multi-line, hundreds of chars) that would blow out
+ * the notify toast.
+ */
+function flattenErrorDetail(detail: string): string {
+	const flat = detail.replace(/\s+/g, " ").trim();
+	return flat.length > RECAP_NOTIFY_DETAIL_MAX_CHARS ? `${flat.slice(0, RECAP_NOTIFY_DETAIL_MAX_CHARS - 1)}…` : flat;
+}
 
 interface RecapMarkerData {
 	name?: unknown;
@@ -57,6 +71,8 @@ export interface RecapDeps {
 interface RecapContextSnapshot {
 	persisted: boolean;
 	sessionId: string;
+	/** Run mode, captured to pick the failure sink (stderr only when headless). */
+	mode: ExtensionContext["mode"];
 	model: RecapGenerationOptions["model"] | undefined;
 	registry: Pick<ExtensionContext["modelRegistry"], "getApiKeyAndHeaders">;
 	/**
@@ -132,10 +148,15 @@ export function registerRecap(pi: ExtensionAPI, deps: RecapDeps = {}): void {
 				snapshot.notify(
 					timedOut
 						? "Session recap timed out; the session name was left unchanged."
-						: `Session recap failed: ${detail}`,
+						: `Session recap failed: ${flattenErrorDetail(detail)}`,
 					"warning",
 				);
-				if (!timedOut) console.error("pi-plus: session recap failed:", error);
+				// Headless modes (json/print) have a no-op notify, so stderr is
+				// their only failure sink; in the TUI the warning above suffices —
+				// writing there too garbles the screen with a raw provider error
+				// body and stack trace (rpc keeps the log: its notify reaches the
+				// client and stderr never renders anywhere a user is watching).
+				if (!timedOut && snapshot.mode !== "tui") console.error("pi-plus: session recap failed:", error);
 			}
 		}).catch(() => {});
 	};
@@ -169,6 +190,7 @@ export function registerRecap(pi: ExtensionAPI, deps: RecapDeps = {}): void {
 	const snapshotContext = (ctx: ExtensionContext): RecapContextSnapshot => ({
 		persisted: ctx.sessionManager.getSessionFile() !== undefined,
 		sessionId: ctx.sessionManager.getSessionId(),
+		mode: ctx.mode,
 		model: ctx.model,
 		registry: ctx.modelRegistry,
 		notify: ctx.ui.notify,

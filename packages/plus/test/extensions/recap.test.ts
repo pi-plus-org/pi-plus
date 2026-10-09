@@ -43,13 +43,14 @@ interface CtxOverrides {
 	entries?: unknown[];
 	persisted?: boolean;
 	messages?: AgentMessage[];
+	mode?: ExtensionContext["mode"];
 	/** Records transcript warnings the extension surfaces via ctx.ui.notify. */
 	onNotify?: (message: string, type?: "info" | "warning" | "error") => void;
 }
 
 function fakeCtx(overrides: CtxOverrides = {}): ExtensionContext {
 	return {
-		mode: "tui",
+		mode: overrides.mode ?? "tui",
 		model: MODEL,
 		ui: { notify: overrides.onNotify ?? (() => {}) },
 		sessionManager: {
@@ -226,13 +227,14 @@ describe("recap failure policy", () => {
 		console.error = originalConsoleError;
 	});
 
-	it("logs and swallows generation errors without renaming", async () => {
+	it("logs generation errors on stderr in headless modes without renaming", async () => {
 		const logged: unknown[] = [];
 		console.error = (...args: unknown[]) => {
 			logged.push(args);
 		};
 		const h = captureRecap(() => Promise.reject(new Error("provider down")));
-		const ctx = fakeCtx({ messages: [userMessage("solo"), assistantMessage("reply")] });
+		// json/print have a no-op ui.notify, so stderr is their only failure sink.
+		const ctx = fakeCtx({ mode: "print", messages: [userMessage("solo"), assistantMessage("reply")] });
 		await h.fire("session_start", { type: "session_start", reason: "new" }, ctx);
 		await h.fire("agent_settled", { type: "agent_settled" }, ctx);
 		assert.deepEqual(h.names, []);
@@ -270,7 +272,7 @@ describe("recap failure policy", () => {
 		}
 	});
 
-	it("warns, logs, and publishes an error failure for provider errors", async () => {
+	it("warns and publishes provider errors in the TUI without a stderr dump", async () => {
 		const logged: unknown[] = [];
 		console.error = (...args: unknown[]) => {
 			logged.push(args);
@@ -287,13 +289,31 @@ describe("recap failure policy", () => {
 			await h.fire("session_start", { type: "session_start", reason: "new" }, ctx);
 			await h.fire("agent_settled", { type: "agent_settled" }, ctx);
 			assert.deepEqual(h.names, []);
-			assert.equal(logged.length, 1);
-			assert.match(String(logged[0]), /session recap failed/);
+			// The transcript warning replaces the stderr dump: the TUI renders
+			// stderr inline, so a raw error + stack there garbles the screen.
+			assert.equal(logged.length, 0);
 			assert.deepEqual(notifications, [["Session recap failed: provider down", "warning"]]);
 			assert.deepEqual(failures, [{ sessionId: "session-1", reason: "error", message: "provider down" }]);
 		} finally {
 			unsubscribe();
 		}
+	});
+
+	it("flattens and truncates a multi-line provider error body in the warning", async () => {
+		const notifications: [string, string | undefined][] = [];
+		const longBody = `Recap failed: 403 ${JSON.stringify({ error: { type: "permission_error" } })}\n${"x".repeat(500)}`;
+		const h = captureRecap(() => Promise.reject(new Error(longBody)));
+		const ctx = fakeCtx({
+			messages: [userMessage("solo"), assistantMessage("reply")],
+			onNotify: (message, type) => notifications.push([message, type]),
+		});
+		await h.fire("session_start", { type: "session_start", reason: "new" }, ctx);
+		await h.fire("agent_settled", { type: "agent_settled" }, ctx);
+		assert.equal(notifications.length, 1);
+		const [message] = notifications[0];
+		assert.ok(!message.includes("\n"));
+		assert.ok(message.length < 250, `warning should be truncated, got ${message.length} chars`);
+		assert.ok(message.endsWith("…"));
 	});
 });
 
