@@ -44,6 +44,10 @@ import {
 import { dispatchCompletion } from "../completion/index.ts";
 import { registerFancyDiff, registerPlainTools, registerTabTitle } from "../extensions/index.ts";
 import { registerBanner } from "./ui/banner.ts";
+// Side-effect import: installs the interactive TUI's addMessageToChat
+// auto-fold prototype patch (fold previous turns' thinking/tool rows when
+// a new user message arrives; PI_AUTO_FOLD_HISTORY=0 disables).
+import "./ui/auto-fold-history.ts";
 import { registerVim } from "./ui/vim/extension.ts";
 
 export async function main(args: string[], options?: MainOptions) {
