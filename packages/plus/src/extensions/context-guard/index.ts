@@ -13,6 +13,14 @@
  *   projected active message count exceeds PI_MAX_ACTIVE_MESSAGES (default 1000),
  *   force compaction regardless of the token threshold. Bypasses
  *   PI_DISABLE_AUTO_COMPACT, matching CC; PI_DISABLE_COMPACT still wins.
+ * - turn_end, pressure micro-compact (CC's time-based micro-compact applied to
+ *   token pressure instead of an idle gap): once the projected request reaches
+ *   PI_MICROCOMPACT_PRESSURE_PCT percent (default 60) of the auto-compact
+ *   threshold, stale compactable tool results are replaced with CC's
+ *   "[Old tool result content cleared]" marker via context_edit drafts
+ *   (see plus/src/context/microcompact.ts). Runs before pruning — clearing
+ *   the biggest payloads is free and may keep the projection under the full
+ *   threshold, so pruning (and compaction) is not reached.
  * - turn_end, relevance pruning (CC's pre-compact prune in autoCompact.ts): when
  *   the projected request reaches the auto-compact threshold (or a message
  *   crossed it earlier this run), omit low-relevance old text entries via
@@ -24,8 +32,9 @@
  *   to compact immediately when a resumed session is already >= 70% of the
  *   auto-compact threshold. TUI-only, like CC's interactive-only prompt.
  *
- * Time-based micro-compact lives separately in the AgentSession subclass
- * constructor (see plus/src/context/microcompact.ts).
+ * Idle (time-based) micro-compact lives separately in the AgentSession
+ * subclass constructor (see plus/src/context/microcompact.ts); this extension
+ * owns the pressure-triggered variant.
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -39,6 +48,12 @@ import {
 	isCompactDisabled,
 } from "../../context/detection.ts";
 import { estimateContextTokensPlus } from "../../context/estimate.ts";
+import {
+	getMicroCompactKeepRecent,
+	getMicroCompactPressurePct,
+	selectToolResultsToClearUnderPressure,
+	TIME_BASED_MC_CLEARED_MESSAGE,
+} from "../../context/microcompact.ts";
 import { getPruneTailTurns, selectPruneTargets } from "../../context/pruning.ts";
 
 const DEFAULT_MAX_ACTIVE_MESSAGES = 1000;
@@ -134,13 +149,36 @@ export function registerContextGuard(pi: ExtensionAPI): void {
 			return;
 		}
 
-		// 2. Relevance pruning at the auto-compact threshold (or when a message
-		// crossed it earlier this run).
+		// 2. Pressure micro-compact and 3. relevance pruning share the threshold math.
 		if (isAutoCompactDisabled() || isAutoCompactBreakerTripped()) return;
 		const model = getCurrentModel() ?? ctx.model;
 		if (!model) return; // no window math possible; upstream's reserve-based fallback applies
 		const threshold = getAutoCompactThreshold(model);
 		const { tokens } = estimateContextTokensPlus(projection.messages);
+
+		// 2. Pressure micro-compact: clear stale compactable tool results once the
+		// projection reaches a fraction of the auto-compact threshold. Cheapest
+		// lever per token freed (no LLM call) and idempotent — the projection
+		// skips results already carrying the marker, so later pressure turns do
+		// nothing until new results age out. Returns before pruning: if clearing
+		// alone dips the next projection below the full threshold, pruning (and
+		// compaction) never fires this run.
+		const pressurePct = getMicroCompactPressurePct();
+		if (pressurePct > 0 && tokens >= Math.floor((threshold * pressurePct) / 100)) {
+			const clearIds = selectToolResultsToClearUnderPressure(projection.entries, getMicroCompactKeepRecent());
+			if (clearIds.length > 0) {
+				return {
+					entries: clearIds.map((targetId) => ({
+						type: "context_edit" as const,
+						targetId,
+						replacement: { content: [{ type: "text" as const, text: TIME_BASED_MC_CLEARED_MESSAGE }] },
+					})),
+				};
+			}
+		}
+
+		// 3. Relevance pruning at the auto-compact threshold (or when a message
+		// crossed it earlier this run).
 		if (tokens < threshold && !thresholdCrossedMidRun) return;
 		thresholdCrossedMidRun = false;
 		const targets = selectPruneTargets(projection.entries, tokens, threshold, getPruneTailTurns(), Date.now());

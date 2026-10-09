@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, it } from "vitest";
 import type { ContextUsage, ExtensionAPI, ExtensionContext } from "../../../coding-agent/src/core/extensions/types.ts";
 import type { ProjectedSessionEntry, SessionEntry } from "../../../coding-agent/src/core/session-manager.ts";
 import { resetAutoCompactBreaker, setCurrentModel } from "../../src/context/detection.ts";
+import { TIME_BASED_MC_CLEARED_MESSAGE } from "../../src/context/microcompact.ts";
 import { registerContextGuard } from "../../src/extensions/context-guard/index.ts";
 
 const NOW = 1_700_000_000_000;
@@ -158,6 +159,8 @@ afterEach(() => {
 	delete process.env.PI_DISABLE_AUTO_COMPACT;
 	delete process.env.PI_DISABLE_COMPACT;
 	delete process.env.PI_PRUNE_TAIL_TURNS;
+	delete process.env.PI_MICROCOMPACT_PRESSURE_PCT;
+	delete process.env.PI_MICROCOMPACT_KEEP_RECENT;
 	rmSync(settingsDir, { recursive: true, force: true });
 	if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
 	else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
@@ -232,6 +235,107 @@ describe("turn_end: relevance pruning", () => {
 
 	it("does not prune when the projection is under the threshold", () => {
 		const { ctx } = fakeCtx({ projection: [entry("e1", [userMessage("tiny")])] });
+		const { turnEnd } = captureGuard();
+		assert.equal(turnEnd({ type: "turn_end" } as never, ctx), undefined);
+	});
+});
+
+describe("turn_end: pressure micro-compact", () => {
+	// Threshold is 1918 tokens (PI_AUTOCOMPACT_PCT_OVERRIDE=1); pressure default
+	// 60% fires at 1150. ~2000 chars per cleared-marker-free bash result.
+	function bigToolResult(id: string, toolName = "bash", chars = 2000): ProjectedSessionEntry {
+		const text = "z".repeat(chars);
+		return entry(id, [
+			{
+				role: "toolResult",
+				toolCallId: `call-${id}`,
+				toolName,
+				content: [{ type: "text", text }],
+				isError: false,
+				timestamp: NOW,
+			} as unknown as AgentMessage,
+		]);
+	}
+
+	it("clears stale tool results between the pressure percent and the full threshold", () => {
+		process.env.PI_MICROCOMPACT_KEEP_RECENT = "1";
+		// 3 x 2000 chars ≈ 1500 tokens: above 60% pressure, below the 1918 threshold.
+		const projection = [bigToolResult("t1"), bigToolResult("t2"), bigToolResult("t3")];
+		const { ctx, fake } = fakeCtx({ projection });
+		const { turnEnd } = captureGuard();
+		const result = turnEnd({ type: "turn_end" } as never, ctx);
+		assert.deepEqual(result?.entries, [
+			{
+				type: "context_edit",
+				targetId: "t1",
+				replacement: { content: [{ type: "text", text: TIME_BASED_MC_CLEARED_MESSAGE }] },
+			},
+			{
+				type: "context_edit",
+				targetId: "t2",
+				replacement: { content: [{ type: "text", text: TIME_BASED_MC_CLEARED_MESSAGE }] },
+			},
+		]);
+		assert.equal(fake.compactCalls, 0);
+	});
+
+	it("runs before pruning when both would fire on the same turn", () => {
+		process.env.PI_MICROCOMPACT_KEEP_RECENT = "1";
+		process.env.PI_PRUNE_TAIL_TURNS = "1";
+		// 3 x 2000 chars over one ~2000-token text entry: projection passes the
+		// full threshold, but pressure claims the turn (clear drafts, no prune null-drafts).
+		const projection = [
+			entry("oldtext", [userMessage("x".repeat(8000), NOW - 60_000)]),
+			bigToolResult("t1"),
+			bigToolResult("t2"),
+			bigToolResult("t3"),
+		];
+		const { ctx } = fakeCtx({ projection });
+		const { turnEnd } = captureGuard();
+		const result = turnEnd({ type: "turn_end" } as never, ctx);
+		assert.equal(result?.entries?.length, 2);
+		for (const draft of result?.entries ?? []) {
+			assert.equal(draft.type, "context_edit");
+			assert.notEqual(draft.replacement, null);
+		}
+		assert.deepEqual(
+			result?.entries?.map((e) => e.targetId),
+			["t1", "t2"],
+		);
+	});
+
+	it("does not re-clear marker-carrying results and leaves protected results alone", () => {
+		// The projection sits over the full threshold so pressure definitely
+		// evaluates, but every candidate is already cleared (marker content) or
+		// protected (ask_user is not compactable), so it emits nothing — and
+		// pruning protects tool entries too, so the turn is a no-op.
+		const cleared = entry("t1", [
+			toolResultMessage(TIME_BASED_MC_CLEARED_MESSAGE, NOW - 3 * 60 * 60 * 1000) as AgentMessage,
+		]);
+		const projection = [cleared, bigToolResult("ask", "ask_user", 8000)];
+		const { ctx } = fakeCtx({ projection });
+		const { turnEnd } = captureGuard();
+		assert.equal(turnEnd({ type: "turn_end" } as never, ctx), undefined);
+	});
+
+	it("PI_MICROCOMPACT_PRESSURE_PCT=0 disables the stage so pruning still fires", () => {
+		process.env.PI_MICROCOMPACT_PRESSURE_PCT = "0";
+		process.env.PI_PRUNE_TAIL_TURNS = "1";
+		const projection = [
+			entry("oldtext", [userMessage("x".repeat(8000), NOW - 60_000)]),
+			bigToolResult("t1"),
+			bigToolResult("t2"),
+			entry("recent", [userMessage("latest question")]),
+		];
+		const { ctx } = fakeCtx({ projection });
+		const { turnEnd } = captureGuard();
+		const result = turnEnd({ type: "turn_end" } as never, ctx);
+		assert.deepEqual(result?.entries, [{ type: "context_edit", targetId: "oldtext", replacement: null }]);
+	});
+
+	it("does nothing below the pressure percent", () => {
+		const projection = [entry("e1", [toolResultMessage("small output")])];
+		const { ctx } = fakeCtx({ projection });
 		const { turnEnd } = captureGuard();
 		assert.equal(turnEnd({ type: "turn_end" } as never, ctx), undefined);
 	});
