@@ -2,8 +2,12 @@
  * Tests for plus-cli/src/coding-agent/ui/auto-fold-history.ts — thinking
  * blocks and tool rows fold at prompt boundaries (addMessageToChat patch)
  * and roll forward mid-run (handleEvent patch: each new assistant message
- * folds the completed steps before it). Live components excluded, ctrl+o
- * field sync, env/verbose gating.
+ * folds the completed steps before it). Folded thinking carries a
+ * "ctrl+o to expand" hint, and thinking folds/unfolds exactly like tool
+ * rows: fold syncs both flags (live step excluded), ctrl+o sweeps every
+ * thinking component including the streaming one and drives the hide
+ * flag in lockstep, new messages inherit the folded state. env/verbose
+ * gating disables the whole coupling.
  */
 
 import assert from "node:assert/strict";
@@ -15,7 +19,11 @@ import { AssistantMessageComponent } from "../../../coding-agent/src/modes/inter
 import { ToolExecutionComponent } from "../../../coding-agent/src/modes/interactive/components/tool-execution.ts";
 import { InteractiveMode } from "../../../coding-agent/src/modes/interactive/interactive-mode.ts";
 import { getMarkdownTheme, initTheme } from "../../../coding-agent/src/modes/interactive/theme/theme.ts";
-import { foldChatHistory, isAutoFoldHistoryEnabled } from "../../src/coding-agent/ui/auto-fold-history.ts";
+import {
+	foldChatHistory,
+	foldedThinkingLabel,
+	isAutoFoldHistoryEnabled,
+} from "../../src/coding-agent/ui/auto-fold-history.ts";
 
 initTheme("dark");
 
@@ -92,16 +100,25 @@ describe("foldChatHistory", () => {
 		assert.ok(renderText(liveTool).includes("TOOL-LINE-25"), "excluded live tool stays expanded");
 	});
 
-	it("folds everything when no exclusion set is passed", () => {
+	it("folds everything when no exclusion set is passed, hint label applied when given", () => {
 		const assistant = new AssistantMessageComponent(thinkingMessage());
 		const tool = toolRow(true);
 		const container = new Container();
 		container.addChild(assistant);
 		container.addChild(tool);
 
-		assert.equal(foldChatHistory(container.children), 2);
+		assert.equal(foldChatHistory(container.children, undefined, foldedThinkingLabel("Thinking...")), 2);
 		assert.ok(renderText(assistant).includes("Thinking..."));
+		assert.ok(renderText(assistant).includes("(ctrl+o to expand)"), "folded thinking carries the shortcut hint");
 		assert.ok(!renderText(tool).includes("TOOL-LINE-25"));
+	});
+
+	it("keeps the plain label when no hint label is passed", () => {
+		const assistant = new AssistantMessageComponent(thinkingMessage());
+		assistant.setHiddenThinkingLabel("custom");
+
+		assert.equal(foldChatHistory([assistant]), 1);
+		assert.ok(renderText(assistant).includes("custom"), "existing label survives a hint-less fold");
 	});
 });
 
@@ -129,14 +146,19 @@ describe("isAutoFoldHistoryEnabled", () => {
 
 interface PatchedHost {
 	chatContainer: Container;
+	loadedResourcesContainer: Container;
 	streamingComponent?: unknown;
 	pendingTools: Map<string, unknown>;
 	options: { verbose?: boolean };
 	toolOutputExpanded: boolean;
+	hideThinkingBlock: boolean;
+	hiddenThinkingLabel: string;
+	ui: TUI;
 	getUserMessageText(): string;
 	getMarkdownThemeWithSettings(): ReturnType<typeof getMarkdownTheme>;
 	getMarkdownTransformers(): [];
 	outputPad: number;
+	showStatus(message: string): void;
 }
 
 function patchedAddMessageToChat(): (host: PatchedHost, message: { role: string }) => void {
@@ -161,14 +183,19 @@ function createHost(overrides: Partial<PatchedHost> = {}): PatchedHost & {
 		assistant,
 		tool,
 		chatContainer,
+		loadedResourcesContainer: new Container(),
 		streamingComponent: undefined,
 		pendingTools: new Map(),
 		options: {},
 		toolOutputExpanded: true,
+		hideThinkingBlock: false,
+		hiddenThinkingLabel: "Thinking...",
+		ui: fakeUi(),
 		getUserMessageText: () => "hello world",
 		getMarkdownThemeWithSettings: () => getMarkdownTheme(),
 		getMarkdownTransformers: () => [],
 		outputPad: 1,
+		showStatus() {},
 		...overrides,
 	};
 }
@@ -182,8 +209,10 @@ describe("addMessageToChat auto-fold patch", () => {
 
 		assert.equal(host.chatContainer.children.length, 4, "spacer + user message component were appended");
 		assert.ok(renderText(host.assistant).includes("Thinking..."), "history thinking folded");
+		assert.ok(renderText(host.assistant).includes("(ctrl+o to expand)"), "folded thinking carries the shortcut hint");
 		assert.ok(!renderText(host.tool).includes("TOOL-LINE-25"), "history tool folded");
 		assert.equal(host.toolOutputExpanded, false, "global expand flag synced to visible state");
+		assert.equal(host.hideThinkingBlock, true, "thinking hide flag synced to visible state");
 	});
 
 	it("excludes the streaming component and in-flight tools from the fold", () => {
@@ -282,9 +311,23 @@ describe("handleEvent rolling auto-fold patch", () => {
 		assert.ok(renderText(host.assistant).includes("Thinking..."), "previous step's thinking folded");
 		assert.ok(!renderText(host.tool).includes("TOOL-LINE-25"), "previous step's tool folded");
 		assert.equal(host.toolOutputExpanded, false, "global expand flag synced to visible state");
+		assert.equal(host.hideThinkingBlock, true, "thinking hide flag synced to folded state");
 		const streaming = host.streamingComponent as AssistantMessageComponent | undefined;
 		assert.ok(streaming, "original created the new streaming component");
 		assert.equal(host.chatContainer.children.length, 3, "history assistant + history tool + new streaming row");
+	});
+
+	it("new assistant messages inherit the folded thinking state, like collapsed tool rows", async () => {
+		const host = createEventHost();
+		await patchedHandleEvent()(host, assistantStart()); // first fold syncs hideThinkingBlock=true
+		await patchedHandleEvent()(host, {
+			type: "message_start",
+			message: { role: "assistant", content: [{ type: "thinking", thinking: "BORNHIDDEN" }], timestamp: 0 },
+		});
+
+		const streaming = host.streamingComponent as AssistantMessageComponent;
+		assert.ok(!renderText(streaming).includes("BORNHIDDEN"), "thinking after the fold starts hidden at birth");
+		assert.ok(renderText(streaming).includes("Thinking..."), "hidden-at-birth thinking shows the label");
 	});
 
 	it("keeps in-flight tools out of the mid-run fold", async () => {
@@ -304,6 +347,7 @@ describe("handleEvent rolling auto-fold patch", () => {
 		assert.ok(renderText(host.assistant).includes("SECRETREASONING"), "thinking stays open");
 		assert.ok(renderText(host.tool).includes("TOOL-LINE-25"), "tool stays expanded");
 		assert.equal(host.toolOutputExpanded, true, "expand flag untouched");
+		assert.equal(host.hideThinkingBlock, false, "thinking flag untouched");
 	});
 
 	it("does not fold on verbose startup", async () => {
@@ -321,5 +365,90 @@ describe("handleEvent rolling auto-fold patch", () => {
 
 		assert.ok(renderText(host.assistant).includes("SECRETREASONING"), "env-disabled keeps thinking visible");
 		assert.ok(renderText(host.tool).includes("TOOL-LINE-25"), "env-disabled keeps tool expanded");
+	});
+});
+
+describe("setToolsExpanded thinking sync", () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	function toggle(host: PatchedHost, expanded: boolean): void {
+		const method = (InteractiveMode.prototype as unknown as Record<string, unknown>).setToolsExpanded as (
+			this: unknown,
+			expanded: boolean,
+		) => void;
+		method.call(host, expanded);
+	}
+
+	function foldThinkingWithHint(host: PatchedHost & { assistant: AssistantMessageComponent }): void {
+		host.assistant.setHideThinkingBlock(true);
+		host.assistant.setHiddenThinkingLabel(foldedThinkingLabel(host.hiddenThinkingLabel));
+	}
+
+	it("expands folded thinking on ctrl+o and refolds with the hint on collapse", () => {
+		const host = createHost({ toolOutputExpanded: false });
+		patchedAddMessageToChat()(host, { role: "user" });
+
+		toggle(host, true);
+		const expanded = renderText(host.assistant);
+		assert.ok(expanded.includes("SECRETREASONING"), "ctrl+o reveals the folded thinking");
+		assert.ok(!expanded.includes("(ctrl+o to expand)"), "plain label restored while visible");
+		assert.ok(renderText(host.tool).includes("TOOL-LINE-25"), "tools expand together");
+		assert.equal(host.toolOutputExpanded, true);
+		assert.equal(host.hideThinkingBlock, false, "thinking flag expands in lockstep with the tools flag");
+
+		toggle(host, false);
+		const collapsed = renderText(host.assistant);
+		assert.ok(!collapsed.includes("SECRETREASONING"), "collapse re-hides history thinking");
+		assert.ok(collapsed.includes("(ctrl+o to expand)"), "hint returns on the refolded label");
+		assert.ok(!renderText(host.tool).includes("TOOL-LINE-25"), "tools collapse together");
+		assert.equal(host.hideThinkingBlock, true, "thinking flag collapses in lockstep with the tools flag");
+	});
+
+	it("ctrl+o sweeps the streaming component too, exactly like tool rows", () => {
+		const streaming = new AssistantMessageComponent(thinkingMessage());
+		const host = createHost({ toolOutputExpanded: false, streamingComponent: streaming });
+		host.chatContainer.addChild(streaming);
+		patchedAddMessageToChat()(host, { role: "user" });
+
+		toggle(host, true);
+		assert.ok(renderText(streaming).includes("SECRETREASONING"), "streaming thinking stays open through expand");
+		assert.equal(host.hideThinkingBlock, false, "hide flag follows the expand");
+
+		toggle(host, false);
+		assert.ok(
+			!renderText(streaming).includes("SECRETREASONING"),
+			"ctrl+o collapse hides live thinking like live tools",
+		);
+		assert.ok(!renderText(host.assistant).includes("SECRETREASONING"), "history refolded");
+		assert.equal(host.hideThinkingBlock, true, "hide flag follows the collapse");
+	});
+
+	it("skips the sync when the original early-returns (value unchanged)", () => {
+		const host = createHost();
+		foldThinkingWithHint(host);
+		toggle(host, true);
+
+		assert.ok(!renderText(host.assistant).includes("SECRETREASONING"), "no-op toggle leaves thinking folded");
+		assert.equal(host.hideThinkingBlock, false, "no-op toggle leaves the flag alone");
+	});
+
+	it("keeps ctrl+o tool-only when PI_AUTO_FOLD_HISTORY=0", () => {
+		vi.stubEnv("PI_AUTO_FOLD_HISTORY", "0");
+		const host = createHost({ toolOutputExpanded: false });
+		foldThinkingWithHint(host);
+		toggle(host, true);
+
+		assert.ok(renderText(host.tool).includes("TOOL-LINE-25"), "upstream tool expansion still applies");
+		assert.ok(!renderText(host.assistant).includes("SECRETREASONING"), "thinking coupling disabled");
+		assert.equal(host.hideThinkingBlock, false, "thinking flag untouched when disabled");
+	});
+
+	it("keeps ctrl+o tool-only on verbose startup", () => {
+		const host = createHost({ toolOutputExpanded: false, options: { verbose: true } });
+		foldThinkingWithHint(host);
+		toggle(host, true);
+
+		assert.ok(!renderText(host.assistant).includes("SECRETREASONING"), "verbose disables thinking coupling");
+		assert.equal(host.hideThinkingBlock, false, "verbose leaves the flag alone");
 	});
 });

@@ -15,27 +15,43 @@
  * components): at an assistant `message_start` the previous streaming
  * component was already cleared at `message_end` and finished tools were
  * already deleted from `pendingTools`, so everything completed folds while
- * streaming and in-flight output stays open. Resume and compaction replays
+ * the live step is left to its own state (see the tool-parity rules
+ * below). Resume and compaction replays
  * build the chat through the same `addMessageToChat` chokepoint, so
  * "everything before the last user turn folded" falls out of the rebuild
  * order naturally.
  *
- * Field handling is deliberately asymmetric:
- * - `toolOutputExpanded` is synced to false after a fold, because every
- *   tool row is visibly collapsed by then — leaving it true would make the
- *   next ctrl+o toggle to "collapse" and burn one dead press repainting
- *   already-collapsed output. With the sync, one ctrl+o re-expands
- *   everything (folded history included) until the next fold.
- * - `hideThinkingBlock` is left untouched: it is the default for *new*
- *   components, and flipping it would hide the current turn's thinking
- *   too. ctrl+t therefore shows thinking everywhere (including folded
- *   history) and the next fold refolds.
+ * Thinking folds exactly like tool output — one shared state model:
+ * - Both flags are synced after a fold: `toolOutputExpanded` to false and
+ *   `hideThinkingBlock` to true. Leaving either stale would make its
+ *   toggle key burn one dead press repainting already-collapsed content;
+ *   with the syncs, one ctrl+o re-expands everything (folded history
+ *   included) until the next fold, and one ctrl+t hides/shows cleanly.
+ * - New components inherit the current flags, like upstream does for both
+ *   kinds: after a fold, a freshly created tool row starts collapsed and
+ *   a freshly created assistant message starts with hidden thinking —
+ *   including mid-run: from the fold onward, each new assistant message
+ *   begins as "Thinking..." and the rolling fold simply re-labels it into
+ *   history at the next step. ctrl+o, ctrl+t or a click reveals it.
+ * - ctrl+o (`setToolsExpanded`) is the whole-transcript toggle for both
+ *   kinds: the sweep covers every tool row *and* every assistant
+ *   component — the streaming one included, mirroring upstream's tool
+ *   sweep which has no live-step exclusion. Only the folds themselves
+ *   exclude the live step (pending tool rows are never touched by a fold;
+ *   the streaming component only folds once it is history).
+ *
+ * Folded thinking carries a visible hint — the "Thinking..." label gets
+ * "(ctrl+o to expand)" appended — and expanding via ctrl+o reverts the
+ * label to the plain configured one. The thinking coupling is part of
+ * the feature: with `PI_AUTO_FOLD_HISTORY=0`, ctrl+o behaves exactly like
+ * upstream (tool output only) and thinking stays on ctrl+t.
  *
  * Disable with `PI_AUTO_FOLD_HISTORY=0` (or `false`). Verbose startup
  * (`options.verbose`) never folds. Clicking a folded thinking block or
  * tool row re-opens just that one until the next fold.
  */
 
+import { keyText } from "../../../../coding-agent/src/modes/interactive/components/keybinding-hints.ts";
 import { InteractiveMode } from "../../../../coding-agent/src/modes/interactive/interactive-mode.ts";
 
 const AUTO_FOLD_HISTORY_ENV = "PI_AUTO_FOLD_HISTORY";
@@ -51,14 +67,30 @@ export function isAutoFoldHistoryEnabled(): boolean {
 interface FoldableChild {
 	setExpanded?(expanded: boolean): void;
 	setHideThinkingBlock?(hide: boolean): void;
+	setHiddenThinkingLabel?(label: string): void;
 }
 
 /**
- * Collapse every foldable child except the identity-excluded ones.
+ * The hidden-thinking label plus a shortcut hint, e.g.
+ * "Thinking... (ctrl+o to expand)". Falls back to the default binding when
+ * the keybinding registry is not populated yet (unit tests).
+ */
+export function foldedThinkingLabel(baseLabel: string): string {
+	const key = keyText("app.tools.expand") || "ctrl+o";
+	return `${baseLabel} (${key} to expand)`;
+}
+
+/**
+ * Collapse every foldable child except the identity-excluded ones, giving
+ * hidden thinking blocks the `hiddenThinkingLabel` hint when provided.
  * Returns the number of components touched. No re-render is requested
  * here: every caller path already renders right after adding the message.
  */
-export function foldChatHistory(children: readonly unknown[], excluded?: readonly unknown[]): number {
+export function foldChatHistory(
+	children: readonly unknown[],
+	excluded?: readonly unknown[],
+	hiddenThinkingLabel?: string,
+): number {
 	let folded = 0;
 	for (const child of children) {
 		if (excluded?.includes(child)) continue;
@@ -66,6 +98,9 @@ export function foldChatHistory(children: readonly unknown[], excluded?: readonl
 		let touched = false;
 		if (typeof foldable.setHideThinkingBlock === "function") {
 			foldable.setHideThinkingBlock(true);
+			if (hiddenThinkingLabel !== undefined && typeof foldable.setHiddenThinkingLabel === "function") {
+				foldable.setHiddenThinkingLabel(hiddenThinkingLabel);
+			}
 			touched = true;
 		}
 		if (typeof foldable.setExpanded === "function") {
@@ -85,20 +120,55 @@ interface AutoFoldHost {
 	pendingTools: { values(): Iterable<unknown> };
 	options?: { verbose?: boolean };
 	toolOutputExpanded: boolean;
+	hideThinkingBlock: boolean;
+	hiddenThinkingLabel: string;
+	ui?: { requestRender(): void };
+}
+
+function excludedLiveSteps(host: AutoFoldHost): unknown[] {
+	return [host.streamingComponent, ...host.pendingTools.values()].filter((component) => component !== undefined);
 }
 
 /**
  * Run one gated auto-fold pass over the host's chat: env and verbose
- * checks, live-step exclusions, and the ctrl+o field sync. Shared by both
- * patch points (prompt boundary and rolling mid-run fold).
+ * checks, live-step exclusions, the hint-labeled thinking collapse, and
+ * the field syncs (both `toolOutputExpanded` and `hideThinkingBlock`, so
+ * the toggle keys never dead-press and new components inherit the folded
+ * state, exactly like tool rows inherit the collapsed flag). Shared by
+ * both patch points (prompt boundary and rolling mid-run fold).
  */
 export function applyAutoFold(host: AutoFoldHost): void {
 	if (!isAutoFoldHistoryEnabled() || host.options?.verbose === true) return;
-	const excluded: unknown[] = [host.streamingComponent, ...host.pendingTools.values()].filter(
-		(component) => component !== undefined,
+	const folded = foldChatHistory(
+		host.chatContainer.children,
+		excludedLiveSteps(host),
+		foldedThinkingLabel(host.hiddenThinkingLabel),
 	);
-	const folded = foldChatHistory(host.chatContainer.children, excluded);
-	if (folded > 0) host.toolOutputExpanded = false;
+	if (folded > 0) {
+		host.toolOutputExpanded = false;
+		host.hideThinkingBlock = true;
+	}
+}
+
+/**
+ * Mirror a ctrl+o toggle onto the thinking, with tool-row parity: the
+ * sweep covers every assistant component in the chat — the streaming one
+ * included, just like upstream's tool sweep — and syncs the
+ * `hideThinkingBlock` field so new components inherit the visible state.
+ * Expanding restores the plain label, collapsing re-folds with the hint.
+ * Gated like the fold itself — with the feature off, ctrl+o stays
+ * tool-output-only like upstream.
+ */
+function setFoldedThinkingVisible(host: AutoFoldHost, visible: boolean): void {
+	if (!isAutoFoldHistoryEnabled() || host.options?.verbose === true) return;
+	host.hideThinkingBlock = !visible;
+	const label = visible ? host.hiddenThinkingLabel : foldedThinkingLabel(host.hiddenThinkingLabel);
+	for (const child of host.chatContainer.children) {
+		const foldable = child as FoldableChild;
+		if (typeof foldable.setHideThinkingBlock !== "function") continue;
+		foldable.setHideThinkingBlock(!visible);
+		foldable.setHiddenThinkingLabel?.(label);
+	}
 }
 
 interface ChatMessageLike {
@@ -113,6 +183,7 @@ interface AgentEventLike {
 const interactiveModePrototype = InteractiveMode.prototype as unknown as {
 	addMessageToChat(this: AutoFoldHost, message: ChatMessageLike, options?: { populateHistory?: boolean }): void;
 	handleEvent(this: AutoFoldHost, event: AgentEventLike): Promise<void>;
+	setToolsExpanded(this: AutoFoldHost, expanded: boolean): void;
 };
 
 const originalAddMessageToChat = interactiveModePrototype.addMessageToChat;
@@ -139,4 +210,16 @@ interactiveModePrototype.handleEvent = function handleEvent(this: AutoFoldHost, 
 	// fold repaints without an extra request.
 	if (event.type === "message_start" && event.message?.role === "assistant") applyAutoFold(this);
 	return originalHandleEvent.call(this, event);
+};
+
+const originalSetToolsExpanded = interactiveModePrototype.setToolsExpanded;
+
+interactiveModePrototype.setToolsExpanded = function setToolsExpanded(this: AutoFoldHost, expanded: boolean): void {
+	// The original early-returns (and leaves the flag) when the value is
+	// unchanged; only a real toggle should move the folded thinking too.
+	const before = this.toolOutputExpanded;
+	originalSetToolsExpanded.call(this, expanded);
+	if (expanded === before) return;
+	setFoldedThinkingVisible(this, expanded);
+	this.ui?.requestRender();
 };

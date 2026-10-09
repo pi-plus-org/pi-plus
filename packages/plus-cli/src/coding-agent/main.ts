@@ -42,7 +42,7 @@ import {
 	registerWebSearch,
 } from "../../../plus/src/extensions/index.ts";
 import { dispatchCompletion } from "../completion/index.ts";
-import { registerFancyDiff, registerPlainTools, registerTabTitle } from "../extensions/index.ts";
+import { registerChanges, registerFancyDiff, registerPlainTools, registerTabTitle } from "../extensions/index.ts";
 import { registerBanner } from "./ui/banner.ts";
 // Side-effect import: installs the interactive TUI's rolling auto-fold
 // prototype patches (addMessageToChat folds previous turns on a new user
@@ -173,6 +173,7 @@ export async function main(args: string[], options?: MainOptions) {
 			{ name: "pi-plus-tab-title", factory: registerTabTitle, hidden: true },
 			{ name: "pi-plus-plain-tools", factory: registerPlainTools, hidden: true },
 			{ name: "pi-plus-fancy-diff", factory: registerFancyDiff, hidden: true },
+			{ name: "pi-plus-changes", factory: registerChanges, hidden: true },
 		],
 	};
 	return upstreamMain(plan.remainingArgs, merged);
