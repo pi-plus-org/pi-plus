@@ -5,6 +5,11 @@ name: Publish pi-plus packages
 # pipi-sdk-publish.sh: auto patch-bump past max(local, registry) version,
 # build offline, sanity-check the tarball, publish, then commit the bump.
 #
+# After each publish the version availability on npmjs is polled for up to 10
+# minutes; the result (available, or stuck) is pushed to ntfy. Set the
+# NTFY_TOPIC repository secret to the ntfy topic to notify, e.g. the topic id
+# for https://ntfy.sh/<topic>. Unset means notifications are skipped.
+#
 # Uses npm Trusted Publishing (OIDC): no npm token is stored in GitHub. The
 # pi-plus and pi-plus-sdk packages on npmjs trust this repo's publish-plus.yml
 # workflow running in the "npm-publish" environment.
@@ -33,6 +38,61 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Shared helpers for both publish steps, written to $RUNNER_TEMP so they
+      # never land in the repo or a tarball. NTFY_TOPIC is passed via step env;
+      # an empty topic makes the notification a no-op. Best effort only: a
+      # notification failure never fails a publish.
+      - name: Write notification helpers
+        run: |
+          set -euo pipefail
+
+          cat > "$RUNNER_TEMP/notify.sh" <<'EOF'
+          #!/usr/bin/env bash
+          # Usage: notify.sh <title> <message>
+          set -uo pipefail
+          title="${1:-pi-plus}"
+          message="${2:-}"
+          topic="${NTFY_TOPIC:-}"
+          if [[ -z "$topic" ]]; then
+            echo "ntfy: NTFY_TOPIC is not set, skipping notification"
+            exit 0
+          fi
+          curl --silent --show-error --fail \
+            -H "Title: ${title}" \
+            -H "Priority: high" \
+            -d "${message}" \
+            "https://ntfy.sh/${topic}" || \
+            echo "warning: ntfy notification '${title}' failed" >&2
+          exit 0
+          EOF
+
+          cat > "$RUNNER_TEMP/wait-npm.sh" <<'EOF'
+          #!/usr/bin/env bash
+          # Usage: wait-npm.sh <package> <version>
+          # A freshly published version can take a while before it resolves
+          # through the registry API, so poll for up to 10 minutes.
+          set -uo pipefail
+          name="$1"
+          version="$2"
+          deadline=$((SECONDS + 600))
+          while true; do
+            if npm view "${name}@${version}" version --registry https://registry.npmjs.org --prefer-online >/dev/null 2>&1; then
+              echo "${name}@${version} is available on npmjs"
+              "$RUNNER_TEMP/notify.sh" "${name} published" "${name}@${version} is available on npmjs"
+              exit 0
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "::error::${name}@${version} still not on npmjs after 600s — publish succeeded but propagation looks stuck; check https://www.npmjs.com/package/${name}/v/${version}" >&2
+              "$RUNNER_TEMP/notify.sh" "${name} propagation stuck" "${name}@${version} published but still not resolvable on npmjs after 600s: https://www.npmjs.com/package/${name}/v/${version}"
+              exit 1
+            fi
+            echo "Waiting for ${name}@${version} to appear on npmjs..."
+            sleep 5
+          done
+          EOF
+
+          chmod +x "$RUNNER_TEMP/notify.sh" "$RUNNER_TEMP/wait-npm.sh"
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -92,6 +152,8 @@ jobs:
           npm run build:offline
 
       - name: Publish pi-plus (CLI)
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           set -euo pipefail
           node packages/plus-cli/build.mjs
@@ -116,7 +178,11 @@ jobs:
 
           (cd packages/plus-cli/dist/npm && npm publish --access public --ignore-scripts)
 
+          "$RUNNER_TEMP/wait-npm.sh" pi-plus "${{ steps.versions.outputs.cli_next }}"
+
       - name: Publish pi-plus-sdk
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           set -euo pipefail
           node packages/plus-api/build.mjs
@@ -152,22 +218,7 @@ jobs:
 
           (cd packages/plus-api/dist/npm && npm publish --access public --ignore-scripts)
 
-          # npmjs can take a while before a freshly published version is
-          # resolvable through the registry API — poll until it appears.
-          next_version="${{ steps.versions.outputs.sdk_next }}"
-          deadline=$((SECONDS + 600))
-          while true; do
-            if npm view "pi-plus-sdk@$next_version" version --registry https://registry.npmjs.org --prefer-online >/dev/null 2>&1; then
-              echo "pi-plus-sdk@$next_version is available on npmjs"
-              break
-            fi
-            if (( SECONDS >= deadline )); then
-              echo "error: pi-plus-sdk@$next_version still not on npmjs after 600s — publish succeeded but propagation looks stuck; check https://www.npmjs.com/package/pi-plus-sdk/v/$next_version" >&2
-              exit 1
-            fi
-            echo "Waiting for pi-plus-sdk@$next_version to appear on npmjs..."
-            sleep 5
-          done
+          "$RUNNER_TEMP/wait-npm.sh" pi-plus-sdk "${{ steps.versions.outputs.sdk_next }}"
 
       - name: Commit version bumps
         if: ${{ steps.versions.outputs.cli_bumped == 'true' || steps.versions.outputs.sdk_bumped == 'true' }}
@@ -180,3 +231,16 @@ jobs:
           # for lockfile commits (no-op in CI, where hooks are not installed).
           PI_ALLOW_LOCKFILE_CHANGE=1 git commit -m "feat(plus): release pi-plus v${{ steps.versions.outputs.cli_next }}, pi-plus-sdk v${{ steps.versions.outputs.sdk_next }}"
           git push origin "HEAD:${{ github.ref_name }}"
+
+      # Publish/propagation failures are otherwise silent (the version bump is
+      # not pushed, so nothing lands half-done, but nobody is told either).
+      - name: Notify failure
+        if: ${{ failure() }}
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          set -euo pipefail
+          if [[ -x "$RUNNER_TEMP/notify.sh" ]]; then
+            "$RUNNER_TEMP/notify.sh" "pi-plus publish failed" \
+              "${{ github.repository }}@${{ github.ref_name }} run ${{ github.run_id }} failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
