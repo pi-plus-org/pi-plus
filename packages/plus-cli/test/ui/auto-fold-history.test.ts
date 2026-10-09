@@ -1,7 +1,9 @@
 /**
- * Tests for plus-cli/src/coding-agent/ui/auto-fold-history.ts — previous
- * turns' thinking blocks and tool rows fold when a new user message enters
- * the chat (live turn excluded, ctrl+o field sync, env/verbose gating).
+ * Tests for plus-cli/src/coding-agent/ui/auto-fold-history.ts — thinking
+ * blocks and tool rows fold at prompt boundaries (addMessageToChat patch)
+ * and roll forward mid-run (handleEvent patch: each new assistant message
+ * folds the completed steps before it). Live components excluded, ctrl+o
+ * field sync, env/verbose gating.
  */
 
 import assert from "node:assert/strict";
@@ -218,6 +220,104 @@ describe("addMessageToChat auto-fold patch", () => {
 		vi.stubEnv("PI_AUTO_FOLD_HISTORY", "0");
 		const host = createHost();
 		patchedAddMessageToChat()(host, { role: "user" });
+
+		assert.ok(renderText(host.assistant).includes("SECRETREASONING"), "env-disabled keeps thinking visible");
+		assert.ok(renderText(host.tool).includes("TOOL-LINE-25"), "env-disabled keeps tool expanded");
+	});
+});
+
+interface EventHost extends PatchedHost {
+	isInitialized: boolean;
+	footer: { invalidate(): void };
+	programStatus: { handleEvent(event: unknown): void };
+	ui: TUI;
+	hideThinkingBlock: boolean;
+	hiddenThinkingLabel: string;
+	updatePendingMessagesDisplay(): void;
+	streamingMessage?: unknown;
+}
+
+interface AgentEventForTest {
+	type: string;
+	message?: { role?: string; content?: unknown[]; timestamp?: number };
+}
+
+function assistantStart(): AgentEventForTest {
+	return { type: "message_start", message: { role: "assistant", content: [], timestamp: 0 } };
+}
+
+function patchedHandleEvent(): (host: EventHost, event: AgentEventForTest) => Promise<void> {
+	const method = (InteractiveMode.prototype as unknown as Record<string, unknown>).handleEvent as (
+		this: unknown,
+		event: AgentEventForTest,
+	) => Promise<void>;
+	return (host, event) => method.call(host, event);
+}
+
+function createEventHost(overrides: Partial<EventHost> = {}): EventHost & {
+	assistant: AssistantMessageComponent;
+	tool: ToolExecutionComponent;
+} {
+	const base = createHost(overrides);
+	return {
+		...base,
+		isInitialized: true,
+		footer: { invalidate() {} },
+		programStatus: { handleEvent() {} },
+		ui: fakeUi(),
+		hideThinkingBlock: false,
+		hiddenThinkingLabel: "Thinking...",
+		updatePendingMessagesDisplay() {},
+		...overrides,
+	};
+}
+
+describe("handleEvent rolling auto-fold patch", () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	it("folds completed steps when the agent starts the next assistant message", async () => {
+		const host = createEventHost();
+		await patchedHandleEvent()(host, assistantStart());
+
+		assert.ok(renderText(host.assistant).includes("Thinking..."), "previous step's thinking folded");
+		assert.ok(!renderText(host.tool).includes("TOOL-LINE-25"), "previous step's tool folded");
+		assert.equal(host.toolOutputExpanded, false, "global expand flag synced to visible state");
+		const streaming = host.streamingComponent as AssistantMessageComponent | undefined;
+		assert.ok(streaming, "original created the new streaming component");
+		assert.equal(host.chatContainer.children.length, 3, "history assistant + history tool + new streaming row");
+	});
+
+	it("keeps in-flight tools out of the mid-run fold", async () => {
+		const liveTool = toolRow(true);
+		const host = createEventHost({ pendingTools: new Map([["t", liveTool]]) });
+		host.chatContainer.addChild(liveTool);
+		await patchedHandleEvent()(host, assistantStart());
+
+		assert.ok(!renderText(host.tool).includes("TOOL-LINE-25"), "completed tool folded");
+		assert.ok(renderText(liveTool).includes("TOOL-LINE-25"), "in-flight tool stays expanded");
+	});
+
+	it("does not fold for other events", async () => {
+		const host = createEventHost();
+		await patchedHandleEvent()(host, { type: "queue_update" });
+
+		assert.ok(renderText(host.assistant).includes("SECRETREASONING"), "thinking stays open");
+		assert.ok(renderText(host.tool).includes("TOOL-LINE-25"), "tool stays expanded");
+		assert.equal(host.toolOutputExpanded, true, "expand flag untouched");
+	});
+
+	it("does not fold on verbose startup", async () => {
+		const host = createEventHost({ options: { verbose: true } });
+		await patchedHandleEvent()(host, assistantStart());
+
+		assert.ok(renderText(host.assistant).includes("SECRETREASONING"), "verbose keeps thinking visible");
+		assert.ok(renderText(host.tool).includes("TOOL-LINE-25"), "verbose keeps tool expanded");
+	});
+
+	it("does not fold when PI_AUTO_FOLD_HISTORY=0", async () => {
+		vi.stubEnv("PI_AUTO_FOLD_HISTORY", "0");
+		const host = createEventHost();
+		await patchedHandleEvent()(host, assistantStart());
 
 		assert.ok(renderText(host.assistant).includes("SECRETREASONING"), "env-disabled keeps thinking visible");
 		assert.ok(renderText(host.tool).includes("TOOL-LINE-25"), "env-disabled keeps tool expanded");
