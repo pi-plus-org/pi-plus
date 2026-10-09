@@ -170,7 +170,7 @@ function lineKindColor(kind: DiffLineKind): ThemeColor {
 /** Assemble one styled diff line: marker + gutter + body, preserving alignment. */
 function styledDiffLine(kind: DiffLineKind, lineNum: string, body: string, theme: Theme): string {
 	const marker = kind === "added" ? "+" : kind === "removed" ? "-" : " ";
-	return theme.fg(lineKindColor(kind), marker) + theme.fg("dim", lineNum) + " " + body;
+	return `${theme.fg(lineKindColor(kind), marker)}${theme.fg("dim", lineNum)} ${body}`;
 }
 
 /**
