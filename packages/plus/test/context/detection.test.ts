@@ -287,10 +287,24 @@ describe("shouldCompactWithCcThreshold", () => {
 		assert.equal(shouldCompactWithCcThreshold(999_999, 200_000, { ...SETTINGS, enabled: false }), false);
 	});
 
-	it("falls back to pi math when no model is known", () => {
+	it("runs CC math on the passed window when no model is published", () => {
 		setCurrentModel(undefined);
-		assert.equal(shouldCompactWithCcThreshold(200_000 - 16_384, 200_000, SETTINGS), false);
-		assert.equal(shouldCompactWithCcThreshold(200_000 - 16_384 + 1, 200_000, SETTINGS), true);
+		// Same threshold as with MODEL published: 200k window - 20k reserve = 180k, 80% = 144000.
+		assert.equal(shouldCompactWithCcThreshold(143_999, 200_000, SETTINGS), false);
+		assert.equal(shouldCompactWithCcThreshold(144_000, 200_000, SETTINGS), true);
+	});
+
+	it("honors the persisted cap and percent for a 1M-window model with no model published", () => {
+		// Regression: hub-profile sessions take their model from the profile's
+		// defaultModel/enabledModels without going through model-resolver, so
+		// currentModel stays unset. The old pi-math fallback put the trigger at
+		// 1M - reserveTokens (~983k) and auto-compaction never fired despite the
+		// 131k cap and 70% threshold.
+		persistPiPlus({ autoCompactThresholdPercent: 70, contextWindowCapTokens: 131_072 });
+		setCurrentModel(undefined);
+		// effective = min(1M, 131072) - 20000 = 111072; threshold = 70% = 77750.
+		assert.equal(shouldCompactWithCcThreshold(77_749, 1_000_000, SETTINGS), false);
+		assert.equal(shouldCompactWithCcThreshold(77_750, 1_000_000, SETTINGS), true);
 	});
 
 	it("PI_DISABLE_AUTO_COMPACT blocks threshold compaction", () => {

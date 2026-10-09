@@ -42,7 +42,7 @@ import {
 	registerWebSearch,
 } from "../../../plus/src/extensions/index.ts";
 import { dispatchCompletion } from "../completion/index.ts";
-import { registerPlainTools, registerTabTitle } from "../extensions/index.ts";
+import { registerFancyDiff, registerPlainTools, registerTabTitle } from "../extensions/index.ts";
 import { registerBanner } from "./ui/banner.ts";
 import { registerVim } from "./ui/vim/extension.ts";
 
@@ -132,7 +132,12 @@ export async function main(args: string[], options?: MainOptions) {
 	// agent is working; pi-plus-plain-tools strips the background fills from
 	// tool result blocks (upstream paints them pending/success/error) so tool
 	// status reads as text, consistent with the subagent tool's word-based
-	// status; pi-plus-init adds /init, which analyzes the codebase and creates
+	// status; pi-plus-fancy-diff takes over the edit/write tool renderers in the
+	// TUI: syntax-highlighted diff bodies, colored +/- markers, a dim
+	// line-number gutter, +N −M change stats with a language badge, bold
+	// word-level emphasis on modified lines, and an old-vs-new diff when write
+	// overwrites an existing file (pre-image captured in a tool_call handler);
+	// pi-plus-init adds /init, which analyzes the codebase and creates
 	// or improves AGENTS.md at the cwd root (pi already loads AGENTS.md into
 	// every session, so the extension only owns the command); pi-plus-web-search
 	// adds WebSearch (provider chain over WEB_SEARCH_PROVIDER/*_API_KEY env vars,
@@ -162,6 +167,7 @@ export async function main(args: string[], options?: MainOptions) {
 			{ name: "pi-plus-web-search", factory: registerWebSearch, hidden: true },
 			{ name: "pi-plus-tab-title", factory: registerTabTitle, hidden: true },
 			{ name: "pi-plus-plain-tools", factory: registerPlainTools, hidden: true },
+			{ name: "pi-plus-fancy-diff", factory: registerFancyDiff, hidden: true },
 		],
 	};
 	return upstreamMain(plan.remainingArgs, merged);

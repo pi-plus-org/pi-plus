@@ -285,9 +285,15 @@ export interface CompactTriggerSettings {
  * Claude Code-style compaction trigger, signature-compatible with pi's shouldCompact.
  *
  * Returns true when usage reaches the CC auto-compact threshold (effective window
- * minus a buffer ramped 13k–30k by window size). Falls back to pi's original math
- * (contextWindow - settings.reserveTokens) when no model is known. The circuit
- * breaker and the PI_DISABLE_* env vars gate the threshold path.
+ * minus a buffer ramped 13k–30k by window size). The circuit breaker and the
+ * PI_DISABLE_* env vars gate the threshold path. When the model-resolver wrapper
+ * has not published a model (currentModel undefined — e.g. a session whose model
+ * came from the profile defaultModel / scoped-model path, which never goes
+ * through model-resolver), the CC math runs against the caller's contextWindow
+ * with the documented 20k output reservation, instead of pi's original
+ * (contextWindow - settings.reserveTokens) math on the raw advertised window:
+ * that fallback silently ignored the persisted cap and threshold percent, so a
+ * 1M-window model capped at 131k would only auto-compact at ~1M tokens.
  */
 export function shouldCompactWithCcThreshold(
 	contextTokens: number,
@@ -298,10 +304,8 @@ export function shouldCompactWithCcThreshold(
 	if (isAutoCompactDisabled()) return false;
 	if (isAutoCompactBreakerTripped()) return false;
 
-	const model = currentModel;
-	if (!model) {
-		return contextTokens > contextWindow - settings.reserveTokens;
-	}
-
+	// Pi's callers always pass the real model's advertised contextWindow; only
+	// maxTokens (needed for the output reservation) requires the published model.
+	const model: DetectionModel = currentModel ?? { contextWindow, maxTokens: MAX_OUTPUT_TOKENS_FOR_SUMMARY };
 	return contextTokens >= getAutoCompactThreshold(model);
 }
