@@ -5,13 +5,15 @@
 import assert from "node:assert/strict";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { afterEach, describe, it } from "vitest";
-import type { SessionEntry } from "../../../coding-agent/src/core/session-manager.ts";
+import type { ProjectedSessionEntry, SessionEntry } from "../../../coding-agent/src/core/session-manager.ts";
 import {
 	applyIdleMicroCompact,
 	getMicroCompactIdleMs,
 	getMicroCompactKeepRecent,
+	getMicroCompactPressurePct,
 	isMicroCompactableTool,
 	selectToolResultsToClear,
+	selectToolResultsToClearUnderPressure,
 	TIME_BASED_MC_CLEARED_MESSAGE,
 } from "../../src/context/microcompact.ts";
 
@@ -149,6 +151,125 @@ describe("selectToolResultsToClear", () => {
 		// keepRecent=1 keeps only the newest compactable result (t5).
 		const selection = selectToolResultsToClear(entries, NOW, HOUR_MS, 1);
 		assert.deepEqual(selection?.clearEntryIds, ["t1"]);
+	});
+});
+
+function projectedToolResult(
+	id: string,
+	timestamp: number,
+	overrides: Record<string, unknown> = {},
+): ProjectedSessionEntry {
+	const message = {
+		role: "toolResult",
+		toolCallId: `call-${id}`,
+		toolName: "bash",
+		content: [{ type: "text", text: `output of ${id}` }],
+		isError: false,
+		timestamp,
+		...overrides,
+	} as unknown as AgentMessage;
+	return {
+		sourceEntry: {
+			type: "message",
+			id,
+			parentId: null,
+			timestamp: new Date(timestamp).toISOString(),
+			message,
+		} as unknown as SessionEntry,
+		messages: [message],
+	};
+}
+
+function projectedClearedToolResult(id: string, timestamp: number): ProjectedSessionEntry {
+	// The raw entry keeps the original output; the projection shows the marker.
+	const projected = {
+		role: "toolResult",
+		toolCallId: `call-${id}`,
+		toolName: "bash",
+		content: [{ type: "text", text: TIME_BASED_MC_CLEARED_MESSAGE }],
+		isError: false,
+		timestamp,
+	} as unknown as AgentMessage;
+	return { sourceEntry: projectedToolResult(id, timestamp).sourceEntry, messages: [projected] };
+}
+
+describe("getMicroCompactPressurePct", () => {
+	afterEach(() => {
+		delete process.env.PI_MICROCOMPACT_PRESSURE_PCT;
+	});
+
+	it("defaults to 60", () => {
+		assert.equal(getMicroCompactPressurePct(), 60);
+	});
+
+	it("parses overrides, clamps to 100, disables on non-positive or garbage", () => {
+		process.env.PI_MICROCOMPACT_PRESSURE_PCT = "30";
+		assert.equal(getMicroCompactPressurePct(), 30);
+		process.env.PI_MICROCOMPACT_PRESSURE_PCT = "150";
+		assert.equal(getMicroCompactPressurePct(), 100);
+		process.env.PI_MICROCOMPACT_PRESSURE_PCT = "0";
+		assert.equal(getMicroCompactPressurePct(), 0);
+		process.env.PI_MICROCOMPACT_PRESSURE_PCT = "-5";
+		assert.equal(getMicroCompactPressurePct(), 0);
+		process.env.PI_MICROCOMPACT_PRESSURE_PCT = "soon";
+		assert.equal(getMicroCompactPressurePct(), 0);
+	});
+});
+
+describe("selectToolResultsToClearUnderPressure", () => {
+	it("clears old compactable results on projected entries, keeping the newest keepRecent", () => {
+		const entries = [
+			projectedToolResult("t1", NOW - 3 * HOUR_MS),
+			projectedToolResult("t2", NOW - 2 * HOUR_MS),
+			projectedToolResult("t3", NOW - HOUR_MS),
+		];
+		assert.deepEqual(selectToolResultsToClearUnderPressure(entries, 1), ["t1", "t2"]);
+	});
+
+	it("skips results already cleared to the marker in the projection", () => {
+		// t1 is cleared (marker content) so it drops out of the candidate list
+		// entirely: with keepRecent=1 the newest compactable (t3) is kept and
+		// only t2 is cleared. If t1 were still counted it would be cleared again.
+		const entries = [
+			projectedClearedToolResult("t1", NOW - 4 * HOUR_MS),
+			projectedToolResult("t2", NOW - 3 * HOUR_MS),
+			projectedToolResult("t3", NOW - 2 * HOUR_MS),
+			projectedClearedToolResult("t4", NOW - HOUR_MS),
+		];
+		assert.deepEqual(selectToolResultsToClearUnderPressure(entries, 1), ["t2"]);
+	});
+
+	it("skips error results, image-bearing results, and non-compactable tools", () => {
+		const entries = [
+			projectedToolResult("t1", NOW - 3 * HOUR_MS, { isError: true }),
+			projectedToolResult("t2", NOW - 2 * HOUR_MS, {
+				content: [
+					{ type: "text", text: "img" },
+					{ type: "image", data: "...", mimeType: "image/png" },
+				],
+			}),
+			projectedToolResult("t3", NOW - HOUR_MS, { toolName: "ask_user" }),
+			projectedToolResult("t4", NOW - HOUR_MS),
+		];
+		assert.deepEqual(selectToolResultsToClearUnderPressure(entries, 1), []);
+	});
+
+	it("ignores non-message source entries (compaction, context_edit overlays)", () => {
+		const entries: ProjectedSessionEntry[] = [
+			{
+				sourceEntry: {
+					type: "compaction",
+					id: "c1",
+					parentId: null,
+					timestamp: "x",
+					summary: "s",
+				} as unknown as SessionEntry,
+				messages: [],
+			},
+			projectedToolResult("t1", NOW - 2 * HOUR_MS),
+			projectedToolResult("t2", NOW - HOUR_MS),
+		];
+		assert.deepEqual(selectToolResultsToClearUnderPressure(entries, 1), ["t1"]);
 	});
 });
 

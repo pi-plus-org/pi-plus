@@ -48,7 +48,8 @@ upstream packages stay pristine so they can be synced/updated without merge conf
 | `PI_MAX_ACTIVE_MESSAGES` | number (`0`/invalid = off, default 1000) | Forces compaction when the active message count exceeds the cap |
 | `PI_PRUNE_TAIL_TURNS` | number ≥ 1 (default 3) | Recent turns preserved verbatim by relevance pruning |
 | `PI_MICROCOMPACT_IDLE_MINUTES` | minutes (default 60; ≤ 0 disables) | Idle gap that triggers clearing of stale tool-result content on session open |
-| `PI_MICROCOMPACT_KEEP_RECENT` | number (default 5) | Tool results preserved verbatim by idle micro-compact |
+| `PI_MICROCOMPACT_KEEP_RECENT` | number (default 5) | Tool results preserved verbatim by idle and pressure micro-compact |
+| `PI_MICROCOMPACT_PRESSURE_PCT` | 1–100 (default 60; ≤ 0 or invalid disables) | Percent of the auto-compact threshold at which context-guard clears stale tool-result content mid-session |
 | `PI_COMPACT_ANALYTICS` | truthy | Emits recompaction diagnostics to stderr after compaction |
 | `PI_COMPACT_DEBUG` | truthy | Stderr stage trace for compaction |
 | `PI_PLUS_SETTINGS_FILE` | path | Overrides `~/.pi/agent/pi-plus-settings.json` (test/debug knob) |
