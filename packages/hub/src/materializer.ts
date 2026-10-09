@@ -5,6 +5,7 @@ import * as logger from "./logger.ts";
 import {
 	type AgentSettingsData,
 	type AuthData,
+	isProfileScopedSettingsKey,
 	type ModelsFileData,
 	PROFILE_SETTINGS_KEYS,
 	type Profile,
@@ -135,7 +136,7 @@ export function writeSettingsFile(dir: string, profile: Profile): void {
 	}
 	let sourceDirty = false;
 	for (const [key, value] of Object.entries(existing)) {
-		if (PROFILE_SETTINGS_KEYS.includes(key) || value === undefined) continue;
+		if (isProfileScopedSettingsKey(key) || value === undefined) continue;
 		if (profile.settings && key in profile.settings) continue; // re-declared below; not stale
 		if (source[key] === undefined) {
 			source[key] = value;
@@ -198,10 +199,14 @@ function applyProfileOverrides(settings: AgentSettingsData, profile: Profile): v
 	// pi's model scope setting (same format as --models): scopes the model
 	// selector / cycling to exactly the profile's models — a multi-model
 	// profile would otherwise expose only defaultModel to the session.
-	// Unknown ids stay listed as unavailable, matching the TUI. A single
-	// model is already covered by defaultModel, so no scope is written.
+	// Unknown ids stay listed as unavailable, matching the TUI. A single-model
+	// profile declares its one model as the scope too: pi's initial model
+	// selection prefers the first scoped model over defaultModel, so omitting
+	// the key would let a stale agent-layer `enabledModels` (e.g. left behind
+	// by an earlier multi-model profile) silently replace this profile's
+	// default. A profile with no declared models writes nothing.
 	if (profile.settings?.enabledModels === undefined) {
-		if (models.length > 1) settings.enabledModels = [...models];
+		if (models.length > 0) settings.enabledModels = [...models];
 		else delete settings.enabledModels;
 	}
 }

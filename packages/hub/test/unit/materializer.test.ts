@@ -167,10 +167,20 @@ describe("materializeProfile", () => {
 		expect(settings.defaultModel).toBe("m-two");
 	});
 
-	it("writes no enabledModels for a single-model profile", () => {
+	it("declares the single model as enabledModels scope for a single-model profile", () => {
+		// Without a scope of its own, a stale agent-layer enabledModels (from an
+		// earlier multi-model profile) would outrank defaultModel at startup:
+		// pi's initial model selection prefers the first scoped model.
 		const dir = mat.materializeProfile("work", baseProfile);
 		const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
-		expect(settings.enabledModels).toBeUndefined();
+		expect(settings.enabledModels).toEqual(["kimi-for-coding"]);
+	});
+
+	it("overrides a stale agent-layer enabledModels instead of inheriting it", () => {
+		fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ enabledModels: ["other-a", "other-b"] }));
+		const dir = mat.materializeProfile("work", baseProfile);
+		const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
+		expect(settings.enabledModels).toEqual(["kimi-for-coding"]);
 	});
 
 	it("prefers the declared default model over an inconsistent models list head", () => {
@@ -187,7 +197,7 @@ describe("materializeProfile", () => {
 		expect(settings.enabledModels).toEqual(["m-two", "m-one", "m-three"]);
 	});
 
-	it("drops a stale enabledModels when the profile shrinks to one model", () => {
+	it("rescopes a stale enabledModels when the profile shrinks to one model", () => {
 		const multi = { ...baseProfile, models: ["m-two", "m-one"] };
 		const dir = mat.materializeProfile("work", multi);
 		const profileSettings = path.join(dir, "settings.json");
@@ -198,7 +208,7 @@ describe("materializeProfile", () => {
 
 		mat.materializeProfile("work", { ...baseProfile, models: ["m-two"] });
 		const settings = JSON.parse(fs.readFileSync(profileSettings, "utf-8"));
-		expect(settings.enabledModels).toBeUndefined();
+		expect(settings.enabledModels).toEqual(["m-two"]);
 	});
 
 	it("lets an explicit profile.settings enabledModels win over the model list", () => {

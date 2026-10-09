@@ -43,7 +43,7 @@ import {
 } from "../../../../coding-agent/src/core/settings-manager.ts";
 import { resolvePath } from "../../../../coding-agent/src/utils/paths.ts";
 import { stripBom } from "../../../../coding-agent/src/utils/text.ts";
-import { deepMergeSettingObjects, getBaseAgentDir, PROFILE_SETTINGS_KEYS } from "./profile-settings.ts";
+import { deepMergeSettingObjects, getBaseAgentDir, isProfileScopedSettingsKey } from "./profile-settings.ts";
 
 function parseSettingsJson(content: string | undefined): Record<string, unknown> | undefined {
 	if (content === undefined) return undefined;
@@ -133,7 +133,7 @@ function routeMergedSettings(
 
 	for (const [key, value] of Object.entries(nextMerged)) {
 		if (key in previousMerged && sameJsonValue(previousMerged[key], value)) continue;
-		if (PROFILE_SETTINGS_KEYS.includes(key)) {
+		if (isProfileScopedSettingsKey(key)) {
 			profile[key] = value;
 			profileChanged = true;
 		} else {

@@ -142,6 +142,23 @@ describe("profile-layered settings writes", () => {
 		expect(base.theme).toBe("dark");
 	});
 
+	it("routes enabledModels scope edits to the profile file, keeping scopes per-profile", async () => {
+		const fx = fixture();
+		// A stale base scope must never outrank a profile's default model at
+		// startup (pi prefers the first scoped model), so writes stay per-profile.
+		writeJson(path.join(fx.baseDir, "settings.json"), { enabledModels: ["stale-a", "stale-b"] });
+		writeJson(path.join(fx.profileDir, "settings.json"), { enabledModels: ["m-one"] });
+		activateProfile(fx);
+
+		const mgr = SettingsManager.create(fx.cwd, fx.profileDir);
+		expect(mgr.getEnabledModels()).toEqual(["m-one"]);
+		mgr.setEnabledModels(["m-one", "m-two"]);
+		await mgr.flush();
+
+		expect(readJson(path.join(fx.profileDir, "settings.json")).enabledModels).toEqual(["m-one", "m-two"]);
+		expect(readJson(path.join(fx.baseDir, "settings.json")).enabledModels).toEqual(["stale-a", "stale-b"]);
+	});
+
 	it("routes general keys to the base file and clears a profile shadow copy", async () => {
 		const fx = fixture();
 		writeJson(path.join(fx.baseDir, "settings.json"), { theme: "dark" });

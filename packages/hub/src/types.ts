@@ -6,8 +6,23 @@
  * under a profile (layering implemented in
  * packages/plus/src/coding-agent/core/settings-manager.ts — keep the two lists
  * in sync; hub stays dependency-free so this cannot be shared).
+ * `enabledModels` belongs here because the model scope is derived from the
+ * profile's declared models: a profile that does not own the key would let a
+ * stale agent-layer scope (left behind by an earlier profile) outrank its
+ * `defaultModel` at startup — pi's initial model selection prefers the first
+ * scoped model over the saved default.
  */
-export const PROFILE_SETTINGS_KEYS: string[] = ["defaultProvider", "defaultModel", "defaultThinkingLevel"];
+export const PROFILE_SETTINGS_KEYS: string[] = [
+	"defaultProvider",
+	"defaultModel",
+	"defaultThinkingLevel",
+	"enabledModels",
+];
+
+/** True when a settings key is profile-scoped (stays in the profile layer, never migrates to the agent settings). */
+export function isProfileScopedSettingsKey(key: string): boolean {
+	return PROFILE_SETTINGS_KEYS.includes(key);
+}
 
 export interface Profile {
 	provider?: string;
