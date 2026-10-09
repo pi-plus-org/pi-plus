@@ -3,6 +3,9 @@
  * trigger, relevance pruning at turn_end, and the resume compact suggestion.
  */
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, it } from "vitest";
@@ -12,6 +15,14 @@ import { resetAutoCompactBreaker, setCurrentModel } from "../../src/context/dete
 import { registerContextGuard } from "../../src/extensions/context-guard/index.ts";
 
 const NOW = 1_700_000_000_000;
+
+// Isolate the piPlus store on an empty temp agent dir: getAutoCompactThreshold
+// reads the persisted cap/percent from settings.json there, so a real
+// ~/.pi/agent (e.g. contextWindowCapTokens) can never skew the expected math —
+// same setup as test/context/detection.test.ts.
+let settingsDir: string;
+const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
+const savedBaseAgentDir = process.env.PI_PLUS_BASE_AGENT_DIR;
 
 // Large window so the CC floor does not dominate; PI_AUTOCOMPACT_PCT_OVERRIDE=1
 // pins the threshold at 1% of the effective window (1918 tokens):
@@ -134,6 +145,9 @@ beforeEach(() => {
 	resetAutoCompactBreaker();
 	setCurrentModel(MODEL);
 	process.env.PI_AUTOCOMPACT_PCT_OVERRIDE = "1"; // threshold = 1% of 191808 = 1918
+	settingsDir = mkdtempSync(join(tmpdir(), "plus-context-guard-"));
+	process.env.PI_CODING_AGENT_DIR = settingsDir;
+	delete process.env.PI_PLUS_BASE_AGENT_DIR;
 });
 
 afterEach(() => {
@@ -144,6 +158,11 @@ afterEach(() => {
 	delete process.env.PI_DISABLE_AUTO_COMPACT;
 	delete process.env.PI_DISABLE_COMPACT;
 	delete process.env.PI_PRUNE_TAIL_TURNS;
+	rmSync(settingsDir, { recursive: true, force: true });
+	if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
+	if (savedBaseAgentDir === undefined) delete process.env.PI_PLUS_BASE_AGENT_DIR;
+	else process.env.PI_PLUS_BASE_AGENT_DIR = savedBaseAgentDir;
 });
 
 describe("turn_end: message-count force trigger", () => {

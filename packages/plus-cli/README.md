@@ -23,6 +23,7 @@ The context-detection/compaction/reasoning overrides and the eleven non-TUI exte
 6. **Settings selector rows** (`src/coding-agent/ui/settings-selector.ts` wrapper) — `/settings` gains "Auto-compact threshold", "Context floor", and "Context window cap" rows (persisted in the `piPlus` block of the base agent settings.json via the shared core's `context/plus-settings.ts`).
 7. **Tab title + busy spinner** (`src/extensions/tab-title/`) — the terminal window/tab title brands as `pi+ - [sessionName -] cwdBasename` with a braille spinner while the agent or compaction is working. TUI mode only.
 8. **Plain tool blocks** (`src/extensions/plain-tools/`) — strips background fills from tool result blocks so tool status reads as text (words, never colored blocks).
+9. **Fancy content-change diffs** (`src/extensions/fancy-diff/`) — takes over the TUI rendering of `edit` and `write`: syntax-highlighted diff bodies, colored +/- markers, a dim line-number gutter, `+N −M` change stats with a language badge, bold word-level emphasis on modified lines, and a ⋮ separator for elided context. A `write` that overwrites an existing file renders as an old-vs-new diff (the pre-image is captured in a `tool_call` handler before execution; new files keep the streaming content preview). No background fills, consistent with plain tool blocks.
 
 The CLI identifies as **`pipi`** (pi-plus) in CLI text via the shared config wrapper's
 `APP_NAME` shadow; the terminal tab title brands as **`pi+`** via `APP_TITLE`.
