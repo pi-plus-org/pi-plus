@@ -33,5 +33,6 @@ export const REDIRECTS = new Map([
 	],
 	["packages/coding-agent/src/config.ts", "packages/plus/src/coding-agent/core/config.ts"],
 	["packages/agent/src/agent.ts", "packages/plus/src/agent/agent.ts"],
-	["packages/agent/src/harness/compaction/compaction.ts", "packages/plus/src/agent/harness/compaction/compaction.ts"],
+	// Client identity: User-Agent reports "pi-plus" instead of "pi" in provider usage logs.
+	["packages/ai/src/utils/pi-user-agent.ts", "packages/plus/src/ai/utils/pi-user-agent.ts"],
 ]);
