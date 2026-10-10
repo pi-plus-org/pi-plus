@@ -1,7 +1,8 @@
 /**
  * Tests for pi-plus-fancy-diff's pure renderer: +N −M stats counting, marker /
  * gutter / body styling, syntax-highlighted bodies, word-level emphasis, the ⋮
- * omission separator, the change header, and the no-background-fill house style.
+ * omission separator, the change header, and the diff-fill scoping (changed
+ * lines filled; context lines, separators, and headers unfilled).
  */
 
 import assert from "node:assert/strict";
@@ -27,7 +28,7 @@ beforeAll(() => {
 	initTheme("dark");
 });
 
-// Background SGRs (40-47, 48;…, 100-107) — the plain-tools house style bans them.
+// Background SGRs (40-47, 48;…, 100-107) — allowed only on changed diff lines.
 const BACKGROUND_SGR = /\x1b\[(?:4[0-7]m|48;|10[0-7]m|107;)/;
 
 function renderDiff(diff: string, rawPath: string | null): string {
@@ -139,19 +140,40 @@ describe("formatChangeHeader", () => {
 	});
 });
 
-describe("house style", () => {
-	it("emits no background fills", () => {
-		const cases: Array<[string, string, string]> = [
-			["alpha\nbeta\ngamma", "alpha\nBETA\ngamma", "app.ts"],
-			["one\ntwo", "one\nthree", "notes.txt"],
-			["a", "b", "data.json"],
-		];
-		for (const [oldContent, newContent, path] of cases) {
-			const { diff } = generateDiffString(oldContent, newContent);
-			const rendered = renderDiff(diff, path);
-			assert.ok(!BACKGROUND_SGR.test(rendered), `background SGR found for ${path}`);
-			const header = formatChangeHeader("edit", path, theme, "/tmp", { stats: parseDiffStats(diff) });
-			assert.ok(!BACKGROUND_SGR.test(header), `background SGR in header for ${path}`);
+describe("diff fills", () => {
+	// A modified line (1:1 pair) and a pure replacement, with and without syntax
+	// highlighting: every changed row gets a background fill in both styles.
+	it("fills added and removed lines, leaves context lines unfilled", () => {
+		for (const path of ["app.ts", "notes.txt"]) {
+			const { diff } = generateDiffString("alpha\nbeta\ngamma", "alpha\nBETA\ngamma");
+			const lines = renderDiff(diff, path).split("\n");
+			const changed = lines.filter((line) => /^[+-]/.test(stripAnsi(line)));
+			const context = lines.filter((line) => !/^[+-]/.test(stripAnsi(line)));
+			assert.ok(changed.length >= 2, `expected changed lines for ${path}`);
+			assert.ok(
+				changed.every((line) => BACKGROUND_SGR.test(line)),
+				`changed line without fill for ${path}`,
+			);
+			assert.ok(
+				context.every((line) => !BACKGROUND_SGR.test(line)),
+				`unfilled line got a background for ${path}`,
+			);
 		}
+	});
+
+	it("does not fill the omission separator", () => {
+		const oldContent = Array.from({ length: 30 }, (_, index) => `line${index}`).join("\n");
+		const newContent = oldContent.replace("line0", "LINE0");
+		const { diff } = generateDiffString(oldContent, newContent);
+		const separator = renderDiff(diff, "app.ts")
+			.split("\n")
+			.find((line) => stripAnsi(line).includes("⋮"));
+		assert.ok(separator);
+		assert.ok(!BACKGROUND_SGR.test(separator));
+	});
+
+	it("keeps the change header unfilled", () => {
+		const header = formatChangeHeader("edit", "src/foo.ts", theme, "/tmp", { stats: { added: 2, removed: 1 } });
+		assert.ok(!BACKGROUND_SGR.test(header));
 	});
 });

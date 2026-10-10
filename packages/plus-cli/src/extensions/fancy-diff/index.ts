@@ -19,8 +19,10 @@
  *     replay guard so settled transcripts restored from disk never degrade
  *     into "oldText not found" errors.
  *
- * No background fills anywhere — status lives in markers and colors, per the
- * plain-tools house style. All other tools pass through untouched.
+ * Tool status stays fill-free per the plain-tools house style; diff lines are
+ * the deliberate exception: a soft full-row fill marks changed lines and a
+ * stronger one marks the words inside them that actually changed. All other
+ * tools pass through untouched.
  */
 
 import type { ExtensionAPI } from "../../../../coding-agent/src/core/extensions/types.ts";
