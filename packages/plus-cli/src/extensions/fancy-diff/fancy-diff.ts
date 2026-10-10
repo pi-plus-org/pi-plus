@@ -191,12 +191,25 @@ function lineKindColor(kind: DiffLineKind): ThemeColor {
 	return "toolDiffContext";
 }
 
-/** Assemble one styled diff line: marker + gutter + body over a soft row fill, preserving alignment. */
+const RESET_BG = "\x1b[49m";
+
+/** Opening background SGR for a fill color (taken from theme.style by stripping its closer). */
+function fillOpenAnsi(theme: Theme, fill: Color): string {
+	return theme.style("", { bg: fill }).slice(0, -RESET_BG.length);
+}
+
+/**
+ * Assemble one styled diff line: marker + gutter + body over a soft row fill, preserving alignment.
+ * Word fills close with a background reset, which would also end the row fill (ANSI backgrounds do
+ * not stack), so every inner reset is replaced by a re-open of the row fill.
+ */
 function styledDiffLine(kind: DiffLineKind, lineNum: string, body: string, theme: Theme): string {
 	const marker = kind === "added" ? "+" : kind === "removed" ? "-" : " ";
 	const line = `${theme.fg(lineKindColor(kind), marker)}${theme.fg("dim", lineNum)} ${body}`;
 	const fill = diffFill(kind, theme, "line");
-	return fill ? theme.style(line, { bg: fill }) : line;
+	if (!fill) return line;
+	const open = fillOpenAnsi(theme, fill);
+	return `${open}${line.split(RESET_BG).join(open)}${RESET_BG}`;
 }
 
 /**

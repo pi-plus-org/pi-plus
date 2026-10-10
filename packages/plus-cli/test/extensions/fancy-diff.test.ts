@@ -161,6 +161,23 @@ describe("diff fills", () => {
 		}
 	});
 
+	it("resumes the row fill after a word fill's background reset", () => {
+		// ANSI backgrounds do not stack: the word chunk's \x1b[49m must be swapped for a
+		// re-open of the row fill, or the rest of the line renders unfilled.
+		const { diff } = generateDiffString("const x = 1", "const x = 2");
+		const changed = renderDiff(diff, "app.ts")
+			.split("\n")
+			.filter((line) => /^[+-]/.test(stripAnsi(line)));
+		assert.ok(changed.length >= 2);
+		for (const line of changed) {
+			// At least: row open, word open, row reopen after the word.
+			assert.ok((line.match(/\x1b\[48;/g) ?? []).length >= 3, `expected row reopen in ${line}`);
+			// The only row-fill close is the one at end of line.
+			assert.ok(line.endsWith("\x1b[49m"));
+			assert.equal((line.match(/\x1b\[49m/g) ?? []).length, 1, "row fill must survive the word fill");
+		}
+	});
+
 	it("does not fill the omission separator", () => {
 		const oldContent = Array.from({ length: 30 }, (_, index) => `line${index}`).join("\n");
 		const newContent = oldContent.replace("line0", "LINE0");
