@@ -2,7 +2,7 @@
  * Tests for pi-plus-changes: the first-touch ledger snapshots taken in the
  * tool_call handler, the report builder's classification / totals / caps, and
  * the /changes command with its entry rendering (header, per-file fancy diff,
- * no-background-fill house style).
+ * diff fills scoped to changed lines).
  */
 
 import assert from "node:assert/strict";
@@ -37,7 +37,7 @@ import { buildChangesReport, type ChangesReport } from "../../src/extensions/cha
 
 initTheme("dark");
 
-// Background SGRs (40-47, 48;…, 100-107) — the plain-tools house style bans them.
+// Background SGRs (40-47, 48;…, 100-107) — allowed only on changed diff lines.
 const BACKGROUND_SGR = /\x1b\[(?:4[0-7]m|48;|10[0-7]m|107;)/;
 
 function toolCallEvent(toolName: string, input: Record<string, string>, id = "call-1"): ToolCallEvent {
@@ -325,7 +325,7 @@ describe("registerChanges — command and entry rendering", () => {
 		assert.match(none.notifications[0].message, /No tracked changes match/);
 	});
 
-	it("renders the entry with the report header, per-file fancy diffs, and no background fills", async () => {
+	it("renders the entry with the report header and per-file fancy diffs", async () => {
 		const captureState = capture();
 		const renderer = captureState.entryRenderers.get("pi-plus-changes");
 		assert.ok(renderer);
@@ -363,8 +363,21 @@ describe("registerChanges — command and entry rendering", () => {
 		// Diff bodies go through the fancy pipeline (markers separated from content).
 		assert.ok(plain.includes("old"));
 		assert.ok(plain.includes("hello"));
-		// House style: status never uses background fills.
-		assert.ok(!BACKGROUND_SGR.test(styled), "entry rendering must not emit background SGR codes");
+		// Diff fills are scoped to changed lines; report/file headers stay unfilled.
+		const styledLines = styled.split("\n");
+		const changedLines = styledLines.filter((line) => /^[+-]/.test(stripAnsi(line)));
+		assert.ok(changedLines.length >= 3, "expected filled diff lines");
+		assert.ok(
+			changedLines.every((line) => BACKGROUND_SGR.test(line)),
+			"changed diff lines must carry the fancy fill",
+		);
+		const headerLines = styledLines.filter(
+			(line) => !/^[+-]/.test(stripAnsi(line)) && /changes|modified|brand-new/.test(stripAnsi(line)),
+		);
+		assert.ok(
+			headerLines.every((line) => !BACKGROUND_SGR.test(line)),
+			"entry rendering must not emit background SGR outside diff lines",
+		);
 
 		const missing = renderer({ data: undefined }, { expanded: false }, theme);
 		assert.match(stripAnsi(missing.render(120).join("\n")), /missing report data/);

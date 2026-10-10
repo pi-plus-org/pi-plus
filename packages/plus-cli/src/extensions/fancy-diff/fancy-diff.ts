@@ -9,17 +9,21 @@
  *
  *   edit  src/foo.ts  +2 −1  typescript        ← header with change stats + language badge
  *      10 import { Bar } from "./bar.ts"       ← context: dim gutter, syntax-highlighted body
- *    − 12   const x = old_value                ← removed: colored marker, bold word-diff
+ *    − 12   const x = old_value                ← removed: soft row fill, bold + stronger fill on changed words
  *    + 12   const x = new_value                ← added: same
  *      ⋮                                       ← omission separator
  *
- * House style (pi-plus-plain-tools): status lives in markers and colors, never
- * in background fills — this module must not call theme.bg().
+ * House style (pi-plus-plain-tools): tool *status* never uses background fills.
+ * Diff lines are the deliberate exception — a changed line carries a soft
+ * full-row fill of its diff color and changed words a stronger one, both mixed
+ * from the theme's toolDiffAdded/toolDiffRemoved tokens (never the tool-status
+ * bg tokens). Context lines and headers stay unfilled.
  *
  * The line-grouping loop is a port of upstream renderDiff; the parse regex is
  * re-implemented here because upstream's is module-private.
  */
 
+import { type Color, mixColors, rgbColor } from "@earendil-works/pi-tui";
 import * as Diff from "diff";
 import { renderToolPath, replaceTabs } from "../../../../coding-agent/src/core/tools/render-utils.ts";
 import {
@@ -109,10 +113,27 @@ function highlightFragment(text: string, lang: string): string {
 	return highlightCode(text, lang)[0] ?? text;
 }
 
+/** The color a diff fill is mixed toward: black on dark themes, white on light ones. */
+function fillBase(theme: Theme): Color {
+	return theme.appearance === "light" ? rgbColor(255, 255, 255) : rgbColor(0, 0, 0);
+}
+
+/**
+ * Background fill for a changed line: `line` is a soft full-row tint, `word` a
+ * stronger fill on the actually-changed chunks. Both derive from the theme's
+ * diff token so they follow the active theme; context lines stay unfilled.
+ */
+function diffFill(kind: DiffLineKind, theme: Theme, strength: "line" | "word"): Color | undefined {
+	if (kind === "context") return undefined;
+	const token = kind === "added" ? "toolDiffAdded" : "toolDiffRemoved";
+	return mixColors(theme.colors[token], fillBase(theme), strength === "line" ? 0.85 : 0.55);
+}
+
 /**
  * Word-level emphasis for a 1:1 replacement pair. With a language each chunk is
- * highlighted on its own and changed chunks are bolded (inverse would fight the
- * inner color codes); without one this is exactly upstream's inverse style.
+ * highlighted on its own and changed chunks are bolded and carry the word fill
+ * (inverse would fight the inner color codes); without one this is exactly
+ * upstream's inverse style, with the line fill alone carrying the change.
  * Leading whitespace of the first changed chunk stays unstyled so indentation
  * is never highlighted.
  */
@@ -123,14 +144,17 @@ function renderWordDiffPair(
 	theme: Theme,
 ): { removedBody: string; addedBody: string } {
 	const wordDiff = Diff.diffWords(oldContent, newContent);
+	const removedFill = diffFill("removed", theme, "word");
+	const addedFill = diffFill("added", theme, "word");
 	let removedBody = "";
 	let addedBody = "";
 	let isFirstRemoved = true;
 	let isFirstAdded = true;
 
-	const style = (chunk: string): string => {
+	const style = (chunk: string, fill: Color | undefined): string => {
 		if (!lang) return theme.inverse(chunk);
-		return theme.bold(highlightFragment(chunk, lang));
+		const emphasized = theme.bold(highlightFragment(chunk, lang));
+		return fill ? theme.style(emphasized, { bg: fill }) : emphasized;
 	};
 	const plain = (chunk: string): string => (lang ? highlightFragment(chunk, lang) : chunk);
 
@@ -143,7 +167,7 @@ function renderWordDiffPair(
 				removedBody += lang ? highlightFragment(leadingWs, lang) : leadingWs;
 				isFirstRemoved = false;
 			}
-			if (value) removedBody += style(value);
+			if (value) removedBody += style(value, removedFill);
 		} else if (part.added) {
 			let value = part.value;
 			if (isFirstAdded) {
@@ -152,7 +176,7 @@ function renderWordDiffPair(
 				addedBody += lang ? highlightFragment(leadingWs, lang) : leadingWs;
 				isFirstAdded = false;
 			}
-			if (value) addedBody += style(value);
+			if (value) addedBody += style(value, addedFill);
 		} else {
 			removedBody += plain(part.value);
 			addedBody += plain(part.value);
@@ -167,10 +191,12 @@ function lineKindColor(kind: DiffLineKind): ThemeColor {
 	return "toolDiffContext";
 }
 
-/** Assemble one styled diff line: marker + gutter + body, preserving alignment. */
+/** Assemble one styled diff line: marker + gutter + body over a soft row fill, preserving alignment. */
 function styledDiffLine(kind: DiffLineKind, lineNum: string, body: string, theme: Theme): string {
 	const marker = kind === "added" ? "+" : kind === "removed" ? "-" : " ";
-	return `${theme.fg(lineKindColor(kind), marker)}${theme.fg("dim", lineNum)} ${body}`;
+	const line = `${theme.fg(lineKindColor(kind), marker)}${theme.fg("dim", lineNum)} ${body}`;
+	const fill = diffFill(kind, theme, "line");
+	return fill ? theme.style(line, { bg: fill }) : line;
 }
 
 /**
