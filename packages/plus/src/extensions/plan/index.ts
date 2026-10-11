@@ -37,6 +37,7 @@ import {
 	getActivePermissionState,
 	notifyActivePermissionModeChange,
 	type PermissionMode,
+	setActivePermissionMode,
 } from "../permissions/index.ts";
 import { PLAN_REVIEW_CHOICES, type PlanReviewDialogChoice, PlanViewComponent } from "./component.ts";
 
@@ -146,12 +147,11 @@ export function registerPlan(pi: ExtensionAPI): void {
 		// Couple through the holder the permissions gate actually reads (a
 		// host-injected per-tab state in embedders), not the module default —
 		// otherwise the gate's per-tool-call sync tears plan mode straight back
-		// down on the first tool call.
-		const permissionState = getActivePermissionState();
-		if (permissionState.mode !== "plan") {
-			prePlanPermissionMode = permissionState.mode;
-			permissionState.mode = "plan";
-			notifyActivePermissionModeChange("plan");
+		// down on the first tool call. setActivePermissionMode also records the
+		// switch for the session file, so a resumed legacy session restores it.
+		if (getActivePermissionState().mode !== "plan") {
+			prePlanPermissionMode = getActivePermissionState().mode;
+			setActivePermissionMode("plan");
 		}
 	}
 
@@ -163,15 +163,15 @@ export function registerPlan(pi: ExtensionAPI): void {
 		// recorded pre-plan mode — drop to "bypass" rather than staying in
 		// "plan", which would keep the read-only gate latched after approval.
 		// An explicit override (approve-and-run review choices) wins over both.
+		// Like activate, the switch is recorded for session-file persistence;
+		// note the pre-plan mode itself is not persisted, so a session resumed
+		// into a restored "plan" mode exits to bypass.
 		const restore = restoreOverride ?? prePlanPermissionMode ?? "bypass";
 		prePlanPermissionMode = undefined;
-		const permissionState = getActivePermissionState();
 		if (restoreOverride !== undefined) {
-			permissionState.mode = restoreOverride;
-			notifyActivePermissionModeChange(restoreOverride);
-		} else if (permissionState.mode === "plan") {
-			permissionState.mode = restore;
-			notifyActivePermissionModeChange(restore);
+			setActivePermissionMode(restoreOverride);
+		} else if (getActivePermissionState().mode === "plan") {
+			setActivePermissionMode(restore);
 		}
 	}
 
@@ -430,7 +430,11 @@ export function registerPlan(pi: ExtensionAPI): void {
 			// recorded pre-plan mode (plan was engaged from the permissions
 			// side), drop a lingering "plan" mode to bypass — otherwise the
 			// permissions gate would lazily re-engage plan mode without the
-			// plan workflow section for the new session.
+			// plan workflow section for the new session. These are lifecycle
+			// resets, not user mode choices: raw writes, no session-file entry —
+			// on "resume" the permissions extension restores the persisted
+			// mode after this handler (it is registered later) and re-engages
+			// the gate via syncPlanGateState when that mode is "plan".
 			if (prePlanPermissionMode !== undefined) {
 				const permissionState = getActivePermissionState();
 				permissionState.mode = prePlanPermissionMode;
@@ -443,11 +447,9 @@ export function registerPlan(pi: ExtensionAPI): void {
 		}
 		if (pi.getFlag("plan") === true && (event.reason === "startup" || event.reason === "new")) {
 			state.enabled = true;
-			const permissionState = getActivePermissionState();
-			if (permissionState.mode !== "plan") {
-				prePlanPermissionMode = permissionState.mode;
-				permissionState.mode = "plan";
-				notifyActivePermissionModeChange("plan");
+			if (getActivePermissionState().mode !== "plan") {
+				prePlanPermissionMode = getActivePermissionState().mode;
+				setActivePermissionMode("plan");
 			}
 		}
 		// Recompute the plan file path (also covers /reload, where the flag and

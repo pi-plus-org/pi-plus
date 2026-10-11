@@ -3,7 +3,10 @@
  * (rendered on the cwd line by the plus footer wrapper from
  * sharedPermissionState) and the Shift+Tab cycle wired as a terminal-input
  * listener (extension shortcuts can't bind shift+tab — it is reserved for
- * app.thinking.cycle upstream).
+ * app.thinking.cycle upstream), plus session-file persistence: mode changes
+ * append `pi-plus-permissions` custom entries and a resumed legacy session
+ * (session_start "startup" with pre-existing entries, or "resume") restores
+ * the latest one.
  */
 
 import assert from "node:assert/strict";
@@ -19,6 +22,7 @@ import {
 	createPermissionsExtension,
 	gatePermissionToolCall,
 	nextPermissionMode,
+	PERMISSION_MODE_ENTRY_TYPE,
 	PERMISSION_MODES,
 	type PermissionMode,
 	type PermissionsExtensionOptions,
@@ -34,19 +38,33 @@ const baseCtx = {
 	sessionManager: { getSessionId: () => "session-1" },
 } as unknown as ExtensionContext;
 
+interface AppendedEntry {
+	customType: string;
+	data: unknown;
+}
+
+interface HarnessExtras {
+	/** Entries the fake sessionManager.getEntries() returns (resume scan input). */
+	entries?: unknown[];
+	/** Value pi.getFlag("plan") returns. */
+	planFlag?: boolean;
+}
+
 interface Harness {
 	state: { mode: PermissionMode };
 	notifications: string[];
 	modeChanges: PermissionMode[];
+	appended: AppendedEntry[];
 	terminalInput: (data: string) => { consume?: boolean; data?: string } | undefined;
 	runCommand: (name: string, args: string) => Promise<void>;
-	restartSession: () => Promise<void>;
+	restartSession: (reason?: string) => Promise<void>;
 	terminalUnsubscribed: () => boolean;
 }
 
-function harness(options: PermissionsExtensionOptions = {}): Harness {
+function harness(options: PermissionsExtensionOptions = {}, extras: HarnessExtras = {}): Harness {
 	const notifications: string[] = [];
 	const modeChanges: PermissionMode[] = [];
+	const appended: AppendedEntry[] = [];
 	const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => unknown }>();
 	const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
 	let terminalHandler: TerminalInputHandler | undefined;
@@ -68,7 +86,7 @@ function harness(options: PermissionsExtensionOptions = {}): Harness {
 		hasUI: true,
 		mode: "tui",
 		cwd: "/tmp",
-		sessionManager: { getSessionId: () => "session-1" },
+		sessionManager: { getSessionId: () => "session-1", getEntries: () => extras.entries ?? [] },
 	} as unknown as ExtensionContext;
 
 	// Without an explicit state the extension must use the shared holder —
@@ -88,6 +106,10 @@ function harness(options: PermissionsExtensionOptions = {}): Harness {
 		registerCommand: (name: string, command: { handler: (args: string, ctx: ExtensionContext) => unknown }) => {
 			commands.set(name, command);
 		},
+		appendEntry: (customType: string, data: unknown) => {
+			appended.push({ customType, data });
+		},
+		getFlag: (name: string) => (name === "plan" && extras.planFlag === true ? true : undefined),
 	} as unknown as ExtensionAPI);
 
 	const sessionStart = handlers.get("session_start");
@@ -97,17 +119,23 @@ function harness(options: PermissionsExtensionOptions = {}): Harness {
 		state,
 		notifications,
 		modeChanges,
+		appended,
 		terminalInput: (data: string) => terminalHandler?.(data),
 		runCommand: async (name: string, args: string) => {
 			const command = commands.get(name);
 			assert.ok(command, `command ${name} must be registered`);
 			await command.handler(args, ctx);
 		},
-		restartSession: async () => {
-			await sessionStart({}, ctx);
+		restartSession: async (reason?: string) => {
+			await sessionStart(reason === undefined ? {} : { reason }, ctx);
 		},
 		terminalUnsubscribed: () => terminalUnsubscribed,
 	};
+}
+
+/** Build a persisted `pi-plus-permissions` custom entry as stored in the session file. */
+function modeEntry(mode: PermissionMode): unknown {
+	return { type: "custom", customType: PERMISSION_MODE_ENTRY_TYPE, data: { mode } };
 }
 
 beforeAll(() => {
@@ -282,5 +310,89 @@ describe("plan permission mode gate", () => {
 		assert.equal(await gatePermissionToolCall(probe, "bypass", baseCtx), undefined);
 		assert.equal(sharedPlanGateState.enabled, false);
 		assert.equal(sharedPlanGateState.planFilePath, undefined);
+	});
+});
+
+describe("session-file persistence", () => {
+	it("appends a pi-plus-permissions entry for /permissions and Shift+Tab changes", async () => {
+		const h = harness();
+		await h.restartSession();
+		await h.runCommand("permissions", "accept-edits");
+		h.terminalInput("\x1b[Z");
+		assert.deepEqual(
+			h.appended.map((entry) => entry.customType),
+			[PERMISSION_MODE_ENTRY_TYPE, PERMISSION_MODE_ENTRY_TYPE],
+		);
+		assert.deepEqual(
+			h.appended.map((entry) => (entry.data as { mode: PermissionMode }).mode),
+			["acceptEdits", "plan"],
+		);
+	});
+
+	it("does not append an entry when the mode is already set", async () => {
+		const h = harness();
+		await h.restartSession();
+		await h.runCommand("permissions", "bypass");
+		assert.deepEqual(h.appended, []);
+		assert.ok(h.notifications.some((n) => n.includes("already bypass")));
+	});
+
+	it("restores the latest persisted mode on resume", async () => {
+		const h = harness({}, { entries: [modeEntry("bypass"), modeEntry("acceptEdits")] });
+		await h.restartSession("resume");
+		assert.equal(h.state.mode, "acceptEdits");
+		assert.deepEqual(h.modeChanges, ["acceptEdits"]);
+		assert.ok(h.notifications.some((n) => n.includes("Permission mode restored")));
+	});
+
+	it("restores the persisted mode at startup (pipi -r launch)", async () => {
+		const h = harness({}, { entries: [modeEntry("acceptEdits")] });
+		await h.restartSession("startup");
+		assert.equal(h.state.mode, "acceptEdits");
+	});
+
+	it("restoring plan mode re-engages the shared plan gate with a plan file path", async () => {
+		sharedPlanGateState.enabled = false;
+		sharedPlanGateState.planFilePath = undefined;
+		try {
+			const h = harness({}, { entries: [modeEntry("plan")] });
+			await h.restartSession("resume");
+			assert.equal(h.state.mode, "plan");
+			assert.equal(sharedPlanGateState.enabled, true);
+			assert.ok(sharedPlanGateState.planFilePath, "restored plan mode must set a plan file path");
+		} finally {
+			sharedPlanGateState.enabled = false;
+			sharedPlanGateState.planFilePath = undefined;
+		}
+	});
+
+	it("ignores malformed persisted entries", async () => {
+		const h = harness(
+			{},
+			{ entries: [{ type: "custom", customType: PERMISSION_MODE_ENTRY_TYPE, data: { mode: 42 } }] },
+		);
+		await h.restartSession("resume");
+		assert.equal(h.state.mode, "bypass");
+	});
+
+	it("does not restore on new or fork (fresh sessions start at the default)", async () => {
+		for (const reason of ["new", "fork"]) {
+			const h = harness({}, { entries: [modeEntry("acceptEdits")] });
+			await h.restartSession(reason);
+			assert.equal(h.state.mode, "bypass", `reason ${reason} must not restore`);
+			assert.deepEqual(h.modeChanges, []);
+		}
+	});
+
+	it("a plain startup with no entries is a no-op", async () => {
+		const h = harness();
+		await h.restartSession("startup");
+		assert.equal(h.state.mode, "bypass");
+	});
+
+	it("an explicit --plan launch wins over the persisted mode at startup", async () => {
+		const h = harness({}, { entries: [modeEntry("acceptEdits")], planFlag: true });
+		await h.restartSession("startup");
+		assert.equal(h.state.mode, "bypass");
 	});
 });

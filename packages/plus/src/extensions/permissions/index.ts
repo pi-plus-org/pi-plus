@@ -31,6 +31,13 @@
  * editor's action dispatch, so the keystroke reaches us first (this shadows
  * the thinking-cycle default binding, which users can rebind via
  * keybindings.json).
+ *
+ * The mode is also persisted into the session file as `pi-plus-permissions`
+ * custom entries (one per change, latest wins), so resuming a legacy session
+ * — `pipi -r` at launch (session_start "startup" with pre-existing entries)
+ * or an in-TUI session switch ("resume") — restores the mode it was left in
+ * instead of silently resetting to bypass. SDK/desktop hosts keep per-tab
+ * mode state in their own UI and don't register this extension.
  */
 
 import type {
@@ -111,6 +118,8 @@ export const sharedPermissionState: PermissionModeState = { mode: "bypass" };
  */
 let activePermissionState: PermissionModeState | undefined;
 let activeModeChangeNotifier: ((mode: PermissionMode) => void) | undefined;
+/** Recorder the factory registers to persist mode changes into the session file. */
+let activeModeRecorder: ((mode: PermissionMode) => void) | undefined;
 
 /** Register the holder (and optional change notifier) plan-mode coupling uses. Factory-time. */
 export function setActivePermissionState(
@@ -129,6 +138,45 @@ export function getActivePermissionState(): PermissionModeState {
 /** Mirror a plan-side mode switch into the host UI (the registered onModeChange, if any). */
 export function notifyActivePermissionModeChange(mode: PermissionMode): void {
 	activeModeChangeNotifier?.(mode);
+}
+
+/**
+ * Write the active permission mode from any plus component (plan engage/exit,
+ * approve-and-run choices): updates the holder when the mode actually
+ * changes, mirrors the switch into the host UI, and records it for
+ * persistence into the session file. Plan-mode session-lifecycle resets
+ * (new/resume/fork) intentionally do NOT go through here — they are not user
+ * mode choices and must not append entries that would clobber a resume
+ * restore.
+ */
+export function setActivePermissionMode(mode: PermissionMode): void {
+	const holder = getActivePermissionState();
+	if (holder.mode === mode) return;
+	holder.mode = mode;
+	notifyActivePermissionModeChange(mode);
+	activeModeRecorder?.(mode);
+}
+
+/** Custom entry recording one permission-mode change; the latest entry wins on resume. */
+export const PERMISSION_MODE_ENTRY_TYPE = "pi-plus-permissions";
+
+interface PermissionModeEntryData {
+	mode?: unknown;
+}
+
+/**
+ * Latest mode recorded in the session's `pi-plus-permissions` custom entries,
+ * or undefined when the session has none (never switched, or pre-dates the
+ * feature — those keep the bypass default).
+ */
+function readPersistedPermissionMode(ctx: ExtensionContext): PermissionMode | undefined {
+	let persisted: PermissionMode | undefined;
+	for (const entry of ctx.sessionManager.getEntries()) {
+		if (entry.type !== "custom" || entry.customType !== PERMISSION_MODE_ENTRY_TYPE) continue;
+		const mode = parsePermissionMode(String((entry.data as PermissionModeEntryData | undefined)?.mode ?? ""));
+		if (mode) persisted = mode;
+	}
+	return persisted;
 }
 
 // Raw escape sequences that terminals emit for Shift+Tab (see
@@ -259,6 +307,19 @@ export function createPermissionsExtension(options: PermissionsExtensionOptions 
 		name: "pi-plus-permissions",
 		hidden: true,
 		factory: (pi: ExtensionAPI) => {
+			// Persist every mode change into the session file so a resumed legacy
+			// session can restore it (see the session_start handler below).
+			// Last-write-wins across runtimes, like setActivePermissionState; a
+			// stale ctx (session replaced between the change and the write) drops
+			// the entry — the replacement session restores from its own entries.
+			activeModeRecorder = (mode: PermissionMode) => {
+				try {
+					pi.appendEntry(PERMISSION_MODE_ENTRY_TYPE, { mode } satisfies PermissionModeEntryData);
+				} catch {
+					// extension ctx is stale after a session replacement
+				}
+			};
+
 			const setMode = (mode: PermissionMode, ctx: ExtensionContext): void => {
 				if (state.mode === mode) {
 					ctx.ui.notify(`Permission mode is already ${mode}.`, "info");
@@ -266,6 +327,7 @@ export function createPermissionsExtension(options: PermissionsExtensionOptions 
 				}
 				state.mode = mode;
 				options.onModeChange?.(mode);
+				activeModeRecorder?.(mode);
 				ctx.ui.notify(`Permission mode: ${PERMISSION_MODE_LABELS[mode]}`, "info");
 			};
 
@@ -273,13 +335,30 @@ export function createPermissionsExtension(options: PermissionsExtensionOptions 
 
 			// The Shift+Tab cycle is TUI-only; onTerminalInput is a no-op
 			// elsewhere, so this is safe to run from every host.
-			pi.on("session_start", async (_event, ctx) => {
+			pi.on("session_start", async (event, ctx) => {
 				shiftTabUnsubscribe?.();
 				shiftTabUnsubscribe = ctx.ui.onTerminalInput((data) => {
 					if (!SHIFT_TAB_SEQUENCES.has(data)) return undefined;
 					setMode(nextPermissionMode(state.mode), ctx);
 					return { consume: true };
 				});
+
+				// Restore the mode a resumed legacy session was left in.
+				// "startup" covers `pipi -r` at launch (a fresh session has no
+				// entries, so the scan is a no-op there); "resume" covers an
+				// in-TUI session switch. new/fork start at the default and
+				// reload keeps the holder (it survives across /reload). An
+				// explicit --plan launch wins over the persisted mode.
+				if (event.reason !== "startup" && event.reason !== "resume") return;
+				if (event.reason === "startup" && pi.getFlag("plan") === true) return;
+				const restored = readPersistedPermissionMode(ctx);
+				if (!restored || restored === state.mode) return;
+				state.mode = restored;
+				options.onModeChange?.(restored);
+				// Re-engage the shared plan gate (and plan-file path) when the
+				// restored mode is "plan", before the first agent run.
+				syncPlanGateState(restored, ctx);
+				ctx.ui.notify(`Permission mode restored: ${PERMISSION_MODE_LABELS[restored]}`, "info");
 			});
 
 			pi.registerCommand("permissions", {
