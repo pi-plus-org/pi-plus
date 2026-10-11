@@ -58,8 +58,14 @@ export function registerImageMarker(editor: Editor, path: string): string {
 	return imageMarkerText(state.counter);
 }
 
-/** Image file extensions recognized as pasteable images (matches the read tool). */
-const IMAGE_EXTENSION = /\.(?:png|jpe?g|gif|webp|bmp|avif)/i;
+/**
+ * Image file extensions recognized as pasteable images. Covers the formats the
+ * read tool renders inline (jpg, png, gif, webp, bmp) plus avif/heic/heif/tiff:
+ * those decode nowhere upstream yet, but they still marker-ize so drops stay
+ * compact — expansion restores the real path, which the model can convert
+ * (e.g. macOS `sips`) before reading.
+ */
+const IMAGE_EXTENSION = /\.(?:png|jpe?g|gif|webp|bmp|avif|heic|heif|tiff?)/i;
 
 /**
  * Token scanner for image paths in pasted text. Extends leftward over
@@ -67,7 +73,7 @@ const IMAGE_EXTENSION = /\.(?:png|jpe?g|gif|webp|bmp|avif)/i;
  * escape dropped paths) up to an image extension. A trailing boundary keeps
  * punctuation such as `)` or backticks out of the match.
  */
-const IMAGE_PATH_TOKEN = /(?:\\ |[^\s])*?\.(?:png|jpe?g|gif|webp|bmp|avif)(?=$|[\s'"`),;\]}])/gi;
+const IMAGE_PATH_TOKEN = /(?:\\ |[^\s])*?\.(?:png|jpe?g|gif|webp|bmp|avif|heic|heif|tiff?)(?=$|[\s'"`),;\]}])/gi;
 
 /** Leading/trailing punctuation that may wrap a path in prose or shell text. */
 const LEADING_PUNCT = /^['"`([{<]+/;

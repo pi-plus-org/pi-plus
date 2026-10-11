@@ -148,6 +148,21 @@ describe("editor paste marker transformation", () => {
 		assert.equal(editor.getExpandedText(), `(see ${imagePath})`);
 	});
 
+	it("shows a marker for dropped heic/heif/tiff photos and expands to the real path", () => {
+		const editor = new Editor(createTestTUI(), theme);
+		const heic = join(tempDir, "IMG_0001.HEIC");
+		const heif = join(tempDir, "IMG_0002.heif");
+		const tiff = join(tempDir, "scan.tiff");
+		writeFileSync(heic, "fake-heic-bytes");
+		writeFileSync(heif, "fake-heif-bytes");
+		writeFileSync(tiff, "fake-tiff-bytes");
+
+		paste(editor, `${heic} ${heif} ${tiff}`);
+
+		assert.equal(editor.getText(), `${imageMarkerText(1)} ${imageMarkerText(2)} ${imageMarkerText(3)}`);
+		assert.equal(editor.getExpandedText(), `${heic} ${heif} ${tiff}`);
+	});
+
 	it("leaves nonexistent image paths untouched", () => {
 		const editor = new Editor(createTestTUI(), theme);
 		const missing = join(tempDir, "does-not-exist.png");
