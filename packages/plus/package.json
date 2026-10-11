@@ -1,6 +1,6 @@
 {
 	"name": "@pi/plus",
-	"version": "0.1.17",
+	"version": "0.2.0",
 	"private": true,
 	"type": "module",
 	"description": "Shared pi-plus core: Claude Code-style context detection, compaction, and reasoning overrides plus the seven non-TUI extensions, consumed by @pi/plus-cli (pi-plus artifact) and @pi/plus-api (pi-plus-sdk artifact). No upstream package may be edited; overrides live here and are wired in via the module-redirect loader.",
