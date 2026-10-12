@@ -177,6 +177,55 @@ describe("compact", () => {
 		});
 	});
 
+	it("re-injects every read text file and skips binaries", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "plus-compact-"));
+		// More than CC's old 5-file cap: all text reads must be re-injected.
+		const textFiles = Array.from({ length: 6 }, (_, i) => {
+			const file = join(dir, `note${i}.ts`);
+			writeFileSync(file, `export const note${i} = ${i};\n`);
+			return file;
+		});
+		// Extensionless text re-enters via the NUL-byte sniff.
+		const dockerfile = join(dir, "Dockerfile");
+		writeFileSync(dockerfile, "FROM node:22\n");
+		// Non-whitelisted extension with no NUL bytes: only the extension gate rejects it.
+		const blobFile = join(dir, "blob.data");
+		writeFileSync(blobFile, Buffer.from([0x01, 0x02, 0x03, 0xff]));
+		const imageFile = join(dir, "shot.png");
+		writeFileSync(imageFile, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]));
+		const docxFile = join(dir, "report.docx");
+		writeFileSync(docxFile, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]));
+
+		const readFiles = [...textFiles, dockerfile, imageFile, blobFile, docxFile];
+		const prep = preparation({
+			fileOps: { read: new Set(readFiles), written: new Set(), edited: new Set() },
+		});
+		const calls: RecordedCall[] = [];
+		const result = await compact(
+			prep,
+			MODEL,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fakeStreamFn([assistantMessage(SUMMARY_TEXT)], calls),
+		);
+
+		for (const [i, file] of textFiles.entries()) {
+			assert.ok(result.summary.includes(`### \`${file}\``));
+			assert.ok(result.summary.includes(`export const note${i} = ${i};`));
+		}
+		assert.ok(result.summary.includes(`### \`${dockerfile}\``));
+		assert.ok(result.summary.includes("FROM node:22"));
+		// No excerpt appendix for binaries (the <read-files> path list still names them).
+		assert.ok(!result.summary.includes(`### \`${imageFile}\``));
+		assert.ok(!result.summary.includes(`### \`${blobFile}\``));
+		assert.ok(!result.summary.includes(`### \`${docxFile}\``));
+		assert.ok(result.summary.includes("<read-files>"));
+		assert.deepEqual((result.details as { readFiles: string[] }).readFiles, [...readFiles].sort());
+	});
+
 	it("re-injects invoked skills from transcript invocations", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "plus-compact-"));
 		const skillFile = join(dir, "SKILL.md");

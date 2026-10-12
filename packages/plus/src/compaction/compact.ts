@@ -48,10 +48,95 @@ import { markNoReasoning } from "../reasoning/effort.ts";
 import { formatCompactSummary, getCompactPrompt } from "./prompt.ts";
 
 const MAX_PTL_RETRIES = 3;
-const POST_COMPACT_MAX_FILES_TO_RESTORE = 5;
 const POST_COMPACT_TOKEN_BUDGET = 50_000;
 const TOKENS_PER_FILE_CAP = 5_000;
 const CHARS_PER_TOKEN = 4;
+
+// Only these text formats are re-injected as excerpts; files with any other
+// extension are skipped. Extensionless files (Dockerfile, Makefile, .gitignore)
+// pass via the NUL-byte sniff in isTextContent — binaries are full of NUL bytes.
+const TEXT_FILE_EXTENSIONS = new Set([
+	".bash",
+	".bat",
+	".c",
+	".cc",
+	".cfg",
+	".cjs",
+	".cmd",
+	".conf",
+	".config",
+	".cpp",
+	".cs",
+	".css",
+	".csv",
+	".cts",
+	".cxx",
+	".editorconfig",
+	".env",
+	".fish",
+	".go",
+	".h",
+	".hh",
+	".hpp",
+	".htm",
+	".html",
+	".ini",
+	".java",
+	".js",
+	".json",
+	".jsonc",
+	".jsonl",
+	".jsx",
+	".kt",
+	".kts",
+	".less",
+	".lock",
+	".log",
+	".m",
+	".markdown",
+	".md",
+	".mjs",
+	".mm",
+	".mts",
+	".ndjson",
+	".ps1",
+	".py",
+	".pyi",
+	".rb",
+	".rs",
+	".sass",
+	".scss",
+	".sh",
+	".sql",
+	".svelte",
+	".svg",
+	".swift",
+	".toml",
+	".ts",
+	".tsv",
+	".tsx",
+	".txt",
+	".vue",
+	".xml",
+	".yaml",
+	".yml",
+	".zsh",
+]);
+
+/** Bytes inspected for the NUL-byte heuristic before deciding a file is text. */
+const BINARY_SNIFF_LENGTH = 8192;
+
+/**
+ * True when a read file is safe to re-inject as a text excerpt: whitelisted text
+ * extension, or no extension at all (Dockerfile, Makefile, .gitignore) with no
+ * NUL bytes in the head of the file.
+ */
+function isTextContent(file: string, buffer: Buffer): boolean {
+	const base = file.slice(Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\")) + 1);
+	const dot = base.lastIndexOf(".");
+	if (dot <= 0) return !buffer.subarray(0, BINARY_SNIFF_LENGTH).includes(0);
+	return TEXT_FILE_EXTENSIONS.has(base.slice(dot).toLowerCase());
+}
 
 // CC createPlanAttachmentIfNeeded / createSkillAttachmentIfNeeded budgets.
 const PLAN_TOKEN_CAP = 5_000;
@@ -257,28 +342,30 @@ export async function generateSummary(
 }
 
 /**
- * Re-inject the most recently read files into the summary text, matching CC's
- * post-compact attachments (POST_COMPACT_MAX_FILES_TO_RESTORE=5, 50k token budget, ~5k/file).
+ * Re-inject the read files into the summary text, matching CC's post-compact
+ * attachments (50k token budget, ~5k/file). Every read text file is included;
+ * the token budget is the only cap.
  */
 function buildRecentFilesSection(readFiles: string[]): string {
 	if (readFiles.length === 0) return "";
 
-	const recentFiles = readFiles.slice(-POST_COMPACT_MAX_FILES_TO_RESTORE);
 	let totalChars = 0;
 	const maxTotalChars = POST_COMPACT_TOKEN_BUDGET * CHARS_PER_TOKEN;
 	const sections: string[] = [];
 
-	for (const file of recentFiles) {
+	for (const file of readFiles) {
 		const remaining = maxTotalChars - totalChars;
 		const perFileCap = Math.min(TOKENS_PER_FILE_CAP * CHARS_PER_TOKEN, remaining);
 		if (perFileCap <= 0) break;
 		try {
-			const content = readFileSync(file, "utf8");
+			const buffer = readFileSync(file);
+			if (!isTextContent(file, buffer)) continue;
+			const content = buffer.toString("utf8");
 			const excerpt = content.length > perFileCap ? `${content.slice(0, perFileCap)}\n… [truncated]` : content;
 			totalChars += excerpt.length;
 			sections.push(`### \`${file}\`\n\n\`\`\`\n${excerpt}\n\`\`\``);
 		} catch {
-			// Unreadable file (deleted, permission, binary): skip, matching CC's tolerant restore.
+			// Unreadable file (deleted, permission): skip, matching CC's tolerant restore.
 		}
 	}
 
