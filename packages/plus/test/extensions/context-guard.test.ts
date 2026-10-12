@@ -429,7 +429,7 @@ describe("message_end: per-message detection (thinking, tool use, response)", ()
 		assert.equal(fake.compactCalls, 0);
 	});
 
-	it("detects the threshold at a tool result and emits prune drafts at turn_end", () => {
+	it("fires compaction at a tool result crossing the threshold, before turn_end", () => {
 		process.env.PI_PRUNE_TAIL_TURNS = "1";
 		const big = "x".repeat(8000); // ~2000 tokens, over the 1918 threshold
 		const projection = [
@@ -439,17 +439,19 @@ describe("message_end: per-message detection (thinking, tool use, response)", ()
 		const { ctx, fake } = fakeCtx({ projection });
 		const { messageEnd, turnEnd } = captureGuard();
 
-		// Per-message detection cannot return boundary drafts: it compacts nothing.
+		// The threshold trigger compacts immediately at the message, mid-run.
 		const midRun = messageEnd({ type: "message_end", message: toolResultMessage("tool output") } as never, ctx);
 		assert.equal(midRun, undefined);
-		assert.equal(fake.compactCalls, 0);
+		assert.equal(fake.compactCalls, 1);
 
-		// The turn boundary then emits the prune drafts as before.
+		// The crossing stays marked, so the turn boundary still emits the prune
+		// drafts (a no-op after a compaction that actually shrank the branch,
+		// but a real fallback when the compaction failed to).
 		const result = turnEnd({ type: "turn_end" } as never, ctx);
 		assert.deepEqual(result?.entries, [{ type: "context_edit", targetId: "old", replacement: null }]);
 	});
 
-	it("detects the threshold at an assistant message (thinking/response) and marks the turn", () => {
+	it("fires compaction at an assistant message crossing the threshold and marks the turn", () => {
 		process.env.PI_PRUNE_TAIL_TURNS = "1";
 		const big = "x".repeat(8000); // ~2000 tokens, over the 1918 threshold
 		const projection = [
@@ -461,10 +463,53 @@ describe("message_end: per-message detection (thinking, tool use, response)", ()
 
 		const midRun = messageEnd({ type: "message_end", message: assistantMessage("reply") } as never, ctx);
 		assert.equal(midRun, undefined);
-		assert.equal(fake.compactCalls, 0);
+		assert.equal(fake.compactCalls, 1);
 
 		const result = turnEnd({ type: "turn_end" } as never, ctx);
 		assert.deepEqual(result?.entries, [{ type: "context_edit", targetId: "old", replacement: null }]);
+	});
+
+	it("threshold trigger fires only once per run and resets on agent_start and agent_settled", () => {
+		const big = "x".repeat(8000); // ~2000 tokens, over the 1918 threshold
+		const projection = [entry("old", [userMessage(big, NOW - 60_000)])];
+		const { ctx, fake } = fakeCtx({ projection });
+		const { messageEnd, agentStart, agentSettled } = captureGuard();
+
+		messageEnd({ type: "message_end", message: toolResultMessage("first") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+
+		// Still over the threshold, but the run-scoped cap blocks a re-fire.
+		messageEnd({ type: "message_end", message: toolResultMessage("second") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+
+		agentStart();
+		messageEnd({ type: "message_end", message: toolResultMessage("third") } as never, ctx);
+		assert.equal(fake.compactCalls, 2);
+
+		agentSettled();
+		messageEnd({ type: "message_end", message: toolResultMessage("fourth") } as never, ctx);
+		assert.equal(fake.compactCalls, 3);
+	});
+
+	it("threshold trigger respects PI_DISABLE_AUTO_COMPACT and the message-count trigger's fired state", () => {
+		const big = "x".repeat(8000); // ~2000 tokens, over the 1918 threshold
+		const projection = [entry("old", [userMessage(big, NOW - 60_000)])];
+		process.env.PI_DISABLE_AUTO_COMPACT = "1";
+		const disabled = fakeCtx({ projection });
+		const disabledGuard = captureGuard();
+		disabledGuard.messageEnd({ type: "message_end", message: toolResultMessage("first") } as never, disabled.ctx);
+		assert.equal(disabled.fake.compactCalls, 0);
+		delete process.env.PI_DISABLE_AUTO_COMPACT;
+
+		// A message-count force fire earlier in the run also satisfies the
+		// threshold trigger for the rest of the run (one mid-run compaction).
+		process.env.PI_MAX_ACTIVE_MESSAGES = "1";
+		const { ctx, fake } = fakeCtx({ projection });
+		const { messageEnd } = captureGuard();
+		messageEnd({ type: "message_end", message: toolResultMessage("count force") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
+		messageEnd({ type: "message_end", message: toolResultMessage("over threshold too") } as never, ctx);
+		assert.equal(fake.compactCalls, 1);
 	});
 });
 
