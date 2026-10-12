@@ -7,8 +7,15 @@
  *   (toolResult end), and every user/custom message end — not only after each
  *   response boundary. The message-count force trigger fires ctx.compact()
  *   mid-run (a run-scoped flag keeps the rest of the batch and the following
- *   turn_end from re-firing it), and an over-threshold message marks the turn
- *   for pruning even if the turn_end estimate later dips below the threshold.
+ *   turn_end from re-firing it). The threshold trigger does the same: an
+ *   over-threshold message fires ctx.compact() immediately, using the
+ *   usage-anchored estimate the footer shows — waiting for upstream's per-turn
+ *   check would stall because that check discards the usage anchor whenever a
+ *   context_edit follows it, and this extension's own pressure micro-compact
+ *   emits context_edits at nearly every turn_end, leaving upstream's chars/4
+ *   fallback (over marker-carrying projections) as the only in-run estimate.
+ *   The crossing is also marked so turn_end pruning still runs when compaction
+ *   could not fire (no model) or failed to shrink the projection.
  * - turn_end, message-count force trigger (CC's 'message-count' reason): when the
  *   projected active message count exceeds PI_MAX_ACTIVE_MESSAGES (default 1000),
  *   force compaction regardless of the token threshold. Bypasses
@@ -90,13 +97,13 @@ function exceedsAutoCompactThreshold(messages: readonly AgentMessage[], model: D
 
 export function registerContextGuard(pi: ExtensionAPI): void {
 	// Run-scoped detection state, reset when a run starts or settles:
-	// - forceCompactionFired: the message-count trigger already called
-	//   ctx.compact() mid-run; later messages and the turn_end of the
-	//   interrupted run must not request compaction again.
+	// - forceCompactionFired: a force trigger (message-count or threshold)
+	//   already called ctx.compact() mid-run; later messages and the turn_end
+	//   of the interrupted run must not request compaction again.
 	// - thresholdCrossedMidRun: a message already pushed the estimate to the
 	//   auto-compact threshold; turn_end prunes even if its own estimate dips
-	//   below (e.g. concurrent context edits), so a per-message crossing is
-	//   never lost between boundaries.
+	//   below (e.g. concurrent context edits or a compaction that shrank the
+	//   branch), so a per-message crossing is never lost between boundaries.
 	let forceCompactionFired = false;
 	let thresholdCrossedMidRun = false;
 
@@ -128,12 +135,25 @@ export function registerContextGuard(pi: ExtensionAPI): void {
 			return;
 		}
 
-		// 2. Threshold detection: pruning needs boundary drafts, so only mark
-		//    the crossing here; turn_end emits the context_edit drafts.
-		if (isAutoCompactDisabled() || isAutoCompactBreakerTripped() || thresholdCrossedMidRun) return;
+		// 2. Threshold trigger: fire compaction immediately, mid-run — the same
+		//    pattern as the message-count trigger above and Claude Code's
+		//    auto-compact. The estimate here is usage-anchored (the number the
+		//    footer shows); deferring to upstream's per-turn check stalls in
+		//    tool-heavy sessions, because that check discards the usage anchor
+		//    whenever a context_edit follows it and this extension's pressure
+		//    micro-compact appends context_edits at nearly every turn_end, so
+		//    upstream's chars/4 fallback over marker-carrying projections is
+		//    the only in-run estimate until the run ends. The crossing is still
+		//    marked so turn_end pruning runs when compaction could not fire (no
+		//    model) or failed to shrink the projection.
+		if (isAutoCompactDisabled() || isAutoCompactBreakerTripped() || forceCompactionFired) return;
 		const model = getCurrentModel() ?? ctx.model;
 		if (!model) return; // no window math possible; upstream's reserve-based fallback applies
-		if (exceedsAutoCompactThreshold(messages, model)) thresholdCrossedMidRun = true;
+		if (exceedsAutoCompactThreshold(messages, model)) {
+			thresholdCrossedMidRun = true;
+			forceCompactionFired = true;
+			ctx.compact();
+		}
 	});
 
 	pi.on("turn_end", (_event, ctx) => {
