@@ -7,7 +7,8 @@
  *   (toolResult end), and every user/custom message end — not only after each
  *   response boundary. The message-count force trigger fires ctx.compact()
  *   mid-run (a run-scoped flag keeps the rest of the batch and the following
- *   turn_end from re-firing it). The threshold trigger does the same: an
+ *   turn_end from re-firing it); the session wrapper then resumes the aborted
+ *   run (see src/compaction/resume.ts). The threshold trigger does the same: an
  *   over-threshold message fires ctx.compact() immediately, using the
  *   usage-anchored estimate the footer shows — waiting for upstream's per-turn
  *   check would stall because that check discards the usage anchor whenever a
