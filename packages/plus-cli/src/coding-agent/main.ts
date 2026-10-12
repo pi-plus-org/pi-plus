@@ -51,6 +51,15 @@ import { registerBanner } from "./ui/banner.ts";
 import "./ui/auto-fold-history.ts";
 import { registerVim } from "./ui/vim/extension.ts";
 
+// Flags upstream's `list` package command accepts (parsePackageCommand in
+// coding-agent/src/package-manager-cli.ts); any other argument is rejected
+// there with a usage error.
+const LIST_COMMAND_FLAGS = ["-a", "--approve", "-na", "--no-approve", "-h", "--help"];
+
+function isPackageListCommand(args: string[]): boolean {
+	return args[0] === "list" && args.slice(1).every((arg) => LIST_COMMAND_FLAGS.includes(arg));
+}
+
 export async function main(args: string[], options?: MainOptions) {
 	// Plus-owned: completes the whole pipi CLI (hub + native pi commands).
 	if (args[0] === "completion") {
@@ -98,17 +107,27 @@ export async function main(args: string[], options?: MainOptions) {
 			console.error(`Error: Profile '${plan.name}' not found. Use 'pipi profile list' to see available profiles.`);
 			process.exit(1);
 		}
-		// ENV_AGENT_DIR is the original config module's constant
-		// ("PI_CODING_AGENT_DIR"); the plus config wrapper shadows only the
-		// display name, not the env var layout. Record the pre-profile agent
-		// dir first: PI_PLUS_BASE_AGENT_DIR activates the runtime settings
-		// layering in packages/plus/src/coding-agent/core/settings-manager.ts
-		// (~/.pi/agent/settings.json below the profile's settings.json, profile
-		// wins), which also makes the old packages exit-sync unnecessary —
-		// `packages` is a general key now and is written straight to the base.
-		process.env[ENV_BASE_AGENT_DIR] = getAgentDir();
-		const profileDir = materializeProfile(plan.name, profile);
-		process.env[ENV_AGENT_DIR] = profileDir;
+		// `pipi list` reports installed package paths. Launched under a profile,
+		// those resolve through the materialized profile's symlinked npm dir
+		// (…/profiles/<name>/npm → ~/.pi/agent/npm), so upstream prints the
+		// profile path while the real files live in the shared base agent dir —
+		// misleading next to find/fd, which don't follow symlinks. List is
+		// read-only and profile-independent (packages and their install root are
+		// shared across profiles), so run it against the base agent dir and the
+		// reported paths come out canonical.
+		if (!isPackageListCommand(plan.remainingArgs)) {
+			// ENV_AGENT_DIR is the original config module's constant
+			// ("PI_CODING_AGENT_DIR"); the plus config wrapper shadows only the
+			// display name, not the env var layout. Record the pre-profile agent
+			// dir first: PI_PLUS_BASE_AGENT_DIR activates the runtime settings
+			// layering in packages/plus/src/coding-agent/core/settings-manager.ts
+			// (~/.pi/agent/settings.json below the profile's settings.json, profile
+			// wins), which also makes the old packages exit-sync unnecessary —
+			// `packages` is a general key now and is written straight to the base.
+			process.env[ENV_BASE_AGENT_DIR] = getAgentDir();
+			const profileDir = materializeProfile(plan.name, profile);
+			process.env[ENV_AGENT_DIR] = profileDir;
+		}
 	}
 
 	// The upstream version check polls pi.dev for pi's release train, not pi-plus's.
