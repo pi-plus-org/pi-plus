@@ -34,6 +34,10 @@
  *   re-exported from the recap events module, so hosts can show their own
  *   recap status; hosts that wire PlusUIDialogHandlers.notify also receive the
  *   transcript warning through the notify bridge
+ * - pi package maintenance (install/remove/list/update --extensions, the
+ *   programmatic form of `pi install`/`remove`/`list`/`update --extensions`)
+ *   is re-exported from ./packages.ts, wrapping coding-agent's
+ *   DefaultPackageManager with explicit cwd/agentDir and a project-trust guard
  * - the pi-plus context settings (auto-compact threshold percent, context floor,
  *   context window cap — the piPlus block of the base agent settings.json, plus
  *   the generic readPiPlusSettings/updatePiPlusSettings for host-owned keys) are
@@ -47,6 +51,7 @@
 export * from "../../coding-agent/src/index.ts";
 export * from "../../plus/src/context/plus-settings.ts";
 export * from "../../plus/src/extensions/permissions/index.ts";
+export * from "./packages.ts";
 
 import type { PlanReviewDialogChoice } from "../../plus/src/extensions/plan/index.ts";
 export type { PlanReviewDialogChoice, PlanReviewDialogUI };
