@@ -48,6 +48,13 @@ await session.prompt("Review this repository");
   Session history management completes the surface: `SessionManager.listAll` to
   enumerate, `SessionManager.search(query)` to match titles and transcript text, and
   `SessionManager.deleteSession(path)` to remove a transcript.
+- Pi package maintenance ships as a library (`src/packages.ts`): `listPackages`,
+  `installPackage`, `removePackage`, and `updatePackages` are the programmatic form
+  of `pi install`/`remove`/`list`/`update --extensions` — the pi packages (extensions,
+  skills, prompts, themes) surface from pi.dev/docs/latest/packages. They take
+  explicit `cwd`/`agentDir` (or a caller-owned `SettingsManager`) plus `projectTrusted`
+  and an `onProgress` callback; project-scope (`local`) writes are refused by the
+  underlying manager when the project is not trusted.
 - Provider login ships as a library (`src/auth.ts`): `loginProvider(providerId, { agentDir?, interaction?, signal?, method? })`
   runs pi's model-runtime login flow (OAuth login page / API-key setup — the same
   flow `pipi profile add <name> -p <provider>` and the `--sign-in` flag on

@@ -234,7 +234,9 @@ export {
 	type ModelRuntimeAuthOverrides,
 } from "./core/model-runtime.ts";
 export type {
+	ConfiguredPackage,
 	PackageManager,
+	PackageUpdate,
 	PathMetadata,
 	ProgressCallback,
 	ProgressEvent,
