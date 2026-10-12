@@ -202,6 +202,15 @@ export declare function removePackage(source: string, options?: PlusPackageInsta
  */
 export declare function updatePackages(source?: string, options?: PlusPackageMaintenanceOptions): Promise<void>;
 
+/**
+ * Drop every cached extension factory so the next session rebuilds them from
+ * disk. The loader memoizes factories per resolved path for the life of the
+ * process — right for a short-lived CLI run, but a long-lived host (desktop
+ * app) would keep serving stale code after a package update. Call after a
+ * successful install/remove/update.
+ */
+export declare function clearExtensionCache(): void;
+
 export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions {
 	extensionFactories?: InlineExtension[];
 	ui?: PlusUIDialogHandlers;
