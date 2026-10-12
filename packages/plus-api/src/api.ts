@@ -50,6 +50,7 @@
 
 export * from "../../coding-agent/src/index.ts";
 export * from "../../plus/src/context/plus-settings.ts";
+export * from "../../plus/src/extensions/cache.ts";
 export * from "../../plus/src/extensions/permissions/index.ts";
 export * from "./packages.ts";
 
