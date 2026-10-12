@@ -10,6 +10,12 @@
 export * from "@earendil-works/pi-coding-agent";
 
 import type {
+	ConfiguredPackage,
+	ProgressCallback,
+	SettingsManager,
+} from "@earendil-works/pi-coding-agent";
+
+import type {
 	AgentSession,
 	AgentSessionRuntime,
 	CreateAgentSessionOptions,
@@ -150,6 +156,60 @@ export interface RecapFailure {
 export declare function subscribeToRecapFailures(
 	listener: (failure: RecapFailure) => void,
 ): () => void;
+
+/** Options shared by the package-maintenance entries. */
+export interface PlusPackageMaintenanceOptions {
+	/** Project directory for project-scope declarations (default `process.cwd()`). */
+	cwd?: string;
+	/** Agent dir holding user-scope settings.json (default pi's agent dir). */
+	agentDir?: string;
+	/**
+	 * Caller-owned settings manager. When given, `cwd`/`agentDir`/
+	 * `projectTrusted` are not used for settings resolution (the manager's own
+	 * storage decides), and `agentDir` still defaults to pi's agent dir for
+	 * install locations.
+	 */
+	settingsManager?: SettingsManager;
+	/**
+	 * Whether project-scope settings are honored (default true). Embedding
+	 * hosts decide project trust themselves — mirroring
+	 * `createPlusAgentSessionRuntime`'s `projectTrusted` — instead of pi's
+	 * interactive trust prompt.
+	 */
+	projectTrusted?: boolean;
+	/** Receives progress events from installs/updates (clone/npm stages). */
+	onProgress?: ProgressCallback;
+}
+
+export interface PlusPackageInstallOptions extends PlusPackageMaintenanceOptions {
+	/**
+	 * Persist the source in the project's `.pi/settings.json` instead of the
+	 * user settings. Requires a project-trusted settings manager.
+	 */
+	local?: boolean;
+}
+
+/** Configured packages from both scopes, in user-then-project order. Synchronous. */
+export declare function listPackages(options?: PlusPackageMaintenanceOptions): ConfiguredPackage[];
+/** Install a package source and persist it in settings (user scope unless `local`). */
+export declare function installPackage(source: string, options?: PlusPackageInstallOptions): Promise<void>;
+/** Remove a package source from settings; returns false when nothing matched. */
+export declare function removePackage(source: string, options?: PlusPackageInstallOptions): Promise<boolean>;
+/**
+ * Reconcile installed packages with their configured sources (clone/npm ref
+ * refreshes — pinned refs do not move). Pass `source` to update one package;
+ * omit it to update everything in both scopes.
+ */
+export declare function updatePackages(source?: string, options?: PlusPackageMaintenanceOptions): Promise<void>;
+
+/**
+ * Drop every cached extension factory so the next session rebuilds them from
+ * disk. The loader memoizes factories per resolved path for the life of the
+ * process — right for a short-lived CLI run, but a long-lived host (desktop
+ * app) would keep serving stale code after a package update. Call after a
+ * successful install/remove/update.
+ */
+export declare function clearExtensionCache(): void;
 
 export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions {
 	extensionFactories?: InlineExtension[];

@@ -34,6 +34,8 @@ import {
 	getContextFloorTokens,
 	getContextWindowCapTokens,
 	getDefaultProfileName,
+	installPackage,
+	listPackages,
 	loadProfiles,
 	loginProvider,
 	ModelRuntime,
@@ -41,6 +43,7 @@ import {
 	plusSdkExtensionFactories,
 	profileDirFor,
 	readPiPlusSettings,
+	removePackage,
 	removeProfile,
 	removeProfileDir,
 	renameProfile,
@@ -53,6 +56,7 @@ import {
 	subscribeToRecapFailures,
 	syncProfilePackagesToSource,
 	THINKING_LEVELS,
+	updatePackages,
 	updateProfile,
 } from "../src/api.ts";
 
@@ -131,7 +135,7 @@ describe("api entry exports", () => {
 		expect(typeof DefaultResourceLoader).toBe("function");
 	});
 
-	it("registers exactly the ten non-TUI pi-plus extensions, all hidden", () => {
+	it("registers exactly the eleven non-TUI pi-plus extensions, all hidden", () => {
 		// InlineExtension is a union (function form or object form); this entry
 		// uses the object form, so narrow before reading name/hidden.
 		const factories = plusSdkExtensionFactories.map((extension) => {
@@ -149,6 +153,7 @@ describe("api entry exports", () => {
 			"pi-plus-context-guard",
 			"pi-plus-cd",
 			"pi-plus-init",
+			"pi-plus-web-search",
 		]);
 		for (const extension of factories) {
 			expect(extension.hidden).toBe(true);
@@ -179,6 +184,63 @@ describe("profile management surface", () => {
 		}
 		expect(typeof AGENT_DIR).toBe("string");
 		expect(THINKING_LEVELS).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+	});
+});
+
+describe("package maintenance surface", () => {
+	it("re-exports the package maintenance entries", () => {
+		for (const fn of [listPackages, installPackage, removePackage, updatePackages]) {
+			expect(typeof fn).toBe("function");
+		}
+	});
+
+	it("installs a local package into user settings, lists it by scope, and removes it", async () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		const pkgDir = makeTempDir();
+		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "test-pi-pkg" }));
+		// A local install only resolves the path (no copy/npm), so this test
+		// stays offline; the relative source is stored against the settings dir.
+		await installPackage(pkgDir, { cwd, agentDir });
+
+		const settings = JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8"));
+		expect(settings.packages).toHaveLength(1);
+
+		const listed = listPackages({ cwd, agentDir });
+		expect(listed).toEqual([
+			{
+				source: settings.packages[0],
+				scope: "user",
+				filtered: false,
+				installedPath: pkgDir,
+			},
+		]);
+
+		await expect(removePackage(pkgDir, { cwd, agentDir })).resolves.toBe(true);
+		expect(listPackages({ cwd, agentDir })).toEqual([]);
+		// Nothing left to match: false, not a throw.
+		await expect(removePackage(pkgDir, { cwd, agentDir })).resolves.toBe(false);
+	});
+
+	it("honors project trust for project-scope declarations", async () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		const pkgDir = makeTempDir();
+		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "test-pi-pkg" }));
+
+		// Untrusted: project-scope writes are refused before any install runs.
+		await expect(installPackage(pkgDir, { cwd, agentDir, local: true, projectTrusted: false })).rejects.toThrow(
+			/Project is not trusted/,
+		);
+
+		// Trusted: the declaration lands in <cwd>/.pi/settings.json.
+		await installPackage(pkgDir, { cwd, agentDir, local: true, projectTrusted: true });
+		const projectSettings = JSON.parse(readFileSync(join(cwd, ".pi", "settings.json"), "utf8"));
+		expect(projectSettings.packages).toHaveLength(1);
+		expect(listPackages({ cwd, agentDir }).map((pkg) => pkg.scope)).toEqual(["project"]);
+
+		// An untrusted manager also stops reading project declarations.
+		expect(listPackages({ cwd, agentDir, projectTrusted: false })).toEqual([]);
 	});
 });
 
