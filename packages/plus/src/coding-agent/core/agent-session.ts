@@ -9,6 +9,12 @@
  *   /compact) then crash with "Cannot read properties of undefined (reading
  *   'signal')" and never emit compaction_end, stranding the TUI's compaction
  *   indicator (see compaction/serialize.ts).
+ *   The override also resumes the interrupted task: compact() aborts an
+ *   in-flight run by contract and never continues it, which stranded the task
+ *   whenever context-guard fired its threshold/message-count trigger mid-run
+ *   (or the user ran /compact during a run). When compact() started while a
+ *   run was active, a silent continuation message re-engages the model
+ *   afterwards (see compaction/resume.ts).
  * - AgentSession.getContextUsage -> estimates context right after compaction instead
  *   of reporting "unknown" (see plus/src/context/usage.ts)
  * - AgentSession constructor -> applies time-based micro-compact (clearing stale
@@ -28,6 +34,7 @@ import {
 import type { CompactionResult } from "../../../../coding-agent/src/core/compaction/compaction.ts";
 import type { ContextUsage } from "../../../../coding-agent/src/core/extensions/types.ts";
 import { getShellConfig } from "../../../../coding-agent/src/utils/shell.ts";
+import { resumeAfterMidRunCompact } from "../../compaction/resume.ts";
 import { createAsyncSerializer } from "../../compaction/serialize.ts";
 import { applyIdleMicroCompact } from "../../context/microcompact.ts";
 import { getContextUsagePlus } from "../../context/usage.ts";
@@ -80,7 +87,16 @@ export class AgentSession extends UpstreamAgentSession {
 	}
 
 	override compact(customInstructions?: string): Promise<CompactionResult> {
-		return this.serializeCompaction(() => super.compact(customInstructions));
+		return this.serializeCompaction(async () => {
+			// Capture before super.compact(): the manual path aborts the
+			// in-flight run, so isStreaming is false long before the result
+			// comes back. A run interrupted this way is never continued
+			// upstream — resume it once the compaction has landed.
+			const interruptedRun = this.isStreaming;
+			const result = await super.compact(customInstructions);
+			if (interruptedRun) resumeAfterMidRunCompact(this);
+			return result;
+		});
 	}
 
 	override getContextUsage(): ContextUsage | undefined {
