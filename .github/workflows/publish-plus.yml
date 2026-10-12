@@ -2,8 +2,10 @@ name: Publish pi-plus packages
 
 # Publishes pi-plus (packages/plus-cli) and pi-plus-sdk (packages/plus-api) to
 # npmjs on every push to main, mirroring .claude/scripts/pipi-publish.sh and
-# pipi-sdk-publish.sh: auto patch-bump past max(local, registry) version,
-# build offline, sanity-check the tarball, publish, then commit the bump.
+# pipi-sdk-publish.sh: auto patch-bump from the package.json version, build
+# offline, sanity-check the tarball, publish under the resolved dist-tag
+# ("latest", or a per-line "v<major>-<minor>" tag such as "v0-1" when the
+# version is at/below the registry's latest), then commit the bump.
 #
 # After each publish the version availability on npmjs is polled for up to 10
 # minutes; the result (available, or stuck) is pushed to ntfy. Set the
@@ -107,37 +109,44 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      # Auto patch-bump past both the local version and the registry version,
-      # so re-runs always move forward and never collide with published versions.
+      # Version = patch bump of the package.json version (the registry never
+      # changes the version). Tag = "latest" when that version is above the
+      # registry's latest, otherwise a per-line tag "v<major>-<minor>"
+      # ("v0-1"; dots would make it a valid semver range, which npm forbids as
+      # a tag), under which the version must be installed explicitly
+      # (npm install pi-plus@v0-1) until a higher line takes over latest.
       - name: Resolve and bump versions
         id: versions
         run: |
           set -euo pipefail
           bump() {
             local pkg_json="$1" registry_name="$2" out_prefix="$3"
-            local local_version registry_version next_version
+            local local_version latest_version next_version tag
             local_version="$(node -p "require('./$pkg_json').version")"
-            registry_version="$(npm view "$registry_name" version 2>/dev/null || echo "0.0.0")"
-            next_version="$(node -e '
+            latest_version="$(npm view "$registry_name" version 2>/dev/null || echo "0.0.0")"
+            read -r next_version tag <<<"$(node -e '
           const semver = require("semver");
-          const [a, b] = process.argv.slice(1);
-          const max = semver.gt(a, b) ? a : b;
-          console.log(semver.inc(max, "patch"));
-          ' "$local_version" "$registry_version")"
-            echo "Version: $registry_name $local_version (local), $registry_version (registry) -> $next_version"
-            if [[ "$local_version" != "$next_version" ]]; then
-              node -e '
+          const next = semver.inc(process.argv[1], "patch");
+          if (semver.gt(next, process.argv[2])) {
+            console.log(`${next} latest`);
+          } else {
+            console.log(`${next} v${semver.major(next)}-${semver.minor(next)}`);
+          }
+          ' "$local_version" "$latest_version")"
+            echo "Version: $registry_name $local_version (package.json) -> $next_version, tag: $tag (registry latest: $latest_version)"
+            if [[ "$tag" != "latest" ]]; then
+              echo "::warning::$registry_name@$next_version is at or below the registry's latest $latest_version and cannot take over the 'latest' tag; publishing under dist-tag '$tag' (npm install $registry_name@$tag)" >&2
+            fi
+            node -e '
           const fs = require("fs");
           const path = process.argv[1];
           const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
           pkg.version = process.argv[2];
           fs.writeFileSync(path, `${JSON.stringify(pkg, null, "\t")}\n`);
           ' "$pkg_json" "$next_version"
-              echo "${out_prefix}_bumped=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "${out_prefix}_bumped=false" >> "$GITHUB_OUTPUT"
-            fi
+            echo "${out_prefix}_bumped=true" >> "$GITHUB_OUTPUT"
             echo "${out_prefix}_next=$next_version" >> "$GITHUB_OUTPUT"
+            echo "${out_prefix}_tag=$tag" >> "$GITHUB_OUTPUT"
           }
           bump packages/plus-cli/package.json pi-plus cli
           bump packages/plus-api/package.json pi-plus-sdk sdk
@@ -176,7 +185,7 @@ jobs:
           console.log(`tarball OK: ${files.length} files`);
           ' "$pack_json"
 
-          (cd packages/plus-cli/dist/npm && npm publish --access public --ignore-scripts)
+          (cd packages/plus-cli/dist/npm && npm publish --access public --ignore-scripts --tag "${{ steps.versions.outputs.cli_tag }}")
 
           "$RUNNER_TEMP/wait-npm.sh" pi-plus "${{ steps.versions.outputs.cli_next }}"
 
@@ -216,7 +225,7 @@ jobs:
           fi
           echo "Types dependency @earendil-works/pi-coding-agent@$types_pin is on the registry"
 
-          (cd packages/plus-api/dist/npm && npm publish --access public --ignore-scripts)
+          (cd packages/plus-api/dist/npm && npm publish --access public --ignore-scripts --tag "${{ steps.versions.outputs.sdk_tag }}")
 
           "$RUNNER_TEMP/wait-npm.sh" pi-plus-sdk "${{ steps.versions.outputs.sdk_next }}"
 
