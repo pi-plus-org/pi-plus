@@ -27,6 +27,7 @@ import type { MainOptions } from "../../../coding-agent/src/main.ts";
 import { main as upstreamMain } from "../../../coding-agent/src/main.ts";
 import { createTerminalAuthInteraction, loginProvider } from "../../../plus/src/auth/login.ts";
 import { ENV_BASE_AGENT_DIR } from "../../../plus/src/coding-agent/core/profile-settings.ts";
+import { setDefaultSessionInteractive } from "../../../plus/src/coding-agent/core/session-manager.ts";
 import {
 	createPermissionsExtension,
 	registerAskUser,
@@ -43,6 +44,7 @@ import {
 } from "../../../plus/src/extensions/index.ts";
 import { dispatchCompletion } from "../completion/index.ts";
 import { registerChanges, registerFancyDiff, registerPlainTools, registerTabTitle } from "../extensions/index.ts";
+import { parseArgs } from "./cli/args.ts";
 import { registerBanner } from "./ui/banner.ts";
 // Side-effect import: installs the interactive TUI's rolling auto-fold
 // prototype patches (addMessageToChat folds previous turns on a new user
@@ -195,5 +197,14 @@ export async function main(args: string[], options?: MainOptions) {
 			{ name: "pi-plus-changes", factory: registerChanges, hidden: true },
 		],
 	};
+	// Declare the host mode for the session-header `interactive` marker before
+	// upstream creates any session. Mirrors upstream resolveAppMode
+	// (coding-agent/src/main.ts:112) without editing it: rpc/json/print runs are
+	// headless, the TUI is not. pipi spawned from a script (no TTY) counts as
+	// headless for the same reason its output is not interactive.
+	const parsedArgs = parseArgs(plan.remainingArgs);
+	setDefaultSessionInteractive(
+		!parsedArgs.print && parsedArgs.mode === undefined && !!process.stdin.isTTY && !!process.stdout.isTTY,
+	);
 	return upstreamMain(plan.remainingArgs, merged);
 }

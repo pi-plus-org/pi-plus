@@ -49,6 +49,12 @@
  */
 
 export * from "../../coding-agent/src/index.ts";
+// The session-marker helpers: hosts declare their mode before creating
+// sessions (see the pi-plus session overlay).
+export {
+	getDefaultSessionInteractive,
+	setDefaultSessionInteractive,
+} from "../../plus/src/coding-agent/core/session-manager.ts";
 export * from "../../plus/src/context/plus-settings.ts";
 export * from "../../plus/src/extensions/cache.ts";
 export * from "../../plus/src/extensions/permissions/index.ts";
@@ -97,6 +103,7 @@ import {
 	SettingsManager,
 } from "../../coding-agent/src/index.ts";
 import { theme } from "../../coding-agent/src/modes/interactive/theme/theme.ts";
+import { setDefaultSessionInteractive } from "../../plus/src/coding-agent/core/session-manager.ts";
 import {
 	type PlanReviewDialogUI,
 	registerAskUser,
@@ -219,6 +226,15 @@ export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions
 	 * omitted, the session is bound with mode "print" (no dialogs).
 	 */
 	ui?: PlusUIDialogHandlers;
+	/**
+	 * Whether sessions this host writes count as user history — the transcript
+	 * header's `interactive` flag, which history surfaces (the Pi+ desktop sidebar,
+	 * for one) hide when it is false. Defaults to `ui !== undefined`: a host that
+	 * installs dialog handlers has a human driving it, a bare programmatic embed
+	 * does not. Process-global because upstream stamps the marker wherever a session
+	 * is created (runtimes, `/new`, `/cd`), which no per-call option reaches.
+	 */
+	interactive?: boolean;
 	/** One-shot ExtensionBindings passthroughs (see AgentSession.bindExtensions). */
 	commandContextActions?: ExtensionCommandContextActions;
 	abortHandler?: () => void;
@@ -241,7 +257,10 @@ export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions
 export async function createPlusAgentSession(
 	options: CreatePlusAgentSessionOptions = {},
 ): Promise<CreateAgentSessionResult> {
-	const { extensionFactories, ui, ...rest } = options;
+	const { extensionFactories, ui, interactive, ...rest } = options;
+	// Declared before anything creates a SessionManager; the value also reaches
+	// upstream's own session creation through the process-wide default.
+	setDefaultSessionInteractive(interactive ?? ui !== undefined);
 	const cwd = options.cwd ?? process.cwd();
 	const agentDir = options.agentDir ?? getAgentDir();
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
@@ -279,6 +298,12 @@ export interface CreatePlusAgentSessionRuntimeOptions extends CreateAgentSession
 	 * bound with mode "print" (no dialogs).
 	 */
 	ui?: PlusUIDialogHandlers;
+	/**
+	 * Whether sessions this host writes count as user history (transcript header
+	 * `interactive` flag). Defaults to `ui !== undefined`. Process-global — see
+	 * CreatePlusAgentSessionOptions.interactive.
+	 */
+	interactive?: boolean;
 	/**
 	 * Override the command-context actions the runtime wires automatically
 	 * (waitForIdle / newSession / fork / navigateTree / switchSession / reload
@@ -353,8 +378,13 @@ export async function createPlusAgentSessionRuntime(
 
 	const cwd = options.cwd ?? process.cwd();
 	const agentDir = options.agentDir ?? getAgentDir();
+	const sessionInteractive = options.interactive ?? options.ui !== undefined;
+	// Process-wide default first: the runtime creates further SessionManagers on
+	// `/new`, `/cd`, fork and clone that no option of ours reaches.
+	setDefaultSessionInteractive(sessionInteractive);
 	const initialSessionManager =
-		options.sessionManager ?? SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir));
+		options.sessionManager ??
+		SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir), { interactive: sessionInteractive });
 
 	// Mirrors the CLI factory (coding-agent src/main.ts) trimmed to embedding
 	// hosts: services per effective cwd, session created from them, no binding.

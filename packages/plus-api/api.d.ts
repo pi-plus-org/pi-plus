@@ -45,6 +45,30 @@ declare module "@earendil-works/pi-coding-agent" {
 	}
 }
 
+// pi-plus session overlay: the transcript header carries an optional
+// `interactive` host-mode marker (false = headless run, hidden from user-facing
+// history), NewSessionOptions accepts it, and every SessionInfo reports it.
+// See packages/plus/src/coding-agent/core/session-manager.ts.
+declare module "@earendil-works/pi-coding-agent" {
+	interface SessionHeader {
+		/** False when written by a headless host; undefined on pre-marker files. */
+		interactive?: boolean;
+	}
+	interface NewSessionOptions {
+		/** Per-session override of the process default (see setDefaultSessionInteractive). */
+		interactive?: boolean;
+	}
+	interface SessionInfo {
+		/** Copied from the transcript header; undefined when the file is unmarked. */
+		interactive?: boolean;
+	}
+}
+
+/** Declare whether this process counts as a human-driven host. Process-global
+ *  (pi-plus overlay) because session-replacing paths carry no per-call option. */
+export declare function setDefaultSessionInteractive(interactive: boolean): void;
+export declare function getDefaultSessionInteractive(): boolean;
+
 export declare const plusSdkExtensionFactories: InlineExtension[];
 
 // --- pi-plus-permissions (bypass | acceptEdits | plan tool-call gate) ------
@@ -214,6 +238,12 @@ export declare function clearExtensionCache(): void;
 export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions {
 	extensionFactories?: InlineExtension[];
 	ui?: PlusUIDialogHandlers;
+	/**
+	 * Whether sessions this host writes count as user history (transcript header
+	 * `interactive` flag, which history surfaces hide when false). Defaults to
+	 * `ui !== undefined`. Process-global — set before creating sessions.
+	 */
+	interactive?: boolean;
 	commandContextActions?: ExtensionCommandContextActions;
 	abortHandler?: () => void;
 	shutdownHandler?: () => void;
@@ -227,6 +257,11 @@ export declare function createPlusAgentSession(
 export interface CreatePlusAgentSessionRuntimeOptions extends CreateAgentSessionOptions {
 	extensionFactories?: InlineExtension[];
 	ui?: PlusUIDialogHandlers;
+	/**
+	 * Whether sessions this host writes count as user history (transcript header
+	 * `interactive` flag). Defaults to `ui !== undefined`. Process-global.
+	 */
+	interactive?: boolean;
 	/** Overrides the runtime-routed actions (switchSession/fork/newSession/...)
 	 *  the factory wires by default, same shape as bindExtensions' binding. */
 	commandContextActions?: ExtensionCommandContextActions;
