@@ -23,6 +23,9 @@ import {
 	type SessionHeader,
 } from "../../../../coding-agent/src/core/session-manager.ts";
 import { resolvePath } from "../../../../coding-agent/src/utils/paths.ts";
+// The `interactive` host-mode marker lives in the pi-plus session overlay (its
+// import also installs the header patches).
+import { getDefaultSessionInteractive } from "../../coding-agent/core/session-manager.ts";
 
 function readHeader(line: string): SessionHeader {
 	const parsed = JSON.parse(line) as Partial<SessionHeader>;
@@ -40,6 +43,10 @@ function freshHeader(cwd: string): SessionHeader {
 		id: randomUUID(),
 		timestamp: new Date().toISOString(),
 		cwd,
+		// A brand-new transcript: the host driving this process decides whether it
+		// belongs to user history (the relocated-header path above keeps whatever
+		// marker the original file carried).
+		interactive: getDefaultSessionInteractive(),
 	};
 }
 
