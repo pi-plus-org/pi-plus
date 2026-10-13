@@ -58,4 +58,4 @@ if (argIndex !== -1) {
 	}
 }
 
-await import(`${repoRoot}packages/coding-agent/src/experimental/cli.ts`);
+await import(`${repoRoot}packages/coding-agent/src/cli.ts`);

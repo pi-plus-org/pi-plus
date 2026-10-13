@@ -3,7 +3,7 @@
 // Builds the publishable pi-plus CLI into dist/npm/ (a self-contained staging tree
 // that `npm link` / `npm publish` operate on — packages/plus-cli itself stays private).
 //
-// The bundle starts from packages/coding-agent/src/experimental/cli.ts (what ./pipi
+// The bundle starts from packages/coding-agent/src/cli.ts (what ./pipi
 // runs) and applies the module redirects from loader/redirects.mjs (shared core table
 // in packages/plus/loader/redirects.mjs + the CLI-only entries in
 // packages/plus-cli/loader/redirects.mjs) at bundle time instead of runtime:
@@ -13,8 +13,8 @@
 //      to the dist file, so each module exists exactly once (the wrappers'
 //      `export * from "<upstream src>"` imports land on the same dist module the
 //      rest of the bundle uses);
-//   3. everything else resolves as-is (plus sources, src/experimental/*, which
-//      tsconfig.build.json does not emit to dist).
+//   3. everything else resolves as-is (plus sources and src/cli.ts, which
+//      tsconfig.build.json does emit to dist, so rule 2 lands on dist/cli.js).
 //
 // Requires the workspace packages to be compiled first: npm run build:offline.
 
@@ -153,7 +153,7 @@ const mainResult = await build({
 	...commonBuildOptions(),
 	entryNames: "[name]",
 	entryPoints: {
-		pipi: join(codingAgentDir, "src/experimental/cli.ts"),
+		pipi: join(codingAgentDir, "src/cli.ts"),
 	},
 	outdir: stagingDir,
 	splitting: false,

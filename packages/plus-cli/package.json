@@ -5,7 +5,7 @@
 	"type": "module",
 	"description": "pi-plus CLI surface: hub profile dispatch, shell completion, usage print, and TUI-only extensions (banner, vim, tab title, plain tool blocks, /cd) on top of the shared core in @pi/plus. Builds the published pi-plus npm artifact (pipi bin).",
 	"dependencies": {
-		"@earendil-works/pi-hub": "^0.85.1"
+		"@earendil-works/pi-hub": "0.85.1"
 	},
 	"scripts": {
 		"build": "node build.mjs",
