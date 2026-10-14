@@ -13,6 +13,7 @@
 - A derivation is new at every reload (computed at the commit) instead of kept with its function replaced. A listener whose state source a reload replaced subscribes again and gets the current value again: listeners on state must reconcile. Listeners on state subscribe when they activate, so they get the value current then
 - `method(args?, result?)`: without arguments a method is called `ref.name(ctx?)` and implemented `(ctx) => …`; without a result it is void (callers get `undefined`). Descriptions record both by leaving `args`/`result` out (fingerprints of such methods change), `call` frames omit `args` and `result` frames `value` for them. Coverage requires both sides to agree on arguments; a void consumer accepts a result
 - `FacetApi` has a `signal` (below): code that builds a `FacetApi` by hand, for example to wrap `serve`, must pass it on
+- `serve(type, factory, { lifetime: "host" })` compiles only for a local type whose input has no required fields, and without `linger`; `serve` still refuses the rest at runtime. `ServeOptions` is a union of `ReferencedServeOptions` and `HostServeOptions`, and `serve` takes `ServeOptionsFor<C>`
 
 ### Added
 
@@ -38,6 +39,7 @@
 - Disposed objects stayed reachable from the host until an object with the same address was created again (every distinct guest, session or input leaked one object, its references and the code they bind)
 - References kept every code version's services, and with them the factory code of every reload, reachable for as long as they lived (held references, objects of lifetime `"host"`); old code generations could never be collected
 - Call, task and root contexts were linked to long-lived signals with `AbortSignal.any`; Node keeps such dependants reachable while they have abort listeners, so a listener on `ctx.signal` kept its closure (and its code generation) alive for the object's lifetime. Contexts now detach when they close
+- IPC links and the host manager's control channel wrote to a peer process that had exited without a callback, so the `EPIPE` Node reports for a write in the gap between the exit and `disconnect` (an `ack` sent just after a worker shut down) became an unhandled `error` event that crashed the process. The link now ends on a failed write (reason `ipc send failed: EPIPE`), and control messages to a gone peer are dropped
 - A relayed call ran under the origin's cancel signal only, so a forced retirement of the relaying host could not cancel it before closing the old code's resources; it now follows its root's signal
 - A resource kept across a reload closed with the `close` of the factory run that first opened it, and kept that run's code reachable; it now adopts the newest declaration at commit
 
