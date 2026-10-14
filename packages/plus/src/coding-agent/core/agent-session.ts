@@ -2,13 +2,18 @@
  * Wrapper for packages/coding-agent/src/core/agent-session.ts.
  *
  * Everything passes through to the upstream module except:
- * - AgentSession.compact -> serialized through a per-session queue. Upstream
- *   keeps the manual compaction's abort controller in a singleton field that
- *   any overlapping compaction's cleanup resets to undefined; overlapping
- *   manual compactions (e.g. context-guard's resume compaction plus a user
- *   /compact) then crash with "Cannot read properties of undefined (reading
- *   'signal')" and never emit compaction_end, stranding the TUI's compaction
- *   indicator (see compaction/serialize.ts).
+ * - AgentSession.compact -> serialized through a per-session queue, and calls
+ *   arriving while a compaction is in flight join it instead of queueing
+ *   behind it. Upstream keeps the manual compaction's abort controller in a
+ *   singleton field that any overlapping compaction's cleanup resets to
+ *   undefined; overlapping manual compactions (e.g. context-guard's resume
+ *   compaction plus a user /compact) then crash with "Cannot read properties
+ *   of undefined (reading 'signal')" and never emit compaction_end, stranding
+ *   the TUI's compaction indicator (see compaction/serialize.ts). Queueing
+ *   the second one instead fixes the crash but strands the task a different
+ *   way: it starts the moment the first compaction lands, aborts the
+ *   freshly-resumed run, and fails with "Nothing to compact (session too
+ *   small)" (see the override's comment).
  *   The override also resumes the interrupted task: compact() aborts an
  *   in-flight run by contract and never continues it, which stranded the task
  *   whenever context-guard fired its threshold/message-count trigger mid-run
@@ -92,6 +97,11 @@ export class AgentSession extends UpstreamAgentSession {
 	// controller from being cleared mid-handoff.
 	private readonly serializeCompaction = createAsyncSerializer();
 
+	// The manual compaction currently in flight, if any. Calls arriving while
+	// this is set join it instead of queueing behind it (see the compact()
+	// override). Cleared by the queued fn's settle, not before.
+	private compactionInFlight: Promise<CompactionResult> | undefined;
+
 	constructor(config: AgentSessionConfig) {
 		super(applyWindowsShellFallback(config));
 		try {
@@ -137,7 +147,23 @@ export class AgentSession extends UpstreamAgentSession {
 	}
 
 	override compact(customInstructions?: string): Promise<CompactionResult> {
-		return this.serializeCompaction(async () => {
+		// Join a compaction that is already in flight instead of queueing a
+		// second one behind it. Production bug (pi-plus-desktop session
+		// 01a138f0): the context-guard fired its threshold compaction mid-run
+		// (a 70s summary); a manual /compact issued during that window executed
+		// immediately (the TUI checks queued-during-compaction input only after
+		// the /compact intercept, and the desktop IPC path can race the same
+		// way), the serializer queued it behind the running compaction, and it
+		// started the moment the first landed — aborting the freshly-resumed
+		// run (the resume's custom message never persisted) and then failing
+		// prepareCompaction with "Nothing to compact (session too small)",
+		// because the just-landed compaction had already shrunk the session. A
+		// second caller asking to compact while a compaction is summarizing is
+		// asking for exactly what is happening: hand it the in-flight result
+		// (its customInstructions, if any, are dropped — the running
+		// compaction cannot be re-parameterized).
+		if (this.compactionInFlight) return this.compactionInFlight;
+		const promise = this.serializeCompaction(async () => {
 			// Capture before super.compact(): the manual path aborts the
 			// in-flight run, so isStreaming is false long before the result
 			// comes back. A run interrupted this way is never continued
@@ -147,6 +173,16 @@ export class AgentSession extends UpstreamAgentSession {
 			if (interruptedRun) resumeAfterMidRunCompact(this);
 			return result;
 		});
+		this.compactionInFlight = promise;
+		// Settle handler on the queued promise itself: clears the join target
+		// once this compaction (and its resume dispatch) has finished, so a
+		// call that arrives a beat later starts a fresh compaction.
+		void promise
+			.catch(() => {})
+			.finally(() => {
+				if (this.compactionInFlight === promise) this.compactionInFlight = undefined;
+			});
+		return promise;
 	}
 
 	override getContextUsage(): ContextUsage | undefined {
