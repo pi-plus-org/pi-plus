@@ -20,10 +20,12 @@
  * The fix lives entirely in pi-plus: the plus Agent wrapper
  * (plus/src/agent/agent.ts via the loader redirect for
  * packages/agent/src/agent.ts, mirrored for these tests by the pi-agent-core
- * alias in vitest.config.ts) installs a pre-request abort guard
- * (plus/src/agent/pre-request-abort.ts) that short-circuits the stream
- * function when the run signal is already aborted at call time, yielding a
- * clean `stopReason: "aborted"` message with no errorMessage instead.
+ * alias in vitest.config.ts) installs an aborted-run guard
+ * (plus/src/agent/aborted-run.ts) that short-circuits the stream function
+ * when the run signal is already aborted at call time and reclassifies
+ * setup-phase abort stubs (the shape attachment-heavy sessions hit, where the
+ * compaction serializer queues the abort to land inside lazyStream's async
+ * setup) into clean `stopReason: "aborted"` messages with no errorMessage.
  * Upstream packages stay pristine.
  *
  * The interrupted task's automatic resume (plus AgentSession.compact override)
