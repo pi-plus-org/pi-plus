@@ -48,10 +48,18 @@
  * an Electron app, its invocation candidates can relaunch the host itself.
  */
 
+// Types SDK hosts need that the upstream barrel does not export (the barrel is
+// kept pristine). Type-only deep imports from non-redirected modules, so no
+// patch is bypassed or double-loaded.
+export type { ConfiguredPackage, PackageUpdate } from "../../coding-agent/src/core/package-manager.ts";
+export type { DefaultResourceLoaderOptions } from "../../coding-agent/src/core/resource-loader.ts";
 export * from "../../coding-agent/src/index.ts";
-// The session-marker helpers: hosts declare their mode before creating
-// sessions (see the pi-plus session overlay).
+// The session-marker helpers and the session-dir helper: hosts declare their
+// mode before creating sessions (see the pi-plus session overlay). The upstream
+// barrel does not export getDefaultSessionDir and the Override Policy keeps it
+// that way, so it is surfaced here through the overlay, which re-exports it.
 export {
+	getDefaultSessionDir,
 	getDefaultSessionInteractive,
 	setDefaultSessionInteractive,
 } from "../../plus/src/coding-agent/core/session-manager.ts";
@@ -77,6 +85,7 @@ export {
 export * from "./auth.ts";
 export * from "./profiles.ts";
 
+import type { DefaultResourceLoaderOptions } from "../../coding-agent/src/core/resource-loader.ts";
 import type {
 	AgentSession,
 	AgentSessionRuntime,
@@ -84,7 +93,6 @@ import type {
 	CreateAgentSessionOptions,
 	CreateAgentSessionResult,
 	CreateAgentSessionRuntimeFactory,
-	DefaultResourceLoaderOptions,
 	ExtensionCommandContextActions,
 	ExtensionError,
 	ExtensionUIContext,
@@ -97,13 +105,15 @@ import {
 	createAgentSessionServices,
 	DefaultResourceLoader,
 	getAgentDir,
-	getDefaultSessionDir,
 	initTheme,
 	SessionManager,
 	SettingsManager,
 } from "../../coding-agent/src/index.ts";
 import { theme } from "../../coding-agent/src/modes/interactive/theme/theme.ts";
-import { setDefaultSessionInteractive } from "../../plus/src/coding-agent/core/session-manager.ts";
+import {
+	getDefaultSessionDir,
+	setDefaultSessionInteractive,
+} from "../../plus/src/coding-agent/core/session-manager.ts";
 import {
 	type PlanReviewDialogUI,
 	registerAskUser,

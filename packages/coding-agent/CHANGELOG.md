@@ -83,9 +83,6 @@
 
 ### Added
 
-- Added `AgentSession.getSlashCommands()`: the session-executable slash-command set — extension commands, prompt templates, and `skill:<name>` entries — i.e. exactly what `prompt()` can run. Embedding hosts (e.g. a desktop composer) can offer a real `/...` menu without re-deriving it; TUI builtins stay excluded because they are interactive-mode-only and not executable via `prompt()`.
-- Added `SessionManager.deleteSession(filePath)`: deletes a persisted session transcript (`.jsonl`) and returns whether a file was removed; refuses paths outside the session-file convention and missing files without throwing. Library hosts can now manage history (list via `list`/`listAll`, delete via `deleteSession`) without touching the filesystem themselves.
-- Added `SessionManager.search(query, sessionDir?, onProgress?, signal?)`: case-insensitive substring search over session history — session name, first user message, and any user/assistant message text (`SessionInfo.allMessagesText`) — returning `SessionInfo` entries ordered by last activity. History UIs can search transcript content without reading JSONL files themselves.
 - Added `+name` and `-name` entries to `--tools`, which change the default tool selection instead of replacing it, for example `pi -t +codemode`
 - Added `durationMs` to the tool render context and to `tool_execution_end` extension events: the recorded execution time of a final tool result ([#10549](https://github.com/earendil-works/pi/issues/10549))
 - Added `outputPad` to the tool render context ([#10557](https://github.com/earendil-works/pi/pull/10557) by [@rwachtler](https://github.com/rwachtler))

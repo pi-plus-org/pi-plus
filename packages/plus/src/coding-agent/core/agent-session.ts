@@ -24,6 +24,10 @@
  *   on PATH) and no user-configured shellPath, the built-in "bash" tool can
  *   never succeed, so it is excluded and "powershell" takes its slot in the
  *   active toolset (see applyWindowsShellFallback below)
+ * - AgentSession.getSlashCommands -> pi-plus addition (no upstream equivalent):
+ *   the session-executable slash-command set for embedding hosts, exposed on
+ *   this subclass so the SDK bundle's redirects hand hosts the same class
+ *   upstream factories use (see the getSlashCommands doc below)
  */
 export * from "../../../../coding-agent/src/core/agent-session.ts";
 
@@ -33,6 +37,8 @@ import {
 } from "../../../../coding-agent/src/core/agent-session.ts";
 import type { CompactionResult } from "../../../../coding-agent/src/core/compaction/compaction.ts";
 import type { ContextUsage } from "../../../../coding-agent/src/core/extensions/types.ts";
+import type { SlashCommandInfo } from "../../../../coding-agent/src/core/slash-commands.ts";
+import type { SourceInfo } from "../../../../coding-agent/src/core/source-info.ts";
 import { getShellConfig } from "../../../../coding-agent/src/utils/shell.ts";
 import { resumeAfterMidRunCompact } from "../../compaction/resume.ts";
 import { createAsyncSerializer } from "../../compaction/serialize.ts";
@@ -69,6 +75,16 @@ export function applyWindowsShellFallback(config: AgentSessionConfig): AgentSess
 	}
 }
 
+/** The upstream privates getSlashCommands reads through a structural cast. */
+interface SlashCommandSources {
+	_extensionRunner?: {
+		getRegisteredCommands(): { invocationName: string; description?: string; sourceInfo: SourceInfo }[];
+	};
+	_resourceLoader: {
+		getSkills(): { skills: { name: string; description?: string; sourceInfo: SourceInfo }[] };
+	};
+}
+
 export class AgentSession extends UpstreamAgentSession {
 	// Serializes manual compact() calls (resume-triggered, /compact, RPC, SDK)
 	// so only one runs at a time; the queue waits for the previous compaction's
@@ -84,6 +100,40 @@ export class AgentSession extends UpstreamAgentSession {
 			// Micro-compact must never break session construction.
 			console.error("pi-plus: idle micro-compact failed:", error);
 		}
+	}
+
+	/**
+	 * Slash commands invokable through prompt(): extension-registered
+	 * commands, file prompt templates, and skills (as `skill:<name>`). This is
+	 * the TUI autocomplete set minus the interactive-mode-only builtins. Reads
+	 * the live runner, so extension reloads are reflected. pi-plus addition for
+	 * embedding hosts (e.g. a desktop composer's `/...` menu) — upstream's
+	 * extension core recomputes the same set through a private closure, so the
+	 * TUI/extension behavior is unchanged.
+	 */
+	getSlashCommands(): SlashCommandInfo[] {
+		const internals = this as unknown as SlashCommandSources;
+		const extensionCommands: SlashCommandInfo[] = (internals._extensionRunner?.getRegisteredCommands() ?? []).map(
+			(command) => ({
+				name: command.invocationName,
+				description: command.description,
+				source: "extension" as const,
+				sourceInfo: command.sourceInfo,
+			}),
+		);
+		const templates: SlashCommandInfo[] = this.promptTemplates.map((template) => ({
+			name: template.name,
+			description: template.description,
+			source: "prompt" as const,
+			sourceInfo: template.sourceInfo,
+		}));
+		const skills: SlashCommandInfo[] = internals._resourceLoader.getSkills().skills.map((skill) => ({
+			name: `skill:${skill.name}`,
+			description: skill.description,
+			source: "skill" as const,
+			sourceInfo: skill.sourceInfo,
+		}));
+		return [...extensionCommands, ...templates, ...skills];
 	}
 
 	override compact(customInstructions?: string): Promise<CompactionResult> {

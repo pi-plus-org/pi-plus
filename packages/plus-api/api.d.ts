@@ -10,7 +10,6 @@
 export * from "@earendil-works/pi-coding-agent";
 
 import type {
-	ConfiguredPackage,
 	ProgressCallback,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -20,15 +19,26 @@ import type {
 	AgentSessionRuntime,
 	CreateAgentSessionOptions,
 	CreateAgentSessionResult,
-	DefaultResourceLoaderOptions,
+	EventBus,
 	ExtensionCommandContextActions,
 	ExtensionContext,
 	ExtensionError,
 	ExtensionUIContext,
 	InlineExtension,
+	LoadExtensionsResult,
+	PromptTemplate,
+	ResourceDiagnostic,
+	SessionInfo,
+	SlashCommandInfo,
+	Skill,
+	Theme,
 	ToolCallEvent,
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
+
+// Value import for the SessionManager static shadow below (the augmented
+// instance side is reachable via interface merging; statics are not).
+import { SessionManager as UpstreamSessionManager } from "@earendil-works/pi-coding-agent";
 
 // pi-plus runtime addition: the SettingsManager wrapper patches a setter +
 // raw getter pair onto the upstream class next to its existing read-side
@@ -62,6 +72,98 @@ declare module "@earendil-works/pi-coding-agent" {
 		/** Copied from the transcript header; undefined when the file is unmarked. */
 		interactive?: boolean;
 	}
+}
+
+// pi-plus session surface: the SDK bundle redirects the upstream core modules
+// onto the packages/plus overlays, so at runtime the embedded classes carry
+// these pi-plus members. The published upstream package does not declare them
+// (Override Policy: upstream stays pristine), so the contract adds them here:
+// instance-side via interface merging, static-side via a shadowing class
+// declaration (an explicit export shadows the star re-export above).
+declare module "@earendil-works/pi-coding-agent" {
+	interface AgentSession {
+		/** Slash commands invokable through prompt(): extension commands, prompt
+		 *  templates, and `skill:<name>` entries — the TUI autocomplete set minus
+		 *  interactive-mode-only builtins (pi-plus overlay). */
+		getSlashCommands(): SlashCommandInfo[];
+	}
+}
+
+declare class SessionManager extends UpstreamSessionManager {
+	/** Delete a persisted session transcript file (.jsonl); returns whether the
+	 *  file was removed, throws for paths outside the session-file convention
+	 *  (pi-plus overlay). */
+	static deleteSession(filePath: string): boolean;
+	/** Case-insensitive substring search over session history: session name,
+	 *  first user message, or any user/assistant message text; SessionInfo
+	 *  entries ordered by last activity (pi-plus overlay). */
+	static search(
+		query: string,
+		sessionDir?: string,
+		onProgress?: (loaded: number, total: number, partialSessions?: readonly SessionInfo[]) => void,
+		signal?: AbortSignal,
+	): Promise<SessionInfo[]>;
+}
+export { SessionManager };
+
+/** Session dir for a cwd under the agent dir's sessions tree (pi-plus SDK
+ *  re-export; the upstream barrel does not export this). */
+export declare function getDefaultSessionDir(cwd: string, agentDir?: string): string;
+
+// Mirrors of upstream-internal types the pi-plus SDK surface exposes but the
+// published upstream barrel does not re-export (kept pristine per the Override
+// Policy). Shapes copied from packages/coding-agent/src/core.
+export interface ConfiguredPackage {
+	source: string;
+	scope: "user" | "project";
+	filtered: boolean;
+	installedPath?: string;
+}
+
+export interface PackageUpdate {
+	source: string;
+	displayName: string;
+	type: "npm" | "git";
+	scope: "user" | "project";
+}
+
+export interface DefaultResourceLoaderOptions {
+	cwd: string;
+	agentDir: string;
+	settingsManager?: SettingsManager;
+	eventBus?: EventBus;
+	additionalExtensionPaths?: string[];
+	additionalSkillPaths?: string[];
+	additionalPromptTemplatePaths?: string[];
+	additionalThemePaths?: string[];
+	extensionFactories?: InlineExtension[];
+	noExtensions?: boolean;
+	/** Built-in extensions not to load, by name (such as `mcp`), even when settings or `-e` enable them. */
+	disabledBuiltinExtensions?: string[];
+	noSkills?: boolean;
+	noPromptTemplates?: boolean;
+	noThemes?: boolean;
+	noContextFiles?: boolean;
+	systemPrompt?: string;
+	appendSystemPrompt?: string[];
+	extensionsOverride?: (base: LoadExtensionsResult) => LoadExtensionsResult;
+	skillsOverride?: (base: { skills: Skill[]; diagnostics: ResourceDiagnostic[] }) => {
+		skills: Skill[];
+		diagnostics: ResourceDiagnostic[];
+	};
+	promptsOverride?: (base: { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] }) => {
+		prompts: PromptTemplate[];
+		diagnostics: ResourceDiagnostic[];
+	};
+	themesOverride?: (base: { themes: Theme[]; diagnostics: ResourceDiagnostic[] }) => {
+		themes: Theme[];
+		diagnostics: ResourceDiagnostic[];
+	};
+	agentsFilesOverride?: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
+		agentsFiles: Array<{ path: string; content: string }>;
+	};
+	systemPromptOverride?: (base: string | undefined) => string | undefined;
+	appendSystemPromptOverride?: (base: string[]) => string[];
 }
 
 /** Declare whether this process counts as a human-driven host. Process-global

@@ -23,17 +23,54 @@
  * Consumers that need the behavior import this overlay (plus-api, plus-cli, the
  * cd extension). The read side only decorates the resolved `SessionInfo[]`; the
  * optional `onProgress` partial lists are upstream's and stay undecorated.
+ *
+ * The overlay also owns the session-history management statics for embedding
+ * hosts (`deleteSession` and `search` below): the Override Policy keeps upstream
+ * packages pristine, so what began as upstream edits lives here instead, on the
+ * same shared class.
  */
 
 export * from "../../../../coding-agent/src/core/session-manager.ts";
 
+import { existsSync, rmSync, statSync } from "node:fs";
 import { open } from "node:fs/promises";
 import type {
 	NewSessionOptions,
 	SessionHeader,
 	SessionInfo,
+	SessionListProgress,
 } from "../../../../coding-agent/src/core/session-manager.ts";
-import { SessionManager } from "../../../../coding-agent/src/core/session-manager.ts";
+import { SessionManager as UpstreamSessionManager } from "../../../../coding-agent/src/core/session-manager.ts";
+import { resolvePath } from "../../../../coding-agent/src/utils/paths.ts";
+
+/**
+ * The upstream class with the pi-plus statics visible to consumers of this
+ * overlay. Same module instance and same object the redirects hand to upstream
+ * code — only the static type is widened. The explicit export shadows the
+ * star-exported name; the instance-side type still resolves through it.
+ */
+export const SessionManager: typeof UpstreamSessionManager & {
+	/** Removes a persisted session transcript; see the static below. */
+	deleteSession(filePath: string): boolean;
+	/** Substring search over session history; see the static below. */
+	search(
+		query: string,
+		sessionDir?: string,
+		onProgress?: SessionListProgress,
+		signal?: AbortSignal,
+	): Promise<SessionInfo[]>;
+} = UpstreamSessionManager as typeof UpstreamSessionManager & {
+	deleteSession(filePath: string): boolean;
+	search(
+		query: string,
+		sessionDir?: string,
+		onProgress?: SessionListProgress,
+		signal?: AbortSignal,
+	): Promise<SessionInfo[]>;
+};
+
+/** The instance-side meaning of the shadowed name (unchanged upstream class). */
+export type SessionManager = UpstreamSessionManager;
 
 declare module "../../../../coding-agent/src/core/session-manager.ts" {
 	interface SessionHeader {
@@ -116,7 +153,6 @@ const statics = SessionManager as unknown as {
 	forkFrom(sourcePath: string, targetCwd: string, sessionDir?: string, options?: NewSessionOptions): SessionManager;
 	list(...args: unknown[]): Promise<SessionInfo[]>;
 	listAll(...args: unknown[]): Promise<SessionInfo[]>;
-	search(...args: unknown[]): Promise<SessionInfo[]>;
 };
 
 const upstreamForkFrom = statics.forkFrom;
@@ -181,6 +217,52 @@ const upstreamListAll = statics.listAll;
 statics.listAll = (...args: unknown[]): Promise<SessionInfo[]> =>
 	upstreamListAll.apply(statics as never, args).then(decorateInteractive);
 
-const upstreamSearch = statics.search;
-statics.search = (...args: unknown[]): Promise<SessionInfo[]> =>
-	upstreamSearch.apply(statics as never, args).then(decorateInteractive);
+/**
+ * Delete a persisted session transcript file. Returns true when the file was
+ * removed, false when it did not exist. Throws for paths that do not look
+ * like session files (guards against deleting arbitrary files). Does not
+ * affect sessions already opened in a SessionManager instance.
+ */
+SessionManager.deleteSession = (filePath: string): boolean => {
+	const resolved = resolvePath(filePath);
+	if (!resolved.endsWith(".jsonl")) {
+		throw new Error(`Refusing to delete non-session file: ${resolved}`);
+	}
+	if (!existsSync(resolved)) return false;
+	if (!statSync(resolved).isFile()) {
+		throw new Error(`Session path is not a file: ${resolved}`);
+	}
+	rmSync(resolved);
+	return true;
+};
+
+/**
+ * Case-insensitive substring search over session history: matches the session
+ * name, the first user message, or any user/assistant message text
+ * (`SessionInfo.allMessagesText`). Returns full `SessionInfo` entries ordered
+ * by last activity, newest first — same shape as `listAll()`, and decorated
+ * with the interactive marker because it delegates to the patched `listAll`.
+ * An empty or whitespace-only query returns `[]`.
+ * @param query Search text (trimmed)
+ * @param sessionDir Optional session directory to scope the search to; defaults to all project dirs.
+ * @param onProgress Optional callback for progress updates (loaded, total)
+ * @param signal Optional abort signal
+ */
+SessionManager.search = async (
+	query: string,
+	sessionDir?: string,
+	onProgress?: SessionListProgress,
+	signal?: AbortSignal,
+): Promise<SessionInfo[]> => {
+	const needle = query.trim().toLowerCase();
+	if (!needle) return [];
+	const sessions = sessionDir
+		? await SessionManager.listAll(sessionDir, onProgress, signal)
+		: await SessionManager.listAll(onProgress, signal);
+	return sessions.filter(
+		(session) =>
+			(session.name?.toLowerCase().includes(needle) ?? false) ||
+			session.firstMessage.toLowerCase().includes(needle) ||
+			session.allMessagesText.toLowerCase().includes(needle),
+	);
+};

@@ -236,9 +236,7 @@ export {
 	type ModelRuntimeAuthOverrides,
 } from "./core/model-runtime.ts";
 export type {
-	ConfiguredPackage,
 	PackageManager,
-	PackageUpdate,
 	PathMetadata,
 	ProgressCallback,
 	ProgressEvent,
@@ -246,12 +244,7 @@ export type {
 	ResolvedResource,
 } from "./core/package-manager.ts";
 export { DefaultPackageManager } from "./core/package-manager.ts";
-export type {
-	DefaultResourceLoaderOptions,
-	ResourceCollision,
-	ResourceDiagnostic,
-	ResourceLoader,
-} from "./core/resource-loader.ts";
+export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.ts";
 export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
 // SDK for programmatic usage
 export {
@@ -294,7 +287,6 @@ export {
 	type CustomEntry,
 	type CustomMessageEntry,
 	type FileEntry,
-	getDefaultSessionDir,
 	getLatestCompactionEntry,
 	type ModelChangeEntry,
 	migrateSessionEntries,

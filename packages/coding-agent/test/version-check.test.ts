@@ -13,8 +13,6 @@ const originalSkipVersionCheck = process.env.PI_SKIP_VERSION_CHECK;
 
 beforeEach(() => {
 	allowNetwork();
-	// Isolate from the host environment; PI_SKIP_VERSION_CHECK disables automatic checks.
-	vi.stubEnv("PI_SKIP_VERSION_CHECK", undefined);
 });
 
 afterEach(() => {
