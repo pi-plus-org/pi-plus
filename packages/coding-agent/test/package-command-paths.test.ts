@@ -34,7 +34,6 @@ describe("package commands", () => {
 	let originalAgentDir: string | undefined;
 	let originalPiPackageDir: string | undefined;
 	let originalPath: string | undefined;
-	let originalHome: string | undefined;
 	let originalExitCode: typeof process.exitCode;
 	let originalExecPath: string;
 
@@ -153,7 +152,6 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 		originalAgentDir = process.env[ENV_AGENT_DIR];
 		originalPiPackageDir = process.env.PI_PACKAGE_DIR;
 		originalPath = process.env.PATH;
-		originalHome = process.env.HOME;
 		originalExitCode = process.exitCode;
 		originalExecPath = process.execPath;
 		process.exitCode = undefined;
@@ -166,8 +164,6 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 			return undefined as never;
 		}) as typeof process.exit);
 		process.env[ENV_AGENT_DIR] = agentDir;
-		// Isolate HOME so user resources under the real ~/.agents/ are not picked up.
-		process.env.HOME = tempDir;
 		process.chdir(projectDir);
 	});
 
@@ -191,11 +187,6 @@ if (process.platform !== "win32") fs.chmodSync(piPath, 0o755);
 			delete process.env.PATH;
 		} else {
 			process.env.PATH = originalPath;
-		}
-		if (originalHome === undefined) {
-			delete process.env.HOME;
-		} else {
-			process.env.HOME = originalHome;
 		}
 		Object.defineProperty(process, "execPath", { value: originalExecPath, configurable: true });
 		rmSync(tempDir, { recursive: true, force: true });

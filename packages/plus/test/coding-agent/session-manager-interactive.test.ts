@@ -162,4 +162,18 @@ describe("session interactive marker", () => {
 		expect(search).toHaveLength(2);
 		expect(search.every((info) => info.interactive !== undefined)).toBe(true);
 	});
+
+	it("deleteSession removes transcripts, tolerates missing files, refuses non-jsonl", () => {
+		const cwd = prepare();
+		const transcript = persist(SessionManager.create(cwd, path.join(cwd, "sessions")));
+		expect(SessionManager.deleteSession(transcript)).toBe(true);
+		expect(fs.existsSync(transcript)).toBe(false);
+		// Missing file: false, not a throw.
+		expect(SessionManager.deleteSession(transcript)).toBe(false);
+		// Guard: arbitrary files must not be deletable through this API.
+		const other = path.join(root, "notes.txt");
+		fs.writeFileSync(other, "keep me\n");
+		expect(() => SessionManager.deleteSession(other)).toThrow(/non-session file/i);
+		expect(fs.existsSync(other)).toBe(true);
+	});
 });

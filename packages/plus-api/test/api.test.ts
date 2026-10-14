@@ -16,6 +16,11 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterAll, describe, expect, it } from "vitest";
 import { AuthStorage } from "../../coding-agent/src/core/auth-storage.ts";
+// Vitest does not apply the loader redirects, so the coding-agent barrel hands
+// out the unpatched upstream class type; SessionManager.deleteSession/search
+// live on the pi-plus overlay, which patches the shared class object in place
+// (the same object the barrel re-exports once src/api.ts loads the overlay).
+import { SessionManager } from "../../plus/src/coding-agent/core/session-manager.ts";
 import type { ExtensionAPI, SessionShutdownEvent, SessionStartEvent } from "../src/api.ts";
 import {
 	AGENT_DIR,
@@ -47,7 +52,6 @@ import {
 	removeProfile,
 	removeProfileDir,
 	renameProfile,
-	SessionManager,
 	SettingsManager,
 	setAutoCompactThresholdPercent,
 	setContextFloorTokens,

@@ -12,8 +12,10 @@
  * declarations after project trust is granted).
  */
 
+// Type-only deep import: the upstream barrel keeps ConfiguredPackage
+// unexported (Override Policy), and package-manager.ts is not a redirect target.
+import type { ConfiguredPackage } from "../../coding-agent/src/core/package-manager.ts";
 import {
-	type ConfiguredPackage,
 	DefaultPackageManager,
 	getAgentDir,
 	type ProgressCallback,
