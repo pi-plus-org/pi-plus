@@ -2,24 +2,30 @@
  * Wrapper for packages/coding-agent/src/core/agent-session.ts.
  *
  * Everything passes through to the upstream module except:
- * - AgentSession.compact -> serialized through a per-session queue, and calls
+ * - AgentSession.compact -> serialized through a per-session queue; calls
  *   arriving while a compaction is in flight join it instead of queueing
- *   behind it. Upstream keeps the manual compaction's abort controller in a
- *   singleton field that any overlapping compaction's cleanup resets to
- *   undefined; overlapping manual compactions (e.g. context-guard's resume
- *   compaction plus a user /compact) then crash with "Cannot read properties
- *   of undefined (reading 'signal')" and never emit compaction_end, stranding
- *   the TUI's compaction indicator (see compaction/serialize.ts). Queueing
- *   the second one instead fixes the crash but strands the task a different
- *   way: it starts the moment the first compaction lands, aborts the
+ *   behind it; and when a run is active, upstream's "nothing to compact"
+ *   failures are pre-flighted BEFORE its abort() (which by contract kills the
+ *   run first, stranding the task for a compaction that does nothing).
+ *   Upstream keeps the manual compaction's abort controller in a singleton
+ *   field that any overlapping compaction's cleanup resets to undefined;
+ *   overlapping manual compactions (e.g. context-guard's resume compaction
+ *   plus a user /compact) then crash with "Cannot read properties of
+ *   undefined (reading 'signal')" and never emit compaction_end, stranding the
+ *   TUI's compaction indicator (see compaction/serialize.ts). Queueing the
+ *   second one instead fixes the crash but strands the task a different way:
+ *   it starts the moment the first compaction lands, aborts the
  *   freshly-resumed run, and fails with "Nothing to compact (session too
  *   small)" (see the override's comment).
- *   The override also resumes the interrupted task: compact() aborts an
- *   in-flight run by contract and never continues it, which stranded the task
- *   whenever context-guard fired its threshold/message-count trigger mid-run
- *   (or the user ran /compact during a run). When compact() started while a
- *   run was active, a silent continuation message re-engages the model
- *   afterwards (see compaction/resume.ts).
+ *   The override also resumes the interrupted task — whether the compaction
+ *   lands or fails: compact() aborts an in-flight run by contract and never
+ *   continues it, which stranded the task whenever context-guard fired its
+ *   threshold/message-count trigger mid-run (or the user ran /compact during
+ *   a run). When compact() started while a run was active, a silent
+ *   continuation message re-engages the model afterwards (see
+ *   compaction/resume.ts). PI_COMPACT_DEBUG=1 traces every compact() entry,
+ *   join, and pre-flight block with a call stack to
+ *   ~/.pi/agent/pi-plus-compact-debug.log (see compaction/trace.ts).
  * - AgentSession.getContextUsage -> estimates context right after compaction instead
  *   of reporting "unknown" (see plus/src/context/usage.ts)
  * - AgentSession constructor -> applies time-based micro-compact (clearing stale
@@ -40,13 +46,14 @@ import {
 	type AgentSessionConfig,
 	AgentSession as UpstreamAgentSession,
 } from "../../../../coding-agent/src/core/agent-session.ts";
-import type { CompactionResult } from "../../../../coding-agent/src/core/compaction/compaction.ts";
+import { type CompactionResult, prepareCompaction } from "../../../../coding-agent/src/core/compaction/compaction.ts";
 import type { ContextUsage } from "../../../../coding-agent/src/core/extensions/types.ts";
 import type { SlashCommandInfo } from "../../../../coding-agent/src/core/slash-commands.ts";
 import type { SourceInfo } from "../../../../coding-agent/src/core/source-info.ts";
 import { getShellConfig } from "../../../../coding-agent/src/utils/shell.ts";
 import { resumeAfterMidRunCompact } from "../../compaction/resume.ts";
 import { createAsyncSerializer } from "../../compaction/serialize.ts";
+import { traceCompactionCall } from "../../compaction/trace.ts";
 import { applyIdleMicroCompact } from "../../context/microcompact.ts";
 import { getContextUsagePlus } from "../../context/usage.ts";
 
@@ -102,6 +109,12 @@ export class AgentSession extends UpstreamAgentSession {
 	// override). Cleared by the queued fn's settle, not before.
 	private compactionInFlight: Promise<CompactionResult> | undefined;
 
+	// A resume was dispatched after a compaction but its re-engaged run has
+	// not settled yet. Covers the window between the resume's fire-and-forget
+	// dispatch and the run actually showing up as isStreaming, so a compact()
+	// arriving there still treats the task as active (pre-flight + resume).
+	private compactionResumePending = false;
+
 	constructor(config: AgentSessionConfig) {
 		super(applyWindowsShellFallback(config));
 		try {
@@ -147,6 +160,13 @@ export class AgentSession extends UpstreamAgentSession {
 	}
 
 	override compact(customInstructions?: string): Promise<CompactionResult> {
+		traceCompactionCall({
+			stage: "enter",
+			customInstructions,
+			isStreaming: this.isStreaming,
+			joinActive: this.compactionInFlight !== undefined,
+			resumePending: this.compactionResumePending,
+		});
 		// Join a compaction that is already in flight instead of queueing a
 		// second one behind it. Production bug (pi-plus-desktop session
 		// 01a138f0): the context-guard fired its threshold compaction mid-run
@@ -162,16 +182,62 @@ export class AgentSession extends UpstreamAgentSession {
 		// asking for exactly what is happening: hand it the in-flight result
 		// (its customInstructions, if any, are dropped — the running
 		// compaction cannot be re-parameterized).
-		if (this.compactionInFlight) return this.compactionInFlight;
+		if (this.compactionInFlight) {
+			traceCompactionCall({
+				stage: "join",
+				customInstructions,
+				isStreaming: this.isStreaming,
+				joinActive: true,
+				resumePending: this.compactionResumePending,
+			});
+			return this.compactionInFlight;
+		}
 		const promise = this.serializeCompaction(async () => {
 			// Capture before super.compact(): the manual path aborts the
 			// in-flight run, so isStreaming is false long before the result
-			// comes back. A run interrupted this way is never continued
-			// upstream — resume it once the compaction has landed.
-			const interruptedRun = this.isStreaming;
-			const result = await super.compact(customInstructions);
-			if (interruptedRun) resumeAfterMidRunCompact(this);
-			return result;
+			// comes back. The resume-pending flag covers the window between a
+			// previous compaction's resume dispatch and the re-engaged run
+			// starting to stream. A run interrupted this way is never
+			// continued upstream — it must be resumed whichever way the
+			// compaction ends.
+			const interruptedRun = this.isStreaming || this.compactionResumePending;
+			// Pre-flight the "nothing to compact" failures BEFORE the abort.
+			// Upstream compact() starts with `await this.abort()`, so a
+			// compaction that turns out to have no material still kills the
+			// running task first — that is exactly the stranding observed when
+			// a caller (the production trace: ~10ms after a compaction landed,
+			// outside the join window) asks for a second compaction on the
+			// just-shrunk session. If there is nothing to compact, reject
+			// without aborting: the run survives, the caller learns why, and
+			// no "Compaction failed" error line follows an aborted task.
+			// Only checked when a run would be at risk; the idle path keeps
+			// upstream's exact behavior and events.
+			const blocker = interruptedRun ? this.findCompactionBlocker() : undefined;
+			if (blocker) {
+				traceCompactionCall({
+					stage: "block",
+					customInstructions,
+					isStreaming: this.isStreaming,
+					joinActive: false,
+					resumePending: this.compactionResumePending,
+					blocker,
+				});
+				throw new Error(blocker);
+			}
+			try {
+				return await super.compact(customInstructions);
+			} finally {
+				// Resume on BOTH paths: super.compact() aborted the run before
+				// it could fail (summary provider error, cancellation, a race
+				// past the pre-flight), and a failed compaction must not leave
+				// the task stranded either — the abort was for nothing.
+				if (interruptedRun) {
+					this.compactionResumePending = true;
+					void resumeAfterMidRunCompact(this).finally(() => {
+						this.compactionResumePending = false;
+					});
+				}
+			}
 		});
 		this.compactionInFlight = promise;
 		// Settle handler on the queued promise itself: clears the join target
@@ -183,6 +249,24 @@ export class AgentSession extends UpstreamAgentSession {
 				if (this.compactionInFlight === promise) this.compactionInFlight = undefined;
 			});
 		return promise;
+	}
+
+	/**
+	 * Replicates upstream compact()'s pre-abort failure checks (model missing
+	 * excepted — a run always has one): returns the message compact() would
+	 * throw with after aborting the run, or undefined when there is material
+	 * to compact. Same prepareCompaction inputs, same throw sites, kept in
+	 * sync with packages/coding-agent/src/core/agent-session.ts compact().
+	 */
+	private findCompactionBlocker(): string | undefined {
+		const model = this.model;
+		if (!model) return undefined; // let the idle/no-run upstream path report it
+		const settings = this.settingsManager.getCompactionSettings(model);
+		const pathEntries = this.sessionManager.getBranch();
+		if (prepareCompaction(pathEntries, settings)) return undefined;
+		const lastEntry = pathEntries[pathEntries.length - 1];
+		if (lastEntry?.type === "compaction") return "Already compacted";
+		return "Nothing to compact (session too small)";
 	}
 
 	override getContextUsage(): ContextUsage | undefined {

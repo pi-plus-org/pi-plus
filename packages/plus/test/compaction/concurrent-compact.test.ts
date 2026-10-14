@@ -14,6 +14,13 @@
  * The plus AgentSession.compact override now hands later callers the
  * in-flight promise (see the override's comment in
  * src/coding-agent/core/agent-session.ts).
+ *
+ * That alone recurred (sessions 01a1399d + 01a138f0 on pi-plus@0.2.12): the
+ * second compact() landed ~10ms after the first one — just past the join
+ * window. The override therefore also (a) pre-flights upstream's "nothing to
+ * compact" failures before its abort() so such a call cannot kill a running
+ * task, and (b) resumes the interrupted run even when the compaction fails —
+ * compact() aborted it before knowing the compaction would not happen.
  */
 import assert from "node:assert/strict";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -52,6 +59,15 @@ const hangingUntilAbort: FauxResponseStep = async (_context, options) => {
 	});
 	return fauxAssistantMessage("partial work", { stopReason: "aborted" });
 };
+
+/** A faux response that stays streaming for delayMs — the resumed run to be
+ *  (or not be) interrupted by a later compact(). */
+const slowResume =
+	(delayMs: number): FauxResponseStep =>
+	async () => {
+		await new Promise((resolve) => setTimeout(resolve, delayMs));
+		return fauxAssistantMessage(RESUME_TEXT);
+	};
 
 async function createPlusHarness(options: { extension: InlineExtension; responses: FauxResponseStep[] }) {
 	const fauxProvider = registerFauxProvider();
@@ -240,6 +256,92 @@ describe("concurrent manual compaction", () => {
 				).length,
 			).toBe(0);
 			expect(assistantAfter.length).toBeGreaterThan(0);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("a compact() with nothing to compact must not abort the resumed run", async () => {
+		const { session, sessionManager, events, cleanup } = await createPlusHarness({
+			extension: holdExtension(0),
+			responses: [hangingUntilAbort, slowResume(500)],
+		});
+		try {
+			const promptPromise = session.prompt("do the task");
+			await waitFor(() => session.isStreaming, "the run to start");
+
+			// #1 lands and resumes the task. The recurrence (sessions 01a1399d /
+			// 01a138f0, pi-plus@0.2.12): a second compact() arrives right after
+			// the join window closes — the session was just shrunk, so upstream
+			// compact() would abort the fresh run and then throw "Nothing to
+			// compact (session too small)", stranding the task.
+			await session.compact();
+			await waitFor(() => session.isStreaming, "the resumed run to start");
+
+			await expect(session.compact()).rejects.toThrow(/Nothing to compact|Already compacted/);
+
+			// The resumed run was never touched: still streaming when #2 rejected.
+			expect(session.isStreaming).toBe(true);
+
+			await promptPromise;
+			await session.waitForIdle();
+
+			// Exactly one compaction ran end to end (#2 short-circuited before
+			// emitting anything), and the resumed task finished uninterrupted.
+			expect(events.filter((event) => event.type === "compaction_start").length).toBe(1);
+			expect(compactionEnds(events).length).toBe(1);
+
+			const entries = sessionManager.getEntries();
+			const compactionIndex = entries.findIndex((entry) => entry.type === "compaction");
+			assert.notEqual(compactionIndex, -1, "compaction entry exists");
+			const resumed = entries
+				.slice(compactionIndex)
+				.some(
+					(entry) =>
+						entry.type === "message" &&
+						entry.message.role === "assistant" &&
+						JSON.stringify(entry.message.content).includes(RESUME_TEXT),
+				);
+			assert.ok(resumed, "resumed run completed with the final answer");
+			const abortedAfter = entries.slice(compactionIndex).filter((entry) => {
+				if (entry.type !== "message" || entry.message.role !== "assistant") return false;
+				const message = entry.message as { stopReason?: string };
+				return message.stopReason === "aborted";
+			});
+			expect(abortedAfter.length).toBe(0);
+		} finally {
+			cleanup();
+		}
+	});
+
+	it("a compaction that fails after aborting the run still resumes the task", async () => {
+		// Cancellation via session_before_compact: upstream aborts the run
+		// first, then the compaction throws "Compaction cancelled". Pre-fix the
+		// resume only fired on success, so the interrupted task never returned.
+		const { session, sessionManager, cleanup } = await createPlusHarness({
+			extension: (pi) => {
+				pi.on("session_before_compact", async () => ({ cancel: true }));
+			},
+			responses: [hangingUntilAbort, fauxAssistantMessage(RESUME_TEXT)],
+		});
+		try {
+			const promptPromise = session.prompt("do the task");
+			await waitFor(() => session.isStreaming, "the run to start");
+
+			await expect(session.compact()).rejects.toThrow("Compaction cancelled");
+
+			await promptPromise;
+			await waitFor(
+				() => JSON.stringify(sessionManager.getEntries()).includes(RESUME_TEXT),
+				"the resumed run's final answer",
+			);
+			await session.waitForIdle();
+
+			// The silent resume message landed and the task finished.
+			const resumeEntry = sessionManager
+				.getEntries()
+				.some((entry) => entry.type === "custom_message" && entry.customType === COMPACTION_RESUME_CUSTOM_TYPE);
+			assert.ok(resumeEntry, "resume custom message entry exists after a failed compaction");
 		} finally {
 			cleanup();
 		}
