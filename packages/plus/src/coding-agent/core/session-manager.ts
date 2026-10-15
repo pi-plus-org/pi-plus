@@ -21,8 +21,13 @@
  * `NewSessionOptions.interactive` overrides for one manager.
  *
  * Consumers that need the behavior import this overlay (plus-api, plus-cli, the
- * cd extension). The read side only decorates the resolved `SessionInfo[]`; the
- * optional `onProgress` partial lists are upstream's and stay undecorated.
+ * cd extension). The read side only decorates the resolved `SessionInfo[]`;
+ * hiding headless sessions belongs to the display layer through
+ * `filterInteractiveSessions`, which the resume picker wrapper
+ * (plus-cli/src/coding-agent/ui/session-selector.ts) applies to both the final
+ * list and the upstream partial lists published while a scan is still running.
+ * Filtering at the display layer is also why `--session <id>` and `-r <id>` keep
+ * resolving a headless transcript: `resolveSessionPath` stays untouched.
  *
  * The overlay also owns the session-history management statics for embedding
  * hosts (`deleteSession` and `search` below): the Override Policy keeps upstream
@@ -178,7 +183,22 @@ statics.forkFrom = (
 /** Headers are one line; a bounded prefix read is enough to spot the marker. */
 const HEADER_PREFIX_BYTES = 64 * 1024;
 
+/**
+ * Path -> marker. The marker is written once, as the first line of an append-only
+ * transcript, so a resolved path never changes and the picker can re-filter the
+ * same files on every partial-progress tick without re-reading them.
+ */
+const interactiveFlagByPath = new Map<string, boolean | undefined>();
+
 async function readInteractiveFlag(filePath: string): Promise<boolean | undefined> {
+	if (interactiveFlagByPath.has(filePath)) return interactiveFlagByPath.get(filePath);
+	const flag = await probeInteractiveFlag(filePath);
+	interactiveFlagByPath.set(filePath, flag);
+	return flag;
+}
+
+/** Read the header once. Unreadable, empty, or oversized transcripts count as unmarked. */
+async function probeInteractiveFlag(filePath: string): Promise<boolean | undefined> {
 	let handle: Awaited<ReturnType<typeof open>> | undefined;
 	try {
 		handle = await open(filePath, "r");
@@ -207,6 +227,25 @@ async function decorateInteractive(infos: SessionInfo[]): Promise<SessionInfo[]>
 		}),
 	);
 	return infos;
+}
+
+/**
+ * Drop transcripts explicitly marked headless, keep everything else. For
+ * user-facing session lists only (`--resume` / `/resume`): unmarked sessions stay
+ * visible. Entries already decorated by the patched `list` / `listAll` filter
+ * without touching the disk; raw partial-progress entries fall back to the
+ * memoized header read.
+ */
+export async function filterInteractiveSessions(sessions: readonly SessionInfo[]): Promise<SessionInfo[]> {
+	const flags = await Promise.all(
+		sessions.map(async (session) => session.interactive ?? (await readInteractiveFlag(session.path))),
+	);
+	const kept: SessionInfo[] = [];
+	for (let index = 0; index < sessions.length; index++) {
+		const session = sessions[index];
+		if (session && flags[index] !== false) kept.push(session);
+	}
+	return kept;
 }
 
 const upstreamList = statics.list;

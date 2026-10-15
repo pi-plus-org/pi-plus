@@ -12,4 +12,12 @@ export const REDIRECTS = new Map([
 		"packages/coding-agent/src/modes/interactive/components/settings-selector.ts",
 		"packages/plus-cli/src/coding-agent/ui/settings-selector.ts",
 	],
+	// Resume list: `pipi --resume` / `pipi -r` (main.ts -> selectSession) and the TUI
+	// `/resume` both construct this component, so the wrapper filters headless
+	// sessions where they are displayed. Only the CLI bundles this file, so the
+	// pi-plus-sdk bundle never loads a TUI component.
+	[
+		"packages/coding-agent/src/modes/interactive/components/session-selector.ts",
+		"packages/plus-cli/src/coding-agent/ui/session-selector.ts",
+	],
 ]);
