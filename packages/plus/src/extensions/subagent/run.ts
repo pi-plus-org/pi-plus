@@ -11,13 +11,22 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
+import { getAgentDir } from "../../../../coding-agent/src/config.ts";
 import { withFileMutationQueue } from "../../../../coding-agent/src/core/tools/file-mutation-queue.ts";
+import { hubProfileNameFor } from "../../coding-agent/core/profile-settings.ts";
 import type { AgentConfig } from "./agents.ts";
 import { emptyUsage, getFinalOutput, type SubagentResult } from "./format.ts";
 
 export interface DispatchDefaults {
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
+	/**
+	 * The parent session's agent dir, used to forward the hub profile to the
+	 * child (`--as`). SDK hosts (pi-plus-sdk) bind it at extension registration;
+	 * the pipi CLI wrapper leaves it unset and the PI_CODING_AGENT_DIR env
+	 * (which getAgentDir() reads) applies instead.
+	 */
+	agentDir?: string;
 }
 
 type OnUpdateCallback = (partial: AgentToolResult<SubagentResult>) => void;
@@ -70,6 +79,38 @@ export function getPiInvocationCandidates(args: string[]): InvocationCandidate[]
 }
 
 /**
+ * Base CLI args for one sub-agent child, before the system-prompt file and the
+ * positional task. The parent's hub profile is forwarded as `--as <name>`:
+ * a child without it re-resolves the *stored default* profile (hub
+ * launch.ts ignores PI_CODING_AGENT_DIR), which would run the parent's
+ * `--model` against the default profile's baseUrl/auth — e.g. leaking
+ * qwen3.8-flash traffic to another provider's endpoint. The profile is
+ * derived from the session agent dir: explicit `dispatchDefaults.agentDir`
+ * (SDK hosts), else the env the pipi wrapper set at launch.
+ */
+export function buildSubagentArgs(dispatchDefaults: DispatchDefaults, agent: AgentConfig): string[] {
+	const args: string[] = [];
+	const profileName = hubProfileNameFor(dispatchDefaults.agentDir ?? getAgentDir());
+	if (profileName) args.push("--as", profileName);
+	args.push("--mode", "json", "-p", "--no-session");
+	// An explicit agent model wins over the caller's model override; thinking is
+	// inherited from the parent only when neither pins a model.
+	const model = agent.model ?? dispatchDefaults.model;
+	if (model) args.push("--model", model);
+	if (!agent.model && dispatchDefaults.thinkingLevel) {
+		args.push("--thinking", dispatchDefaults.thinkingLevel);
+	}
+	if (agent.tools && agent.tools.length > 0) {
+		args.push("--tools", agent.tools.join(","));
+	} else {
+		// Full toolset minus this tool: sub-agents don't get subagent (grandchild)
+		// spawning unless their definition lists it explicitly.
+		args.push("--exclude-tools", "subagent");
+	}
+	return args;
+}
+
+/**
  * Run one sub-agent to completion. Throws if the parent turn is aborted.
  */
 export async function runSingleAgent(
@@ -81,22 +122,8 @@ export async function runSingleAgent(
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 ): Promise<SubagentResult> {
-	const args: string[] = ["--mode", "json", "-p", "--no-session"];
-	// An explicit agent model wins over the caller's model override; thinking is
-	// inherited from the parent only when neither pins a model.
-	const inheritsDispatchConfig = !agent.model;
+	const args = buildSubagentArgs(dispatchDefaults, agent);
 	const model = agent.model ?? dispatchDefaults.model;
-	if (model) args.push("--model", model);
-	if (inheritsDispatchConfig && dispatchDefaults.thinkingLevel) {
-		args.push("--thinking", dispatchDefaults.thinkingLevel);
-	}
-	if (agent.tools && agent.tools.length > 0) {
-		args.push("--tools", agent.tools.join(","));
-	} else {
-		// Full toolset minus this tool: sub-agents don't get subagent (grandchild)
-		// spawning unless their definition lists it explicitly.
-		args.push("--exclude-tools", "subagent");
-	}
 
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;

@@ -37,6 +37,8 @@ export interface ExtractDeps {
 	storeFor(ctx: ExtensionContext): MemoryStore;
 	/** Injectable for tests; defaults to the real sub-agent runner. */
 	runAgent?: typeof runSingleAgent;
+	/** Parent session agent dir, threaded to the runner for `--as` pinning (see subagent/run.ts). */
+	agentDir?: string;
 }
 
 const EXTRACT_TIMEOUT_MS = 120_000;
@@ -169,7 +171,10 @@ export function maybeExtract(ctx: ExtensionContext, state: ExtractState, deps: E
 			const task = await buildExtractionTask(ctx, store);
 			await runner(
 				ctx.cwd,
-				{ model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined },
+				{
+					model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined,
+					agentDir: deps.agentDir,
+				},
 				EXTRACTOR_AGENT,
 				task,
 				ctx.cwd,

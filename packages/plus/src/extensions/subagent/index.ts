@@ -140,7 +140,16 @@ export function buildSubagentSection(agents: AgentConfig[]): string {
 	return section;
 }
 
-export function registerSubagent(pi: ExtensionAPI): void {
+export interface SubagentExtensionOptions {
+	/**
+	 * The session's agent dir, forwarded to spawned children to pin their
+	 * hub profile (`--as`, see run.ts). SDK hosts bind it per session;
+	 * unset falls back to PI_CODING_AGENT_DIR (the pipi CLI wrapper's env).
+	 */
+	agentDir?: string;
+}
+
+export function registerSubagent(pi: ExtensionAPI, options: SubagentExtensionOptions = {}): void {
 	// Advertise delegation and the available agent types, mirroring the
 	// memory/tasks system-prompt sections.
 	pi.on("before_agent_start", async (event, ctx) => {
@@ -193,6 +202,7 @@ export function registerSubagent(pi: ExtensionAPI): void {
 			const dispatchDefaults = {
 				model: params.model ?? (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined),
 				thinkingLevel: ctx.thinkingLevel,
+				agentDir: options.agentDir,
 			};
 
 			const result = await runSingleAgent(
