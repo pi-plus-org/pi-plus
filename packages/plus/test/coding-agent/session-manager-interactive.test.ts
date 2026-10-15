@@ -4,7 +4,8 @@
  * with the process host mode (or an explicit NewSessionOptions override), the
  * stamp survives every session-creating path (start, `/new`, branch, fork), the
  * marker is persisted on the first line, and the read side reports it on
- * SessionInfo while pre-marker transcripts stay unmarked (= visible).
+ * SessionInfo while pre-marker transcripts stay unmarked (= visible). Also covers
+ * `filterInteractiveSessions`, the display-side filter the resume picker uses.
  */
 
 import * as fs from "node:fs";
@@ -13,6 +14,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionInfo } from "../../../coding-agent/src/core/session-manager.ts";
 import {
+	filterInteractiveSessions,
 	getDefaultSessionInteractive,
 	SessionManager,
 	setDefaultSessionInteractive,
@@ -151,8 +153,6 @@ describe("session interactive marker", () => {
 		const flags = listed.map((info) => info.interactive).sort((a, b) => Number(a ?? 0) - Number(b ?? 0));
 		expect(flags).toEqual([false, true, undefined]);
 		expect([...byFlag.values()].some((info) => info.interactive === undefined)).toBe(true);
-		// Filter predicate used by user-facing history lists.
-		expect(listed.filter((info) => info.interactive !== false)).toHaveLength(2);
 
 		const all = await SessionManager.listAll(sessionDir);
 		const found = all.find((info) => info.id === listed.find((info) => info.interactive === false)!.id);
@@ -161,6 +161,41 @@ describe("session interactive marker", () => {
 		const search = await SessionManager.search("hello", sessionDir);
 		expect(search).toHaveLength(2);
 		expect(search.every((info) => info.interactive !== undefined)).toBe(true);
+
+		// Filter predicate used by user-facing history lists: the headless transcript
+		// drops out, the interactive and pre-marker ones stay.
+		const visible = await filterInteractiveSessions(listed);
+		expect(visible).toHaveLength(2);
+		expect(visible.every((info) => info.interactive !== false)).toBe(true);
+	});
+
+	it("drops headless transcripts from an undecorated list by reading the headers", async () => {
+		const cwd = prepare();
+		const sessionDir = path.join(cwd, "sessions");
+		setDefaultSessionInteractive(false);
+		const headlessFile = persist(SessionManager.create(cwd, sessionDir));
+		setDefaultSessionInteractive(true);
+		const interactiveFile = persist(SessionManager.create(cwd, sessionDir));
+
+		// Entries without the `interactive` field, as the upstream partial-progress
+		// lists carry them: the helper has to resolve the marker from disk.
+		const undecorated = (file: string, id: string): SessionInfo => ({
+			path: file,
+			id,
+			cwd,
+			name: undefined,
+			messageCount: 1,
+			created: new Date(),
+			modified: new Date(),
+			firstMessage: "hello",
+			allMessagesText: "hello",
+		});
+
+		const filtered = await filterInteractiveSessions([
+			undecorated(interactiveFile, "interactive"),
+			undecorated(headlessFile, "headless"),
+		]);
+		expect(filtered.map((info) => info.id)).toEqual(["interactive"]);
 	});
 
 	it("deleteSession removes transcripts, tolerates missing files, refuses non-jsonl", () => {
