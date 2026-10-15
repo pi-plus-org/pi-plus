@@ -5,10 +5,11 @@ name: Publish pi-plus packages
 # pipi-sdk-publish.sh: auto patch-bump from the package.json version, build
 # offline, sanity-check the tarball, publish under the resolved dist-tag
 # ("latest", or a per-line "v<major>-<minor>" tag such as "v0-1" when the
-# version is at/below the registry's latest), then commit the bump.
+# version is at/below the registry's latest), then commit the bump immediately
+# after the second publish is accepted by the registry.
 #
-# After each publish the version availability on npmjs is polled for up to 10
-# minutes; the result (available, or stuck) is pushed to ntfy. Set the
+# Version availability on npmjs is polled for up to 10 minutes after each
+# publish; the result (available, or stuck) is pushed to ntfy. Set the
 # NTFY_TOPIC repository secret to the ntfy topic to notify, e.g. the topic id
 # for https://ntfy.sh/<topic>. Unset means notifications are skipped.
 #
@@ -190,8 +191,6 @@ jobs:
           "$RUNNER_TEMP/wait-npm.sh" pi-plus "${{ steps.versions.outputs.cli_next }}"
 
       - name: Publish pi-plus-sdk
-        env:
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
           set -euo pipefail
           node packages/plus-api/build.mjs
@@ -227,8 +226,10 @@ jobs:
 
           (cd packages/plus-api/dist/npm && npm publish --access public --ignore-scripts --tag "${{ steps.versions.outputs.sdk_tag }}")
 
-          "$RUNNER_TEMP/wait-npm.sh" pi-plus-sdk "${{ steps.versions.outputs.sdk_next }}"
-
+      # Commit right after the second publish, before waiting for propagation:
+      # once the registry accepted both versions, the bump must land even if
+      # propagation stalls. Otherwise the repo stays behind the published
+      # versions and every later run re-bumps (and re-publishes) them.
       - name: Commit version bumps
         if: ${{ steps.versions.outputs.cli_bumped == 'true' || steps.versions.outputs.sdk_bumped == 'true' }}
         run: |
@@ -241,8 +242,15 @@ jobs:
           PI_ALLOW_LOCKFILE_CHANGE=1 git commit -m "feat(plus): release pi-plus v${{ steps.versions.outputs.cli_next }}, pi-plus-sdk v${{ steps.versions.outputs.sdk_next }}"
           git push origin "HEAD:${{ github.ref_name }}"
 
-      # Publish/propagation failures are otherwise silent (the version bump is
-      # not pushed, so nothing lands half-done, but nobody is told either).
+      - name: Wait for pi-plus-sdk on npmjs
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/wait-npm.sh" pi-plus-sdk "${{ steps.versions.outputs.sdk_next }}"
+
+      # Publish/propagation failures are otherwise silent (a failure before the
+      # bump commit leaves the registry ahead of the repo, and nobody is told).
       - name: Notify failure
         if: ${{ failure() }}
         env:
