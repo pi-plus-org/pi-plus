@@ -171,6 +171,14 @@ export interface DefaultResourceLoaderOptions {
 export declare function setDefaultSessionInteractive(interactive: boolean): void;
 export declare function getDefaultSessionInteractive(): boolean;
 
+/** Hidden pi-plus extension factories for SDK hosts. `agentDir` (the session's
+ *  agent dir) pins the hub profile for spawned sub-agent children (`--as`):
+ *  SDK hosts set no PI_CODING_AGENT_DIR per session, so without the pin a
+ *  child re-resolves the stored default profile and runs the session's model
+ *  against that profile's endpoint. Unset falls back to the env (pipi CLI). */
+export declare function createPlusSdkExtensionFactories(agentDir?: string): InlineExtension[];
+
+/** Default env-fallback binding: `createPlusSdkExtensionFactories()`. */
 export declare const plusSdkExtensionFactories: InlineExtension[];
 
 // --- pi-plus-permissions (bypass | acceptEdits | plan tool-call gate) ------

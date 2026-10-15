@@ -93,6 +93,7 @@ import type {
 	CreateAgentSessionOptions,
 	CreateAgentSessionResult,
 	CreateAgentSessionRuntimeFactory,
+	ExtensionAPI,
 	ExtensionCommandContextActions,
 	ExtensionError,
 	ExtensionUIContext,
@@ -133,20 +134,33 @@ import {
  * Hidden pi-plus extension factories for non-TUI (SDK) hosts: the same
  * registrations the `pipi` CLI wrapper makes, minus the TUI-only ones.
  * Passed to DefaultResourceLoader alongside any host-provided factories.
+ *
+ * `agentDir` binds the session's agent dir into the sub-agent-spawning
+ * extensions (subagent, memory extraction) so their child `pipi` processes
+ * carry `--as <profile>`: SDK hosts never set PI_CODING_AGENT_DIR per
+ * session, and a child without the pin re-resolves the stored default
+ * profile — which would run the session's model against that profile's
+ * baseUrl/auth (wrong endpoint). Unset falls back to the env, exactly like
+ * the CLI wrapper.
  */
-export const plusSdkExtensionFactories: InlineExtension[] = [
-	{ name: "pi-plus-subagent", factory: registerSubagent, hidden: true },
-	{ name: "pi-plus-tasks", factory: registerTasks, hidden: true },
-	{ name: "pi-plus-memory", factory: registerMemory, hidden: true },
-	{ name: "pi-plus-plan", factory: registerPlan, hidden: true },
-	{ name: "pi-plus-session-recap", factory: registerRecap, hidden: true },
-	{ name: "pi-plus-ask-user", factory: registerAskUser, hidden: true },
-	{ name: "pi-plus-hooks", factory: registerUserHooks, hidden: true },
-	{ name: "pi-plus-context-guard", factory: registerContextGuard, hidden: true },
-	{ name: "pi-plus-cd", factory: registerCd, hidden: true },
-	{ name: "pi-plus-init", factory: registerInit, hidden: true },
-	{ name: "pi-plus-web-search", factory: registerWebSearch, hidden: true },
-];
+export function createPlusSdkExtensionFactories(agentDir?: string): InlineExtension[] {
+	return [
+		{ name: "pi-plus-subagent", factory: (pi: ExtensionAPI) => registerSubagent(pi, { agentDir }), hidden: true },
+		{ name: "pi-plus-tasks", factory: registerTasks, hidden: true },
+		{ name: "pi-plus-memory", factory: (pi: ExtensionAPI) => registerMemory(pi, { agentDir }), hidden: true },
+		{ name: "pi-plus-plan", factory: registerPlan, hidden: true },
+		{ name: "pi-plus-session-recap", factory: registerRecap, hidden: true },
+		{ name: "pi-plus-ask-user", factory: registerAskUser, hidden: true },
+		{ name: "pi-plus-hooks", factory: registerUserHooks, hidden: true },
+		{ name: "pi-plus-context-guard", factory: registerContextGuard, hidden: true },
+		{ name: "pi-plus-cd", factory: registerCd, hidden: true },
+		{ name: "pi-plus-init", factory: registerInit, hidden: true },
+		{ name: "pi-plus-web-search", factory: registerWebSearch, hidden: true },
+	];
+}
+
+/** Env-fallback binding for hosts importing the array directly. */
+export const plusSdkExtensionFactories: InlineExtension[] = createPlusSdkExtensionFactories();
 
 /**
  * Dialog callbacks a host implements to give extensions a minimal UI. select /
@@ -278,7 +292,7 @@ export async function createPlusAgentSession(
 		cwd,
 		agentDir,
 		settingsManager,
-		extensionFactories: [...plusSdkExtensionFactories, ...(extensionFactories ?? [])],
+		extensionFactories: [...createPlusSdkExtensionFactories(agentDir), ...(extensionFactories ?? [])],
 	});
 	await resourceLoader.reload();
 	const result = await createAgentSession({
@@ -409,7 +423,12 @@ export async function createPlusAgentSessionRuntime(
 			modelRuntime: sessionOptions.modelRuntime,
 			resourceLoaderOptions: {
 				...resourceLoaderOptions,
-				extensionFactories: [...plusSdkExtensionFactories, ...(extensionFactories ?? [])],
+				// Per-session agent dir (the runtime switches it on /cd too),
+				// so spawned sub-agent children pin the live profile.
+				extensionFactories: [
+					...createPlusSdkExtensionFactories(runtimeOptions.agentDir),
+					...(extensionFactories ?? []),
+				],
 			},
 		});
 		const diagnostics: AgentSessionRuntimeDiagnostic[] = [...services.diagnostics];

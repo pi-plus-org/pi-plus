@@ -30,6 +30,12 @@ const MEMORY_SECTION_NAME = "memory";
 export interface MemoryExtensionOverrides {
 	storeFor?: (ctx: ExtensionContext) => MemoryStore;
 	runAgent?: ExtractDeps["runAgent"];
+	/**
+	 * The session's agent dir, forwarded to the extraction child to pin its
+	 * hub profile (`--as`, see subagent/run.ts). SDK hosts bind it per
+	 * session; unset falls back to PI_CODING_AGENT_DIR (the pipi wrapper env).
+	 */
+	agentDir?: string;
 }
 
 export function registerMemory(pi: ExtensionAPI, overrides: MemoryExtensionOverrides = {}): void {
@@ -37,6 +43,7 @@ export function registerMemory(pi: ExtensionAPI, overrides: MemoryExtensionOverr
 	const deps: ExtractDeps = {
 		storeFor: overrides.storeFor ?? ((ctx: ExtensionContext): MemoryStore => MemoryStore.forCwd(ctx.cwd)),
 		runAgent: overrides.runAgent,
+		agentDir: overrides.agentDir,
 	};
 
 	registerMemoryTools(pi, deps);
