@@ -16,6 +16,9 @@
  * the session `cwd`, which the payload uses instead of the process cwd (they
  * differ for SDK hosts whose process cwd is not the session's, e.g. the
  * desktop app running with cwd "/").
+ * The Stop payload also carries `aborted`, whether the run ended because it
+ * was aborted (e.g. with Escape), so hooks can tell a proper finish from a
+ * cancelled one without inspecting the session transcript.
  */
 
 import type { ExtensionAPI } from "../../../../coding-agent/src/core/extensions/types.ts";
@@ -33,7 +36,7 @@ export function registerUserHooks(pi: ExtensionAPI): void {
 			cwd: ctx?.cwd,
 		});
 	});
-	pi.on("agent_settled", (_event, ctx) => {
-		fireUserHooks("Stop", { mode: ctx?.mode, cwd: ctx?.cwd });
+	pi.on("agent_settled", (event, ctx) => {
+		fireUserHooks("Stop", { mode: ctx?.mode, cwd: ctx?.cwd, aborted: event.aborted });
 	});
 }
