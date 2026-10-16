@@ -11,8 +11,8 @@
 import { spawn } from "node:child_process";
 import { loadSettingsHooks, matcherMatches, type SettingsHook } from "./loader.ts";
 
-/** Extra payload fields (tool_name, permission, ...) merged into the stdin JSON. */
-export type HookFields = Record<string, string | undefined>;
+/** Extra payload fields (tool_name, permission, aborted, ...) merged into the stdin JSON. */
+export type HookFields = Record<string, string | boolean | undefined>;
 
 const IS_WINDOWS = process.platform === "win32";
 
@@ -30,14 +30,14 @@ const IS_WINDOWS = process.platform === "win32";
  */
 export function fireUserHooks(event: string, fields: HookFields = {}, hooks?: SettingsHook[]): void {
 	try {
-		const cwd = fields.cwd ?? process.cwd();
+		const cwd = typeof fields.cwd === "string" ? fields.cwd : process.cwd();
 		const payload = JSON.stringify({
 			cwd,
 			hook_event: event,
 			ts: new Date().toISOString(),
 			...fields,
 		});
-		const toolName = fields.tool_name;
+		const toolName = typeof fields.tool_name === "string" ? fields.tool_name : undefined;
 		for (const hook of hooks ?? loadSettingsHooks(cwd)) {
 			if (hook.event !== event) continue;
 			if (toolName === undefined ? hook.matcher !== undefined : !matcherMatches(hook.matcher, toolName)) continue;
