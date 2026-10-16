@@ -68,9 +68,32 @@ function userEntry(id: string, timestamp: number): SessionEntry {
 	} as SessionEntry;
 }
 
+/** Wrap raw session entries as a trivial projection (no edits applied). */
+function project(entries: SessionEntry[]): ProjectedSessionEntry[] {
+	return entries.map(
+		(entry) =>
+			({
+				sourceEntry: entry,
+				messages: entry.type === "message" ? [entry.message] : [],
+			}) as ProjectedSessionEntry,
+	);
+}
+
 describe("isMicroCompactableTool", () => {
-	it("accepts pi's read-only/output tools and mcp__ tools", () => {
-		for (const name of ["bash", "edit", "write", "read", "grep", "find", "ls", "powershell", "mcp__docs__search"]) {
+	it("accepts pi's read-only/output tools, the web tools (CC parity), and mcp__ tools", () => {
+		for (const name of [
+			"bash",
+			"edit",
+			"write",
+			"read",
+			"grep",
+			"find",
+			"ls",
+			"powershell",
+			"WebSearch",
+			"WebFetch",
+			"mcp__docs__search",
+		]) {
 			assert.equal(isMicroCompactableTool(name), true, name);
 		}
 		assert.equal(isMicroCompactableTool("ask_user"), false);
@@ -106,18 +129,21 @@ describe("env knobs", () => {
 
 describe("selectToolResultsToClear", () => {
 	it("does not fire when the idle gap is under the threshold", () => {
-		const entries = [assistantEntry("a1", NOW - 30 * 60 * 1000), toolResultEntry("t1", NOW - 30 * 60 * 1000)];
+		const entries = project([
+			assistantEntry("a1", NOW - 30 * 60 * 1000),
+			toolResultEntry("t1", NOW - 30 * 60 * 1000),
+		]);
 		assert.equal(selectToolResultsToClear(entries, NOW, HOUR_MS, 5), undefined);
 	});
 
 	it("clears old compactable tool results, keeping the newest keepRecent", () => {
-		const entries = [
+		const entries = project([
 			assistantEntry("a1", NOW - 3 * HOUR_MS),
 			toolResultEntry("t1", NOW - 3 * HOUR_MS),
 			toolResultEntry("t2", NOW - 2 * HOUR_MS),
 			toolResultEntry("t3", NOW - HOUR_MS),
 			toolResultEntry("t4", NOW - 30 * 60 * 1000),
-		];
+		]);
 		const selection = selectToolResultsToClear(entries, NOW, HOUR_MS, 2);
 		assert.deepEqual(selection?.clearEntryIds, ["t1", "t2"]);
 		assert.equal(selection?.keptRecent, 2);
@@ -125,17 +151,17 @@ describe("selectToolResultsToClear", () => {
 	});
 
 	it("returns undefined when idleMs is non-positive (feature disabled)", () => {
-		const entries = [assistantEntry("a1", NOW - 3 * HOUR_MS), toolResultEntry("t1", NOW - 3 * HOUR_MS)];
+		const entries = project([assistantEntry("a1", NOW - 3 * HOUR_MS), toolResultEntry("t1", NOW - 3 * HOUR_MS)]);
 		assert.equal(selectToolResultsToClear(entries, NOW, 0, 5), undefined);
 	});
 
 	it("returns undefined when there is no assistant message", () => {
-		const entries = [userEntry("u1", NOW - 3 * HOUR_MS), toolResultEntry("t1", NOW - 3 * HOUR_MS)];
+		const entries = project([userEntry("u1", NOW - 3 * HOUR_MS), toolResultEntry("t1", NOW - 3 * HOUR_MS)]);
 		assert.equal(selectToolResultsToClear(entries, NOW, HOUR_MS, 5), undefined);
 	});
 
 	it("skips non-compactable tools, error results, and image content", () => {
-		const entries = [
+		const entries = project([
 			assistantEntry("a1", NOW - 3 * HOUR_MS),
 			toolResultEntry("t1", NOW - 3 * HOUR_MS),
 			toolResultEntry("t2", NOW - 3 * HOUR_MS, "ask_user"),
@@ -147,10 +173,32 @@ describe("selectToolResultsToClear", () => {
 				],
 			}),
 			toolResultEntry("t5", NOW - 2 * HOUR_MS, "mcp__docs__search"),
-		];
+		]);
 		// keepRecent=1 keeps only the newest compactable result (t5).
 		const selection = selectToolResultsToClear(entries, NOW, HOUR_MS, 1);
 		assert.deepEqual(selection?.clearEntryIds, ["t1"]);
+	});
+
+	it("treats WebSearch and WebFetch results as compactable", () => {
+		const entries = project([
+			assistantEntry("a1", NOW - 3 * HOUR_MS),
+			toolResultEntry("t1", NOW - 3 * HOUR_MS, "WebSearch"),
+			toolResultEntry("t2", NOW - 2 * HOUR_MS, "WebFetch"),
+		]);
+		const selection = selectToolResultsToClear(entries, NOW, HOUR_MS, 1);
+		assert.deepEqual(selection?.clearEntryIds, ["t1"]);
+	});
+
+	it("skips results already cleared to the marker in the projection (idempotent re-runs)", () => {
+		// A per-run idle pass over a transcript already cleared at session open
+		// must not re-select the same entries.
+		const entries = [
+			projectedClearedToolResult("t1", NOW - 4 * HOUR_MS),
+			projectedToolResult("t2", NOW - 3 * HOUR_MS),
+			...project([assistantEntry("a1", NOW - 5 * HOUR_MS)]),
+		];
+		const selection = selectToolResultsToClear(entries, NOW, HOUR_MS, 1);
+		assert.equal(selection, undefined); // t2 is the only candidate, and keepRecent=1 keeps it
 	});
 });
 
@@ -280,14 +328,14 @@ describe("applyIdleMicroCompact", () => {
 
 	it("appends context_edit overlays with the CC marker for each cleared result", () => {
 		process.env.PI_MICROCOMPACT_KEEP_RECENT = "1";
-		const entries = [
+		const entries = project([
 			assistantEntry("a1", NOW - 3 * HOUR_MS),
 			toolResultEntry("t1", NOW - 3 * HOUR_MS),
 			toolResultEntry("t2", NOW - 2 * HOUR_MS),
-		];
+		]);
 		const edits: { targetId: string; replacement: unknown }[] = [];
 		const sessionManager = {
-			getBranch: () => entries,
+			buildSessionProjection: () => ({ entries }),
 			appendContextEdit: (targetId: string, replacement: unknown) => {
 				edits.push({ targetId, replacement });
 			},
@@ -300,10 +348,13 @@ describe("applyIdleMicroCompact", () => {
 	});
 
 	it("is a no-op when the trigger does not fire", () => {
-		const entries = [assistantEntry("a1", NOW - 10 * 60 * 1000), toolResultEntry("t1", NOW - 10 * 60 * 1000)];
+		const entries = project([
+			assistantEntry("a1", NOW - 10 * 60 * 1000),
+			toolResultEntry("t1", NOW - 10 * 60 * 1000),
+		]);
 		let calls = 0;
 		const sessionManager = {
-			getBranch: () => entries,
+			buildSessionProjection: () => ({ entries }),
 			appendContextEdit: () => {
 				calls++;
 			},

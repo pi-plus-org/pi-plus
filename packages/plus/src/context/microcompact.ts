@@ -10,15 +10,21 @@
  *   "[Old tool result content cleared]" marker.
  * - Error results and image-bearing results are kept: unlike text, neither can
  *   be recovered by re-reading from disk (CC clears both).
- * - pi's tool names (bash/edit/write/read/grep/find/ls/powershell + mcp__*)
- *   replace CC's (Read/Shell/Grep/Glob/WebSearch/WebFetch/Edit/Write).
+ * - pi's tool names (bash/edit/write/read/grep/find/ls/powershell,
+ *   WebSearch/WebFetch from the plus web extension + mcp__*) replace CC's
+ *   (Read/Shell/Grep/Glob/WebSearch/WebFetch/Edit/Write).
+ * - Selection runs on projected entries, so CC's per-request evaluation maps to
+ *   two call sites in the plus AgentSession subclass: the constructor (session
+ *   open) and the prompt() override (each submission) — a gap can only accrue
+ *   between runs, since assistant timestamps refresh during one.
  *
  * A second trigger — pressure micro-compact — fires mid-session from the
  * context-guard extension's turn_end: once the projected request reaches a
  * fraction (default 60%) of the auto-compact threshold, stale compactable tool
  * results are cleared before relevance pruning and full compaction see them.
  * Selection runs on projected entries so already-cleared results (marker
- * content) are skipped and clearing is idempotent.
+ * content) are skipped and clearing is idempotent — repeated idle/pressure
+ * passes never append duplicate overlays.
  *
  * Env: PI_MICROCOMPACT_IDLE_MINUTES — idle gap that triggers clearing (default
  *      60; values <= 0 disable the feature).
@@ -29,16 +35,28 @@
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type {
-	ProjectedSessionEntry,
-	SessionEntry,
-	SessionManager,
-} from "../../../coding-agent/src/core/session-manager.ts";
+import type { ProjectedSessionEntry, SessionManager } from "../../../coding-agent/src/core/session-manager.ts";
+import { WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME } from "../extensions/web-search/prompt.ts";
 
 export const TIME_BASED_MC_CLEARED_MESSAGE = "[Old tool result content cleared]";
 
-/** pi's read-only/output tools whose results are safe to clear (CC's COMPACTABLE_TOOLS). */
-export const MICROCOMPACTABLE_TOOLS = new Set(["bash", "edit", "write", "read", "grep", "find", "ls", "powershell"]);
+/**
+ * pi's read-only/output tools whose results are safe to clear (CC's
+ * COMPACTABLE_TOOLS / TOOLS_CLEARABLE_RESULTS — CC includes WebSearch and
+ * WebFetch, which pi gets from the plus web extension under the same names).
+ */
+export const MICROCOMPACTABLE_TOOLS = new Set([
+	"bash",
+	"edit",
+	"write",
+	"read",
+	"grep",
+	"find",
+	"ls",
+	"powershell",
+	WEB_SEARCH_TOOL_NAME,
+	WEB_FETCH_TOOL_NAME,
+]);
 
 const MCP_TOOL_PREFIX = "mcp__";
 const DEFAULT_IDLE_MINUTES = 60;
@@ -86,16 +104,12 @@ function isClearedToolResult(message: AgentMessage): boolean {
 }
 
 /**
- * Select source-entry ids of stale compactable tool results under token
- * pressure, mirroring the idle path's protections (error/image results kept,
- * newest keepRecent preserved) but reading projected entries so results
- * already cleared by a previous overlay are skipped — the operation is
- * idempotent across turns.
+ * Projected compactable tool results not already cleared to the marker, in
+ * chronological order. Projection-based (like the pressure path) so
+ * already-cleared results drop out of the candidate list and every micro-compact
+ * pass is idempotent — no duplicate context_edit overlays.
  */
-export function selectToolResultsToClearUnderPressure(
-	entries: readonly ProjectedSessionEntry[],
-	keepRecent: number,
-): string[] {
+function collectCompactableResults(entries: readonly ProjectedSessionEntry[]): { id: string; timestamp: number }[] {
 	const compactable: { id: string; timestamp: number }[] = [];
 	for (const entry of entries) {
 		if (entry.sourceEntry.type !== "message") continue;
@@ -106,9 +120,31 @@ export function selectToolResultsToClearUnderPressure(
 		if (isClearedToolResult(message)) continue;
 		compactable.push({ id: entry.sourceEntry.id, timestamp: message.timestamp });
 	}
+	return compactable;
+}
 
+/** Split chronological candidates into the newest keepRecent (kept) and the stale rest (cleared). */
+function splitAtKeepRecent(
+	compactable: { id: string; timestamp: number }[],
+	keepRecent: number,
+): { clearEntryIds: string[]; keptRecent: number } {
 	const keepIds = new Set(compactable.slice(-Math.max(1, keepRecent)).map((c) => c.id));
-	return compactable.filter((c) => !keepIds.has(c.id)).map((c) => c.id);
+	return {
+		clearEntryIds: compactable.filter((c) => !keepIds.has(c.id)).map((c) => c.id),
+		keptRecent: keepIds.size,
+	};
+}
+
+/**
+ * Select source-entry ids of stale compactable tool results under token
+ * pressure, mirroring the idle path's protections (error/image results kept,
+ * newest keepRecent preserved); clearing is idempotent across turns.
+ */
+export function selectToolResultsToClearUnderPressure(
+	entries: readonly ProjectedSessionEntry[],
+	keepRecent: number,
+): string[] {
+	return splitAtKeepRecent(collectCompactableResults(entries), keepRecent).clearEntryIds;
 }
 
 export interface MicroCompactSelection {
@@ -120,12 +156,13 @@ export interface MicroCompactSelection {
 /**
  * Select tool-result entries to clear after an idle gap, mirroring CC's
  * evaluateTimeBasedTrigger + collectCompactableToolIds: the trigger is the gap
- * since the newest assistant message (the cache died while the user was away),
- * and only compactable-tool results outside the newest keepRecent are cleared.
- * Returns undefined when the trigger does not fire or there is nothing to clear.
+ * since the newest projected assistant message (the cache died while the user
+ * was away), and only compactable-tool results outside the newest keepRecent are
+ * cleared. Returns undefined when the trigger does not fire or there is nothing
+ * to clear.
  */
 export function selectToolResultsToClear(
-	entries: readonly SessionEntry[],
+	entries: readonly ProjectedSessionEntry[],
 	nowMs: number,
 	idleMs: number,
 	keepRecent: number,
@@ -134,8 +171,8 @@ export function selectToolResultsToClear(
 
 	let lastAssistantMs = 0;
 	for (const entry of entries) {
-		if (entry.type === "message" && entry.message.role === "assistant") {
-			lastAssistantMs = Math.max(lastAssistantMs, entry.message.timestamp);
+		for (const message of entry.messages) {
+			if (message.role === "assistant") lastAssistantMs = Math.max(lastAssistantMs, message.timestamp);
 		}
 	}
 	if (lastAssistantMs === 0) return undefined;
@@ -143,34 +180,25 @@ export function selectToolResultsToClear(
 	const gapMs = nowMs - lastAssistantMs;
 	if (gapMs < idleMs) return undefined;
 
-	const compactable: { id: string; timestamp: number }[] = [];
-	for (const entry of entries) {
-		if (entry.type !== "message" || entry.message.role !== "toolResult") continue;
-		const message = entry.message;
-		if (!isMicroCompactableTool(message.toolName)) continue;
-		if (message.isError) continue;
-		if (message.content.some((block) => block.type === "image")) continue;
-		compactable.push({ id: entry.id, timestamp: message.timestamp });
-	}
-
-	const keepIds = new Set(compactable.slice(-Math.max(1, keepRecent)).map((c) => c.id));
-	const clearEntryIds = compactable.filter((c) => !keepIds.has(c.id)).map((c) => c.id);
+	const compactable = collectCompactableResults(entries);
+	const { clearEntryIds, keptRecent } = splitAtKeepRecent(compactable, keepRecent);
 	if (clearEntryIds.length === 0) return undefined;
 
-	return { clearEntryIds, keptRecent: keepIds.size, gapMinutes: Math.round(gapMs / 60_000) };
+	return { clearEntryIds, keptRecent, gapMinutes: Math.round(gapMs / 60_000) };
 }
 
 /**
  * Apply time-based micro-compact to a session: when the transcript's last
  * assistant message is older than the idle gap, clear the content of old
  * compactable tool results via context_edit overlays. Called from the plus
- * AgentSession subclass constructor so it runs exactly once per (re)opened
- * session, before the first request rebuilds the dead cache prefix.
+ * AgentSession subclass constructor (session open) and its prompt() override
+ * (each submission) — CC re-evaluates before every API call; a gap can only
+ * accrue between runs, so per-prompt checking matches it.
  * Returns the number of cleared results (0 when the trigger does not fire).
  */
 export function applyIdleMicroCompact(sessionManager: SessionManager, nowMs = Date.now()): number {
 	const selection = selectToolResultsToClear(
-		sessionManager.getBranch(),
+		sessionManager.buildSessionProjection().entries,
 		nowMs,
 		getMicroCompactIdleMs(),
 		getMicroCompactKeepRecent(),

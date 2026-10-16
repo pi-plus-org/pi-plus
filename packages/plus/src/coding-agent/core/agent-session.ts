@@ -28,9 +28,11 @@
  *   ~/.pi/agent/pi-plus-compact-debug.log (see compaction/trace.ts).
  * - AgentSession.getContextUsage -> estimates context right after compaction instead
  *   of reporting "unknown" (see plus/src/context/usage.ts)
- * - AgentSession constructor -> applies time-based micro-compact (clearing stale
- *   tool results) once per (re)opened session, before the first request rebuilds
- *   the dead prompt-cache prefix (see plus/src/context/microcompact.ts)
+ * - AgentSession constructor and AgentSession.prompt -> apply time-based
+ *   micro-compact (clearing stale tool results) before the run rebuilds the
+ *   dead prompt-cache prefix: once at (re)open and then per prompt submission,
+ *   so sessions idling while open match CC's pre-request evaluation (see
+ *   plus/src/context/microcompact.ts)
  * - AgentSession constructor -> on Windows without any bash (no Git Bash, none
  *   on PATH) and no user-configured shellPath, the built-in "bash" tool can
  *   never succeed, so it is excluded and "powershell" takes its slot in the
@@ -44,6 +46,7 @@ export * from "../../../../coding-agent/src/core/agent-session.ts";
 
 import {
 	type AgentSessionConfig,
+	type PromptOptions,
 	AgentSession as UpstreamAgentSession,
 } from "../../../../coding-agent/src/core/agent-session.ts";
 import { type CompactionResult, prepareCompaction } from "../../../../coding-agent/src/core/compaction/compaction.ts";
@@ -117,10 +120,25 @@ export class AgentSession extends UpstreamAgentSession {
 
 	constructor(config: AgentSessionConfig) {
 		super(applyWindowsShellFallback(config));
+		this.runIdleMicroCompact();
+	}
+
+	override async prompt(text: string, options?: PromptOptions): Promise<void> {
+		// CC evaluates the time-based micro-compact trigger before every API call.
+		// The constructor check only covers session open, so a session that stays
+		// open past the idle window (desktop app) must clear stale tool results on
+		// the next submission, before the run rebuilds the dead cache prefix. A gap
+		// cannot accrue mid-run (assistant timestamps refresh), so per-prompt
+		// evaluation matches CC; the projection-based selection is idempotent.
+		this.runIdleMicroCompact();
+		await super.prompt(text, options);
+	}
+
+	private runIdleMicroCompact(): void {
 		try {
 			applyIdleMicroCompact(this.sessionManager);
 		} catch (error) {
-			// Micro-compact must never break session construction.
+			// Micro-compact must never break session construction or a prompt.
 			console.error("pi-plus: idle micro-compact failed:", error);
 		}
 	}

@@ -46,6 +46,20 @@ function assistantMessage(text: string, stopReason: AssistantMessage["stopReason
 	};
 }
 
+/** Assistant message with a read tool call at the given timestamp (recency source for re-injection). */
+function assistantReadCall(path: string, timestamp: number): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "toolCall", id: `call-${path}`, name: "read", arguments: { path } }],
+		api: MODEL.api,
+		provider: MODEL.provider,
+		model: MODEL.id,
+		usage: { input: 10, output: 20, total: 30 } as unknown as Usage,
+		stopReason: "toolCall",
+		timestamp,
+	} as unknown as AssistantMessage;
+}
+
 const SUMMARY_TEXT =
 	"<analysis>scratchpad</analysis>\n\n<summary>\n1. Primary Request and Intent:\n   Do the work.\n</summary>";
 
@@ -147,6 +161,12 @@ describe("compact", () => {
 		writeFileSync(readFile, "export const x = 1;\n");
 
 		const prep = preparation({
+			messagesToSummarize: [
+				userMessage("first request"),
+				assistantReadCall(readFile, 1_700_000_000_002),
+				userMessage("second request"),
+				assistantMessage("first reply"),
+			],
 			fileOps: { read: new Set([readFile]), written: new Set([join(dir, "out.ts")]), edited: new Set() },
 		});
 		const calls: RecordedCall[] = [];
@@ -177,15 +197,16 @@ describe("compact", () => {
 		});
 	});
 
-	it("re-injects every read text file and skips binaries", async () => {
+	it("re-injects the 5 most recently read text files, newest first (CC cap)", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "plus-compact-"));
-		// More than CC's old 5-file cap: all text reads must be re-injected.
-		const textFiles = Array.from({ length: 6 }, (_, i) => {
+		// 8 text files + a Dockerfile read in ascending timestamp order: only the
+		// 5 newest candidates (CC's POST_COMPACT_MAX_FILES_TO_RESTORE) get excerpts.
+		const textFiles = Array.from({ length: 8 }, (_, i) => {
 			const file = join(dir, `note${i}.ts`);
 			writeFileSync(file, `export const note${i} = ${i};\n`);
 			return file;
 		});
-		// Extensionless text re-enters via the NUL-byte sniff.
+		// Extensionless text re-enters via the NUL-byte sniff; read last (newest).
 		const dockerfile = join(dir, "Dockerfile");
 		writeFileSync(dockerfile, "FROM node:22\n");
 		// Non-whitelisted extension with no NUL bytes: only the extension gate rejects it.
@@ -193,11 +214,13 @@ describe("compact", () => {
 		writeFileSync(blobFile, Buffer.from([0x01, 0x02, 0x03, 0xff]));
 		const imageFile = join(dir, "shot.png");
 		writeFileSync(imageFile, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]));
-		const docxFile = join(dir, "report.docx");
-		writeFileSync(docxFile, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]));
 
-		const readFiles = [...textFiles, dockerfile, imageFile, blobFile, docxFile];
+		// Read order: note0 .. note7, blob, image, Dockerfile (newest last).
+		let ts = 1_700_000_000_000;
+		const readMessages = [...textFiles, blobFile, imageFile, dockerfile].map((file) => assistantReadCall(file, ts++));
+		const readFiles = [...textFiles, dockerfile, imageFile, blobFile];
 		const prep = preparation({
+			messagesToSummarize: [userMessage("first request"), ...readMessages, assistantMessage("done")],
 			fileOps: { read: new Set(readFiles), written: new Set(), edited: new Set() },
 		});
 		const calls: RecordedCall[] = [];
@@ -212,18 +235,77 @@ describe("compact", () => {
 			fakeStreamFn([assistantMessage(SUMMARY_TEXT)], calls),
 		);
 
-		for (const [i, file] of textFiles.entries()) {
-			assert.ok(result.summary.includes(`### \`${file}\``));
+		// Slots (newest first, skipped binaries don't consume one):
+		// Dockerfile, note7, note6, note5, note4.
+		assert.ok(result.summary.includes(`### \`${dockerfile}\``));
+		for (const i of [7, 6, 5, 4]) {
+			assert.ok(result.summary.includes(`### \`${textFiles[i]}\``), `note${i} should be injected`);
 			assert.ok(result.summary.includes(`export const note${i} = ${i};`));
 		}
-		assert.ok(result.summary.includes(`### \`${dockerfile}\``));
-		assert.ok(result.summary.includes("FROM node:22"));
+		for (const i of [3, 2, 1, 0]) {
+			assert.ok(!result.summary.includes(`### \`${textFiles[i]}\``), `note${i} is past the 5-file cap`);
+		}
 		// No excerpt appendix for binaries (the <read-files> path list still names them).
 		assert.ok(!result.summary.includes(`### \`${imageFile}\``));
 		assert.ok(!result.summary.includes(`### \`${blobFile}\``));
-		assert.ok(!result.summary.includes(`### \`${docxFile}\``));
 		assert.ok(result.summary.includes("<read-files>"));
 		assert.deepEqual((result.details as { readFiles: string[] }).readFiles, [...readFiles].sort());
+	});
+
+	it("counts nested (codemode) read calls toward re-injection and skips files later modified", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "plus-compact-"));
+		const nestedFile = join(dir, "nested.ts");
+		writeFileSync(nestedFile, "export const nested = true;\n");
+		const directFile = join(dir, "direct.ts");
+		writeFileSync(directFile, "export const direct = true;\n");
+		const modifiedFile = join(dir, "changed.ts");
+		writeFileSync(modifiedFile, "export const changed = 1;\n");
+
+		// A script result records its inner read calls on nestedCalls, like
+		// extractFileOpsFromMessage does for fileOps.
+		const scriptResult = {
+			role: "toolResult",
+			toolCallId: "call-script",
+			toolName: "bash",
+			content: [{ type: "text", text: "ran script" }],
+			isError: false,
+			timestamp: 1_700_000_000_002,
+			nestedCalls: { calls: [{ name: "read", arguments: { path: nestedFile } }] },
+		} as unknown as AgentMessage;
+
+		const prep = preparation({
+			messagesToSummarize: [
+				userMessage("first request"),
+				assistantReadCall(directFile, 1_700_000_000_003),
+				userMessage("second request"),
+				scriptResult,
+				assistantReadCall(modifiedFile, 1_700_000_000_004),
+				assistantMessage("done"),
+			],
+			fileOps: {
+				read: new Set([nestedFile, directFile, modifiedFile]),
+				written: new Set(),
+				edited: new Set([modifiedFile]),
+			},
+		});
+		const calls: RecordedCall[] = [];
+		const result = await compact(
+			prep,
+			MODEL,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fakeStreamFn([assistantMessage(SUMMARY_TEXT)], calls),
+		);
+
+		assert.ok(result.summary.includes(`### \`${nestedFile}\``));
+		assert.ok(result.summary.includes("export const nested = true;"));
+		assert.ok(result.summary.includes(`### \`${directFile}\``));
+		// Modified files land in the trailer list but never get re-injected.
+		assert.ok(!result.summary.includes(`### \`${modifiedFile}\``));
+		assert.ok(result.summary.includes("<modified-files>"));
 	});
 
 	it("re-injects invoked skills from transcript invocations", async () => {

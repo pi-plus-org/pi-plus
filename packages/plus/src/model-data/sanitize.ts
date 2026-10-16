@@ -1,200 +1,110 @@
 /**
- * Model-data sanitizer for the fork build flow (wired into the root
- * `build`, `build:offline`, and `check` scripts).
+ * Fork-side sanitizer for the generated model data under
+ * `packages/ai/src/providers/data/`.
  *
- * `packages/ai` regenerates `src/providers/data/*.json` from the models.dev
- * catalog on every network build. When the catalog gains a model whose API the
- * hand-written provider factory does not implement — e.g. OpenCode Go picking
- * up a `@ai-sdk/google` model while `opencode-go.ts` declares only
- * anthropic-messages / openai-completions / openai-responses — upstream's own
- * `tsc` fails on that factory's `models: Object.values(...)` line, and the
- * Override Policy keeps upstream packages pristine, so the fix cannot land in
- * `packages/ai`. The data files are generated artifacts (gitignored), not
- * source, so the fork-side fix is: strip API groups the provider factory
- * cannot type-check and rewrite the `.manifest.json` hashes to match (the
- * upstream validator cross-checks file hashes, a structure hash, and the JSON
- * contents — all against the data directory itself, so a consistent rewrite
- * passes cleanly).
+ * The upstream generator (`packages/ai/scripts/generate-models.ts`) builds the
+ * data shards straight from the live models.dev catalog, so a brand-new API
+ * group can appear in the data before a provider factory knows how to type
+ * it. The generated provider shard then widens the provider's `models.api`
+ * union and `tsc --noEmit` fails inside `packages/ai/src/providers/<p>.ts`.
  *
- * A provider "implements" an API when its factory source mentions the API id
- * as a quoted string literal — either as a key in the inline `api: { ... }` /
- * `classifiers: { ... }` map or inside the `Provider<"...">` return-type
- * annotation. This is deliberately generous: once upstream widens the provider
- * (or we sync such a fix), the literal appears and the sanitizer becomes a
- * no-op without any change here. A false "supported" verdict only restores the
- * status quo (tsc complains and the loud build error points at the factory);
- * a false "unsupported" verdict would silently drop models, so an absent or
- * unreadable factory file leaves the data untouched and only warns.
+ * The fork-side fix is: drop every API group in `<provider>.json` that the
+ * tracked factory file does not mention as a string literal, and rewrite the
+ * manifest hashes to match.
  */
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+	listProviderDataFiles,
+	MODEL_DATA_MANIFEST_FILE,
+	readDataGroups,
+	refreshModelDataManifest,
+	serializeLike,
+} from "./data-dir.ts";
 
-export const MODEL_DATA_MANIFEST_FILE = ".manifest.json";
+export { MODEL_DATA_MANIFEST_FILE, modelDataStructureHash, sha256Hex } from "./data-dir.ts";
 
-const PROVIDER_IMPORT_PATTERN =
-	/^import \{ [A-Z][A-Z0-9_]*_CLASSIFIER_MODELS, [A-Z][A-Z0-9_]*_IMAGE_MODELS, [A-Z][A-Z0-9_]*_MODELS \} from "\.\/providers\/([^"/]+)\.models\.ts";$/gm;
-
-const QUOTED_LITERAL_PATTERN = /"([^"\n]*)"/g;
-
-export interface UnsupportedApiGroup {
+export interface SanitizedModel {
+	provider: string;
 	api: string;
+	/** Data-file keys (e.g. `chat:gemini-3-flash`) that were dropped. */
 	modelKeys: string[];
 }
 
-export interface ProviderSanitization extends UnsupportedApiGroup {
-	provider: string;
-}
-
-export interface SanitizeModelDataResult {
-	removed: ProviderSanitization[];
+export interface SanitizeResult {
+	removed: SanitizedModel[];
 	warnings: string[];
 }
 
-/** All double-quoted string literals in a TypeScript source (biome style). */
+const PROVIDER_FACTORY_PATH = (packageRoot: string, providerId: string): string =>
+	join(packageRoot, "src", "providers", `${providerId}.ts`);
+
+/**
+ * Collects double-quoted string literals in `source`. Deliberately generous:
+ * a mention anywhere in the factory - including the `Provider<...>` return
+ * type and the api/classifiers maps - counts as support.
+ */
 export function quotedStringLiterals(source: string): Set<string> {
 	const literals = new Set<string>();
-	for (const match of source.matchAll(QUOTED_LITERAL_PATTERN)) literals.add(match[1]);
+	const pattern = /"([^"\\\r\n]*)"/g;
+	for (const match of source.matchAll(pattern)) literals.add(match[1]);
 	return literals;
 }
 
-/** API groups present in the generated data but never named in the factory. */
-export function findUnsupportedApiGroups(
-	dataGroups: Record<string, Record<string, unknown>>,
-	factorySource: string,
-): UnsupportedApiGroup[] {
-	const literals = quotedStringLiterals(factorySource);
-	const unsupported: UnsupportedApiGroup[] = [];
-	for (const [api, models] of Object.entries(dataGroups)) {
-		if (!literals.has(api)) unsupported.push({ api, modelKeys: Object.keys(models) });
-	}
-	return unsupported;
-}
-
-export function sha256Hex(value: string): string {
-	return createHash("sha256").update(value).digest("hex");
-}
-
-function sortedRecord<T>(entries: Iterable<readonly [string, T]>): Record<string, T> {
-	return Object.fromEntries(Array.from(entries).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-}
-
-/** Mirrors `modelDataStructureHash` in packages/ai/scripts/model-data.ts. */
-export function modelDataStructureHash(structure: Record<string, Record<string, string>>): string {
-	const normalized = sortedRecord(
-		Object.entries(structure).map(
-			([providerId, models]) => [providerId, sortedRecord(Object.entries(models))] as const,
-		),
-	);
-	return sha256Hex(JSON.stringify(normalized));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readDataGroups(path: string, providerId: string): Record<string, Record<string, unknown>> {
-	const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-	if (!isRecord(parsed)) throw new Error(`${providerId}: model data file is not a JSON object: ${path}`);
-	const groups: Record<string, Record<string, unknown>> = {};
-	for (const [api, value] of Object.entries(parsed)) {
-		if (!isRecord(value)) throw new Error(`${providerId}: API group ${JSON.stringify(api)} is not an object`);
-		groups[api] = value;
-	}
-	return groups;
-}
-
-/** Re-serialize matching the generator's style (compact, or 2-space when the file is pretty). */
-function serializeLike(original: string, value: unknown): string {
-	const pretty = `${JSON.stringify(value, null, 2)}\n`;
-	if (original === pretty) return pretty;
-	return `${JSON.stringify(value)}\n`;
-}
-
 /**
- * Provider ids exactly as the upstream validator derives them: by parsing the
- * aggregator's per-provider three-name import lines in src/models.generated.ts.
+ * Strips unsupported API groups from every generated provider data file and
+ * keeps the manifest self-consistent. No-op when nothing is unsupported.
  */
-function readModelDataProviderIds(packageRoot: string): string[] {
-	const aggregatorPath = join(packageRoot, "src", "models.generated.ts");
-	const aggregator = readFileSync(aggregatorPath, "utf8");
-	return Array.from(aggregator.matchAll(PROVIDER_IMPORT_PATTERN), (match) => match[1]).sort();
-}
-
-/**
- * Strip API groups the provider factories do not implement from the generated
- * model data under `packageRoot` (a packages/ai root), then rewrite the
- * manifest hashes so `check:model-data` stays self-consistent. No-op when
- * nothing is unsupported; returns the removals and warnings for the caller to
- * report.
- */
-export function sanitizeModelData(packageRoot: string): SanitizeModelDataResult {
-	const warnings: string[] = [];
-	const removed: ProviderSanitization[] = [];
-	const providersDir = join(packageRoot, "src", "providers");
-	const dataDir = join(providersDir, "data");
-	if (!existsSync(dataDir) || !existsSync(join(packageRoot, "src", "models.generated.ts"))) {
-		warnings.push(`no generated model data under ${dataDir}; run npm run hydrate:model-data`);
-		return { removed, warnings };
+export function sanitizeModelData(packageRoot: string): SanitizeResult {
+	const result: SanitizeResult = { removed: [], warnings: [] };
+	const dataDir = join(packageRoot, "src", "providers", "data");
+	if (!existsSync(dataDir)) {
+		result.warnings.push(`no generated model data under ${dataDir}; run npm run hydrate:model-data`);
+		return result;
 	}
 
-	const providerIds = readModelDataProviderIds(packageRoot);
-	for (const providerId of providerIds) {
-		const dataPath = join(dataDir, `${providerId}.json`);
-		if (!existsSync(dataPath)) continue; // the upstream validator reports missing files
-		const factoryPath = join(providersDir, `${providerId}.ts`);
+	const files = listProviderDataFiles(packageRoot);
+	if (files.length === 0) {
+		result.warnings.push(`no generated model data under ${dataDir}; run npm run hydrate:model-data`);
+		return result;
+	}
+
+	const touched = new Set<string>();
+	for (const file of files) {
+		const providerId = file.slice(dataDir.length + 1, -".json".length);
+		const factoryPath = PROVIDER_FACTORY_PATH(packageRoot, providerId);
 		if (!existsSync(factoryPath)) {
-			warnings.push(`${providerId}: provider factory not found at ${factoryPath}; leaving data untouched`);
+			result.warnings.push(`${providerId}: provider factory not found, data left untouched`);
 			continue;
 		}
+		const supported = quotedStringLiterals(readFileSync(factoryPath, "utf8"));
 
-		const original = readFileSync(dataPath, "utf8");
-		const groups = readDataGroups(dataPath, providerId);
-		const unsupported = findUnsupportedApiGroups(groups, readFileSync(factoryPath, "utf8"));
-		if (unsupported.length === 0) continue;
-		for (const group of unsupported) {
-			delete groups[group.api];
-			removed.push({ provider: providerId, api: group.api, modelKeys: group.modelKeys });
+		const groups = readDataGroups(file);
+		let changed = false;
+		for (const [api, group] of Object.entries(groups)) {
+			if (supported.has(api)) continue;
+			const modelKeys = Object.keys(group).sort();
+			if (modelKeys.length === 0) continue;
+			delete groups[api];
+			changed = true;
+			result.removed.push({ provider: providerId, api, modelKeys });
 		}
+
+		if (!changed) continue;
 		if (Object.keys(groups).length === 0) {
-			throw new Error(
-				`${providerId}: every API group in its generated model data (${unsupported.map((g) => g.api).join(", ")}) ` +
-					`is unsupported by the provider factory — refusing to empty the data file. ` +
-					"Either the factory needs the API (upstream fix) or the catalog entry is wrong.",
-			);
+			throw new Error(`sanitize-model-data: refusing to empty the data file: ${providerId}.json`);
 		}
-		writeFileSync(dataPath, serializeLike(original, groups));
+		const content = readFileSync(file, "utf8");
+		writeFileSync(file, serializeLike(groups, content));
+		touched.add(providerId);
 	}
 
-	if (removed.length === 0) return { removed, warnings };
-
-	const manifestPath = join(dataDir, MODEL_DATA_MANIFEST_FILE);
-	if (!existsSync(manifestPath)) {
-		warnings.push("model data changed but no .manifest.json exists; run npm run hydrate:model-data");
-		return { removed, warnings };
-	}
-	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	if (!isRecord(manifest) || !isRecord(manifest.files))
-		throw new Error(`unreadable model data manifest: ${manifestPath}`);
-
-	// Rebuild the manifest from the on-disk data so it is self-consistent:
-	// keep schemaVersion/generatedAt, recompute the structure hash and every
-	// file hash (validation compares both against the data directory).
-	const structure: Record<string, Record<string, string>> = {};
-	const fileHashes: Record<string, string> = {};
-	for (const providerId of providerIds) {
-		const dataPath = join(dataDir, `${providerId}.json`);
-		if (!existsSync(dataPath)) continue;
-		const content = readFileSync(dataPath, "utf8");
-		fileHashes[`${providerId}.json`] = sha256Hex(content);
-		const models: Record<string, string> = {};
-		for (const [api, group] of Object.entries(readDataGroups(dataPath, providerId))) {
-			for (const modelKey of Object.keys(group)) models[modelKey] = api;
+	if (touched.size > 0) {
+		if (!existsSync(join(dataDir, MODEL_DATA_MANIFEST_FILE))) {
+			result.warnings.push("model data changed but no .manifest.json exists; run npm run hydrate:model-data");
+		} else {
+			refreshModelDataManifest(packageRoot, Array.from(touched));
 		}
-		structure[providerId] = models;
 	}
-	manifest.structureHash = modelDataStructureHash(structure);
-	manifest.files = sortedRecord(Object.entries(fileHashes));
-	writeFileSync(manifestPath, `${JSON.stringify(manifest)}\n`);
-	return { removed, warnings };
+	return result;
 }
