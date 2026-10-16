@@ -82,6 +82,7 @@ interface PlanReviewResult {
  */
 function resolveReviewPick(pick: PlanReviewDialogChoice | undefined): PlanReviewResult {
 	if (pick === "approveAcceptEdits") return { choice: "approve", permissionMode: "acceptEdits" };
+	if (pick === "approveAuto") return { choice: "approve", permissionMode: "auto" };
 	if (pick === "approveBypass") return { choice: "approve", permissionMode: "bypass" };
 	return { choice: "stay" };
 }
@@ -365,9 +366,11 @@ export function registerPlan(pi: ExtensionAPI): void {
 				const modeNote =
 					permissionMode === "acceptEdits"
 						? ' The user chose "approve & auto-accept edits": permission mode is now acceptEdits — file edits run without asking; shell and other tools still ask first.'
-						: permissionMode === "bypass"
-							? ' The user chose "approve & bypass permissions": permission mode is now bypass — execute the plan fully automatically.'
-							: "";
+						: permissionMode === "auto"
+							? ' The user chose "approve & run in auto mode": permission mode is now auto — reads and in-project edits run without asking, and everything else is judged by an automatic classifier that blocks what looks risky (a block is still shown to the user for override).'
+							: permissionMode === "bypass"
+								? ' The user chose "approve & bypass permissions": permission mode is now bypass — execute the plan fully automatically.'
+								: "";
 				return {
 					content: [
 						{

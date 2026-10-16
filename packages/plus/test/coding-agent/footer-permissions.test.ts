@@ -60,6 +60,7 @@ describe("footer permission indicator", () => {
 		const expected: Record<PermissionMode, string> = {
 			bypass: "✈️ bypass",
 			acceptEdits: "✏️ accept-edits",
+			auto: "🤖 auto",
 			plan: "⏸ plan",
 		};
 		for (const [mode, label] of Object.entries(expected) as [PermissionMode, string][]) {
