@@ -3,13 +3,13 @@
  * must be understood even when it drifts from the requested XML format), the
  * prompt builder (policy bullets must land in the system prompt), and
  * `classifyAction`'s failure paths, which must come back as "no verdict"
- * instead of throwing. All provider access goes through an injected streamFn.
+ * instead of throwing. All provider access goes through the injected completion
+ * call, and model/credential resolution goes through a fake session registry.
  */
 
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { StreamFn } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai/compat";
 import { describe, it } from "vitest";
 import type { ExtensionContext } from "../../../coding-agent/src/core/extensions/types.ts";
@@ -26,24 +26,26 @@ import {
 
 const MODEL = { provider: "faux", id: "faux-1", api: "faux" } as unknown as Model<any>;
 
-/** StreamFn answering with `text` (or a raw assistant-message fragment). */
-function fakeStream(message: Partial<AssistantMessage>): StreamFn {
-	return (() => ({
-		result: () =>
-			Promise.resolve({ role: "assistant", content: [{ type: "text", text: "" }], stopReason: "stop", ...message }),
-	})) as unknown as StreamFn;
+/** Completion call answering with `message` (a raw assistant-message fragment). */
+function fakeCall(message: Partial<AssistantMessage> = {}) {
+	return async () =>
+		({
+			role: "assistant",
+			content: [{ type: "text", text: "" }],
+			stopReason: "stop",
+			...message,
+		}) as AssistantMessage;
 }
 
-const answer = (text: string) => fakeStream({ content: [{ type: "text", text }] });
+const answer = (text: string) => fakeCall({ content: [{ type: "text", text }] });
 
 function classify(textResponse: string | Partial<AssistantMessage>) {
 	return (action: Parameters<typeof classifyAction>[0], extra: Record<string, unknown> = {}) =>
 		classifyAction(action, {
 			model: MODEL,
-			auth: {},
+			call: typeof textResponse === "string" ? answer(textResponse) : fakeCall(textResponse),
 			transcript: "",
 			systemPrompt: buildClassifierSystemPrompt(),
-			streamFn: typeof textResponse === "string" ? answer(textResponse) : fakeStream(textResponse),
 			...extra,
 		});
 }
@@ -123,15 +125,34 @@ describe("classifyAction", () => {
 		assert.equal((await classify({ stopReason: "aborted" })(action)).status, "unavailable");
 		const thrown = await classifyAction(action, {
 			model: MODEL,
-			auth: {},
+			call: () => {
+				throw new Error("socket closed");
+			},
 			transcript: "",
 			systemPrompt: "x",
-			streamFn: (() => {
-				throw new Error("socket closed");
-			}) as unknown as StreamFn,
 		});
 		assert.equal(thrown.status, "unavailable");
 		assert.ok(thrown.reason?.includes("socket closed"));
+	});
+
+	it("builds the request itself: no caller credentials, no cache writes", async () => {
+		const requests: Array<Record<string, unknown>> = [];
+		const decision = await classifyAction(
+			{ toolName: "bash", description: "rm -rf build" },
+			{
+				model: MODEL,
+				call: async (_model, _context, options) => {
+					requests.push(options as unknown as Record<string, unknown>);
+					return { role: "assistant", content: [{ type: "text", text: "<block>no</block>" }] } as AssistantMessage;
+				},
+				transcript: "user: clean the build",
+				systemPrompt: "answer <block> yes/no",
+			},
+		);
+		assert.equal(decision.status, "allow");
+		assert.equal(requests[0]?.cacheRetention, "none");
+		assert.equal(requests[0]?.maxTokens, 256);
+		assert.ok(!("apiKey" in (requests[0] ?? {})) && !("headers" in (requests[0] ?? {})));
 	});
 
 	it("truncates a huge input before sending it", async () => {
@@ -154,11 +175,130 @@ describe("createModelClassifier", () => {
 	it("is unavailable when the registry has no credentials", async () => {
 		const ctx = {
 			model: MODEL,
-			modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: false, error: "no api key" }) },
+			modelRegistry: { find: () => MODEL, hasConfiguredAuth: () => false },
 		} as unknown as ExtensionContext;
 		const decision = await createModelClassifier()({ toolName: "bash", description: "ls" }, ctx);
 		assert.equal(decision.status, "unavailable");
-		assert.ok(decision.reason?.includes("no api key"));
+		assert.ok(decision.reason?.includes("no credentials for faux/faux-1"));
+	});
+
+	/** Session registry answering only for the models the profile declares. */
+	function registryContext(models: Model<any>[], authed = true, scoped = true) {
+		const calls: Array<{ model: Model<any>; options: Record<string, unknown> }> = [];
+		const ctx = {
+			sessionManager: { getSessionId: () => "session-1" },
+			model: models[0],
+			// The session's model scope: the profile's declared models, in profile order.
+			scopedModels: scoped ? models.map((model) => ({ model })) : [],
+			modelRegistry: {
+				find: (provider: string, id: string) =>
+					models.find((model) => model.provider === provider && model.id === id),
+				hasConfiguredAuth: () => authed,
+				streamSimple: (model: Model<any>, _context: unknown, options: Record<string, unknown>) => {
+					calls.push({ model, options });
+					return {
+						result: () => Promise.resolve({ content: [{ type: "text", text: "<block>no</block>" }] }),
+					} as never;
+				},
+			},
+		} as unknown as ExtensionContext;
+		return { ctx, calls };
+	}
+
+	function profileModel(overrides: Partial<Model<any>> = {}): Model<any> {
+		return { provider: "faux", id: "faux-1", baseUrl: "https://profile.example/v1", ...overrides } as Model<any>;
+	}
+
+	it("asks a model the profile declares, through the registry", async () => {
+		const composed = profileModel();
+		const { ctx, calls } = registryContext([composed]);
+		const decision = await createModelClassifier()({ toolName: "bash", description: "ls" }, ctx);
+		assert.equal(decision.status, "allow");
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0]?.model, composed);
+		assert.equal(calls[0]?.options.sessionId, "session-1");
+	});
+
+	it("refuses a classifier model outside the profile without calling it", async () => {
+		const { ctx, calls } = registryContext([profileModel()]);
+		const intruder = profileModel({ provider: "anthropic", id: "claude-x", baseUrl: "https://elsewhere.example" });
+		const decision = await createModelClassifier({ model: intruder })({ toolName: "bash", description: "ls" }, ctx);
+		assert.equal(decision.status, "unavailable");
+		assert.ok(decision.reason?.includes("not a model of this profile"));
+		assert.equal(calls.length, 0);
+	});
+
+	it("trusts only the model identity: transport fields come from the profile's copy", async () => {
+		const composed = profileModel();
+		const { ctx, calls } = registryContext([composed]);
+		const callerCopy = profileModel({ baseUrl: "https://attacker.example", headers: { authorization: "Bearer x" } });
+		const decision = await createModelClassifier({ model: callerCopy })({ toolName: "bash", description: "ls" }, ctx);
+		assert.equal(decision.status, "allow");
+		assert.equal(calls[0]?.model, composed);
+		assert.equal(calls[0]?.model.baseUrl, "https://profile.example/v1");
+	});
+
+	describe("classifier model selection", () => {
+		it("asks the profile's second model when it declares two", async () => {
+			const main = profileModel({ id: "main" });
+			const side = profileModel({ id: "side" });
+			const { ctx, calls } = registryContext([main, side]);
+			const decision = await createModelClassifier()({ toolName: "bash", description: "ls" }, ctx);
+			assert.equal(decision.status, "allow");
+			assert.equal(calls.length, 1);
+			assert.equal(calls[0]?.model, side);
+		});
+
+		it("asks the profile's only model when it declares one", async () => {
+			const only = profileModel({ id: "only" });
+			const { ctx, calls } = registryContext([only]);
+			const decision = await createModelClassifier()({ toolName: "bash", description: "ls" }, ctx);
+			assert.equal(decision.status, "allow");
+			assert.equal(calls[0]?.model, only);
+		});
+
+		it("asks the session model when the profile declares no model scope", async () => {
+			const session = profileModel({ id: "session" });
+			const { ctx, calls } = registryContext([session], true, false);
+			const decision = await createModelClassifier()({ toolName: "bash", description: "ls" }, ctx);
+			assert.equal(decision.status, "allow");
+			assert.equal(calls[0]?.model, session);
+		});
+
+		it("never substitutes the session model for an unusable profile pick", async () => {
+			const main = profileModel({ id: "main" });
+			// The profile's second declared model is in the scope but not in the
+			// registry (deleted from models.json, renamed, unavailable): no verdict.
+			const ghost = profileModel({ id: "ghost" });
+			const calls: unknown[] = [];
+			const ctx = {
+				sessionManager: { getSessionId: () => "session-1" },
+				model: main,
+				scopedModels: [{ model: main }, { model: ghost }],
+				modelRegistry: {
+					find: (_provider: string, id: string) => (id === "ghost" ? undefined : main),
+					hasConfiguredAuth: () => true,
+					streamSimple: () => {
+						calls.push(1);
+						return { result: () => Promise.resolve({ content: [] }) } as never;
+					},
+				},
+			} as unknown as ExtensionContext;
+			const decision = await createModelClassifier()({ toolName: "bash", description: "ls" }, ctx);
+			assert.equal(decision.status, "unavailable");
+			assert.ok(decision.reason?.includes("the profile's second model"));
+			assert.equal(calls.length, 0);
+		});
+
+		it("is unavailable when the picked model has no credentials", async () => {
+			const main = profileModel({ id: "main" });
+			const side = profileModel({ id: "side" });
+			const { ctx, calls } = registryContext([main, side], false);
+			const decision = await createModelClassifier()({ toolName: "bash", description: "ls" }, ctx);
+			assert.equal(decision.status, "unavailable");
+			assert.ok(decision.reason?.includes("no credentials for faux/side"));
+			assert.equal(calls.length, 0);
+		});
 	});
 });
 

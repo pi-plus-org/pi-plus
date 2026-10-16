@@ -97,8 +97,11 @@ export interface PermissionsExtensionOptions {
 	/** Called after every mode change, including host-side writes. */
 	onModeChange?: (mode: PermissionMode) => void;
 	/**
-	 * Override the auto-mode action classifier (tests, or a host that wants a
-	 * different model or transport than the session default).
+	 * Override the auto-mode action classifier (tests, or a host with its own
+	 * classifier implementation). Model and transport are not configurable: a
+	 * classifier built by `createModelClassifier` picks the profile's own
+	 * classifier model and always asks through the session's model registry, so it
+	 * can only reach models and endpoints the active profile declares.
 	 */
 	classifier?: ActionClassifier;
 }
@@ -297,7 +300,7 @@ function syncPlanGateState(mode: PermissionMode, ctx: ExtensionContext): void {
 export interface PermissionGateDeps {
 	/**
 	 * Action classifier used by auto mode. Defaults to a model classifier over
-	 * the session model and the user's autoMode rules (cached per cwd).
+	 * the profile's classifier model and the user's autoMode rules (cached per cwd).
 	 */
 	classifier?: ActionClassifier;
 	/** Mode holder owning the deny tracking; created lazily when omitted. */
