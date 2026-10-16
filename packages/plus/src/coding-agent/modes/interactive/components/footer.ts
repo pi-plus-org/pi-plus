@@ -3,7 +3,7 @@
  *
  * Pass-through except: the current permission mode (pi-plus-permissions) is
  * rendered right-aligned on the cwd line, next to the pwd/branch text, with
- * Claude Code-style icons (✈️ bypass / ✏️ accept-edits / ⏸ plan). The mode
+ * Claude Code-style icons (✈️ bypass / ✏️ accept-edits / 🤖 auto / ⏸ plan). The mode
  * lives in the shared holder from the permissions extension
  * (packages/plus/src/extensions/permissions/index.ts), which the CLI host
  * uses as its default state, so the footer reads the same truth the tool

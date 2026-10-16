@@ -181,18 +181,88 @@ export declare function createPlusSdkExtensionFactories(agentDir?: string): Inli
 /** Default env-fallback binding: `createPlusSdkExtensionFactories()`. */
 export declare const plusSdkExtensionFactories: InlineExtension[];
 
-// --- pi-plus-permissions (bypass | acceptEdits | plan tool-call gate) ------
+// --- pi-plus-permissions (bypass | acceptEdits | auto | plan tool-call gate) ---
 
-export type PermissionMode = "bypass" | "acceptEdits" | "plan";
+export type PermissionMode = "bypass" | "acceptEdits" | "auto" | "plan";
 
 /** Canonical order; hosts cycle forward through this list on their shortcut. */
 export declare const PERMISSION_MODES: PermissionMode[];
 
 export declare const PERMISSION_MODE_LABELS: Record<PermissionMode, string>;
 
+/**
+ * Auto mode replaces "ask the human" with "ask the model": reads and
+ * in-project edits run unattended, everything else is judged by an action
+ * classifier (session model by default). A block is offered to the user for
+ * override when a UI is present; with no UI the block is final. Paths holding
+ * agent/VCS/startup configuration are denied before the classifier and are
+ * never classifier-approvable.
+ */
+
+/** Verdict on one pending tool call. `unavailable` means "no verdict". */
+export interface ClassifierDecision {
+	status: "allow" | "block" | "unavailable";
+	reason?: string;
+}
+
+/** What the classifier is shown about a pending call. */
+export interface ClassifierAction {
+	toolName: string;
+	/** Human-readable one-liner (tool + arguments). */
+	description: string;
+	/** Truncated serialization of the tool input. */
+	input?: string;
+}
+
+/** Signature of the judge: default model-backed, replaceable by hosts/tests. */
+export type ActionClassifier = (
+	action: ClassifierAction,
+	ctx: ExtensionContext,
+	signal?: AbortSignal,
+) => Promise<ClassifierDecision>;
+
+/** Consecutive-deny counter used to warn once when auto mode keeps blocking. */
+export declare class DenialTracker {
+	readonly maxConsecutive: number;
+	constructor(maxConsecutive?: number);
+	recordBlock(): number;
+	recordAllow(): void;
+	shouldNotify(): boolean;
+}
+
 /** Mutable holder shared between the host and the extension. */
 export interface PermissionModeState {
 	mode: PermissionMode;
+	/** Auto-mode deny streak tracking; created lazily by the gate. */
+	denials?: DenialTracker;
+}
+
+/** User-editable auto-mode policy bullets (`autoMode` setting). */
+export interface AutoModeRules {
+	allow: string[];
+	deny: string[];
+	environment: string[];
+}
+
+export declare function readAutoModeRules(cwd: string): AutoModeRules;
+export declare function formatAutoModeRules(rules: AutoModeRules): string | undefined;
+export declare function buildClassifierSystemPrompt(policyAddendum?: string): string;
+export declare function buildClassifierUserPrompt(action: ClassifierAction, transcript: string): string;
+export declare function buildTranscript(ctx: ExtensionContext, maxChars?: number): string;
+export declare function parseClassifierResponse(
+	text: string,
+): { block: boolean; reason?: string } | undefined;
+export declare function classifyAction(
+	action: ClassifierAction,
+	params: unknown,
+): Promise<ClassifierDecision>;
+export declare function createModelClassifier(options?: unknown): ActionClassifier;
+/** Why writing `path` is denied in auto mode regardless of the classifier. */
+export declare function autoModeWriteDenial(path: string, cwd: string): string | undefined;
+
+export interface PermissionGateDeps {
+	classifier?: ActionClassifier;
+	state?: PermissionModeState;
 }
 
 export interface PermissionsExtensionOptions {
@@ -200,6 +270,8 @@ export interface PermissionsExtensionOptions {
 	state?: PermissionModeState;
 	/** Called after every mode change, including host-side writes. */
 	onModeChange?: (mode: PermissionMode) => void;
+	/** Override the auto-mode action classifier (tests or a custom model). */
+	classifier?: ActionClassifier;
 }
 
 export declare function parsePermissionMode(arg: string): PermissionMode | undefined;
@@ -208,6 +280,7 @@ export declare function gatePermissionToolCall(
 	event: ToolCallEvent,
 	mode: PermissionMode,
 	ctx: ExtensionContext,
+	deps?: PermissionGateDeps,
 ): Promise<ToolCallEventResult | undefined>;
 
 /** Build the pi-plus-permissions inline extension for a host. */
@@ -233,10 +306,16 @@ export declare function notifyActivePermissionModeChange(mode: PermissionMode): 
 /**
  * Pick from a host's dedicated plan-review dialog (pi-plus-desktop renders
  * the plan as markdown with Claude Code style choices). "approveAcceptEdits" /
- * "approveBypass" approve AND select the post-approval permission mode, so
- * the plan runs with the chosen level of automation. undefined = dismissed.
+ * "approveAuto" / "approveBypass" approve AND select the post-approval
+ * permission mode, so the plan runs with the chosen level of automation.
+ * undefined = dismissed.
  */
-export type PlanReviewDialogChoice = "approveAcceptEdits" | "approveBypass" | "edit" | "stay";
+export type PlanReviewDialogChoice =
+	| "approveAcceptEdits"
+	| "approveAuto"
+	| "approveBypass"
+	| "edit"
+	| "stay";
 
 /**
  * Optional ExtensionUIContext extension SDK hosts provide via

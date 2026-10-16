@@ -19,15 +19,21 @@ import type {
 } from "../../../coding-agent/src/core/extensions/types.ts";
 import { initTheme, theme } from "../../../coding-agent/src/modes/interactive/theme/theme.ts";
 import {
+	autoModeWriteDenial,
+	type ClassifierAction,
+	type ClassifierDecision,
 	createPermissionsExtension,
+	DenialTracker,
 	gatePermissionToolCall,
 	nextPermissionMode,
 	PERMISSION_MODE_ENTRY_TYPE,
 	PERMISSION_MODES,
 	type PermissionMode,
+	type PermissionModeState,
 	type PermissionsExtensionOptions,
 	permissionStatusText,
 	sharedPermissionState,
+	toolInputPaths,
 } from "../../src/extensions/permissions/index.ts";
 import { sharedPlanGateState } from "../../src/extensions/plan/state.ts";
 
@@ -145,11 +151,12 @@ beforeAll(() => {
 describe("nextPermissionMode", () => {
 	it("cycles forward through the canonical order, wrapping at the end", () => {
 		assert.equal(nextPermissionMode("bypass"), "acceptEdits");
-		assert.equal(nextPermissionMode("acceptEdits"), "plan");
+		assert.equal(nextPermissionMode("acceptEdits"), "auto");
+		assert.equal(nextPermissionMode("auto"), "plan");
 		assert.equal(nextPermissionMode("plan"), "bypass");
 		assert.deepEqual(
 			PERMISSION_MODES.map((mode) => nextPermissionMode(mode)),
-			["acceptEdits", "plan", "bypass"],
+			["acceptEdits", "auto", "plan", "bypass"],
 		);
 	});
 });
@@ -158,6 +165,7 @@ describe("permissionStatusText", () => {
 	it("uses a Claude Code-style icon and short label per mode", () => {
 		assert.equal(stripAnsi(permissionStatusText("bypass", theme)), "✈️ bypass");
 		assert.equal(stripAnsi(permissionStatusText("acceptEdits", theme)), "✏️ accept-edits");
+		assert.equal(stripAnsi(permissionStatusText("auto", theme)), "🤖 auto");
 		assert.equal(stripAnsi(permissionStatusText("plan", theme)), "⏸ plan");
 	});
 
@@ -209,11 +217,14 @@ describe("shift+tab cycle", () => {
 		assert.equal(h.state.mode, "acceptEdits");
 
 		assert.deepEqual(h.terminalInput("\x1b[27;2;9~"), { consume: true });
+		assert.equal(h.state.mode, "auto");
+
+		assert.deepEqual(h.terminalInput("\x1b[Z"), { consume: true });
 		assert.equal(h.state.mode, "plan");
 
 		assert.deepEqual(h.terminalInput("\x1b[Z"), { consume: true });
 		assert.equal(h.state.mode, "bypass");
-		assert.deepEqual(h.modeChanges, ["acceptEdits", "plan", "bypass"]);
+		assert.deepEqual(h.modeChanges, ["acceptEdits", "auto", "plan", "bypass"]);
 	});
 
 	it("passes unrelated input through untouched", async () => {
@@ -234,7 +245,7 @@ describe("shift+tab cycle", () => {
 		await h.restartSession();
 		assert.ok(h.terminalUnsubscribed(), "previous session's listener must be unsubscribed");
 		assert.deepEqual(h.terminalInput("\x1b[Z"), { consume: true });
-		assert.equal(h.state.mode, "plan");
+		assert.equal(h.state.mode, "auto");
 	});
 });
 
@@ -325,7 +336,7 @@ describe("session-file persistence", () => {
 		);
 		assert.deepEqual(
 			h.appended.map((entry) => (entry.data as { mode: PermissionMode }).mode),
-			["acceptEdits", "plan"],
+			["acceptEdits", "auto"],
 		);
 	});
 
@@ -394,5 +405,196 @@ describe("session-file persistence", () => {
 		const h = harness({}, { entries: [modeEntry("acceptEdits")], planFlag: true });
 		await h.restartSession("startup");
 		assert.equal(h.state.mode, "bypass");
+	});
+});
+
+/**
+ * Auto mode: the classifier replaces the prompt. These tests inject a fake
+ * classifier (via `deps.classifier`) so the gate's ordering, the deny-list
+ * that runs before any model call, and the block/override semantics are all
+ * checked without a provider.
+ */
+describe("auto permission mode gate", () => {
+	interface FakeUi {
+		confirm: boolean;
+		asks: number;
+		notifications: string[];
+	}
+
+	function autoCtx(ui?: FakeUi): ExtensionContext {
+		return {
+			cwd: "/tmp",
+			hasUI: !!ui,
+			ui: ui
+				? {
+						confirm: async () => {
+							ui.asks += 1;
+							return ui.confirm;
+						},
+						notify: (message: string) => ui.notifications.push(message),
+					}
+				: undefined,
+			sessionManager: { getSessionId: () => "session-1" },
+			model: { id: "test-model", provider: "test" },
+			modelRegistry: {},
+			signal: undefined,
+		} as unknown as ExtensionContext;
+	}
+
+	function call(toolName: string, input: Record<string, unknown>, id = "call-1"): ToolCallEvent {
+		return { type: "tool_call", toolCallId: id, toolName, input } as ToolCallEvent;
+	}
+
+	async function gate(
+		event: ToolCallEvent,
+		decision: ClassifierDecision,
+		ctx: ExtensionContext = autoCtx(),
+		state: PermissionModeState = { mode: "auto" },
+	) {
+		const seen: ClassifierAction[] = [];
+		const result = await gatePermissionToolCall(event, "auto", ctx, {
+			state,
+			classifier: async (action) => {
+				seen.push(action);
+				return decision;
+			},
+		});
+		return { result, seen, state };
+	}
+
+	it("runs reads without asking the classifier", async () => {
+		const { result, seen } = await gate(call("read", { path: "/tmp/x.ts" }), { status: "block", reason: "no" });
+		assert.equal(result, undefined);
+		assert.equal(seen.length, 0);
+	});
+
+	it("runs in-project edits without asking the classifier", async () => {
+		const { result, seen } = await gate(call("write", { path: "/tmp/out.md", content: "x" }), {
+			status: "block",
+			reason: "no",
+		});
+		assert.equal(result, undefined);
+		assert.equal(seen.length, 0);
+	});
+
+	it("denies protected paths before the classifier, even when it would allow", async () => {
+		for (const path of ["/tmp/.pi/settings.json", "/tmp/.git/config", "/tmp/AGENTS.md", "/tmp/.zshrc"]) {
+			const { result, seen } = await gate(call("write", { path, content: "x" }), { status: "allow" });
+			assert.ok(result?.block, `${path} must stay denied in auto mode`);
+			assert.equal(seen.length, 0, `${path} must never reach the classifier`);
+		}
+	});
+
+	it("lets a root-lookalike nested file through to the fast path", async () => {
+		const { result } = await gate(call("write", { path: "/tmp/vendor/pkg/AGENTS.md", content: "x" }), {
+			status: "allow",
+		});
+		assert.equal(result, undefined);
+	});
+
+	it("sends everything else to the classifier and follows its allow", async () => {
+		const { result, seen } = await gate(call("bash", { command: "npm run build" }), { status: "allow" });
+		assert.equal(result, undefined);
+		assert.equal(seen.length, 1);
+		assert.equal(seen[0]?.toolName, "bash");
+		assert.ok(seen[0]?.description.includes("npm run build"));
+	});
+
+	it("blocks on a classifier block with no UI to override", async () => {
+		const { result } = await gate(call("bash", { command: "rm -rf out" }), {
+			status: "block",
+			reason: "destroys build output",
+		});
+		assert.ok(result?.block);
+		assert.ok(result?.reason?.includes("destroys build output"));
+	});
+
+	it("offers the user an override when a UI is present", async () => {
+		const ui: FakeUi = { confirm: true, asks: 0, notifications: [] };
+		const { result } = await gate(
+			call("bash", { command: "docker ps" }),
+			{ status: "block", reason: "hmm" },
+			autoCtx(ui),
+		);
+		assert.equal(ui.asks, 1);
+		assert.equal(result, undefined, "an override lets the call run");
+
+		const refused: FakeUi = { confirm: false, asks: 0, notifications: [] };
+		const denied = await gate(
+			call("bash", { command: "docker ps" }),
+			{ status: "block", reason: "hmm" },
+			autoCtx(refused),
+		);
+		assert.equal(refused.asks, 1);
+		assert.ok(denied.result?.block);
+	});
+
+	it("treats a missing verdict as no verdict: asks when possible, denies when not", async () => {
+		const { result } = await gate(call("bash", { command: "ls" }), { status: "unavailable", reason: "timeout" });
+		assert.ok(result?.block, "with no user to ask, auto mode fails closed");
+
+		const ui: FakeUi = { confirm: true, asks: 0, notifications: [] };
+		const asked = await gate(call("bash", { command: "ls" }), { status: "unavailable" }, autoCtx(ui));
+		assert.equal(ui.asks, 1);
+		assert.equal(asked.result, undefined);
+	});
+
+	it("keeps the extension's own prompting tools out of the classifier", async () => {
+		const { result, seen } = await gate(call("ExitPlanMode", {}), { status: "block", reason: "no" });
+		assert.equal(result, undefined);
+		assert.equal(seen.length, 0);
+	});
+
+	it("judges out-of-project writes instead of fast-pathing them", async () => {
+		const { result, seen } = await gate(call("write", { path: "/etc/hosts", content: "x" }), {
+			status: "block",
+			reason: "outside the project",
+		});
+		assert.equal(seen.length, 1);
+		assert.ok(result?.block);
+	});
+
+	it("warns once after a streak of blocks, and resets on an allow", async () => {
+		const ui: FakeUi = { confirm: false, asks: 0, notifications: [] };
+		const state: PermissionModeState = { mode: "auto" };
+		for (let i = 0; i < 4; i++) {
+			await gate(call("bash", { command: `echo ${i}` }), { status: "block", reason: "risky" }, autoCtx(ui), state);
+		}
+		assert.deepEqual(
+			ui.notifications.filter((n) => n.includes("blocked")),
+			[ui.notifications.find((n) => n.includes("blocked"))],
+			"the streak warning fires exactly once",
+		);
+		await gate(call("bash", { command: "echo ok" }), { status: "allow" }, autoCtx(ui), state);
+		assert.equal(state.denials?.recordBlock(), 1, "an allow resets the streak");
+	});
+});
+
+describe("auto-mode policy helpers", () => {
+	it("DenialTracker notifies once per streak and re-arms on an allow", () => {
+		const tracker = new DenialTracker(2);
+		tracker.recordBlock();
+		assert.equal(tracker.shouldNotify(), false);
+		tracker.recordBlock();
+		assert.equal(tracker.shouldNotify(), true);
+		assert.equal(tracker.shouldNotify(), false);
+		tracker.recordAllow();
+		tracker.recordBlock();
+		tracker.recordBlock();
+		assert.equal(tracker.shouldNotify(), true);
+	});
+
+	it("autoModeWriteDenial covers config-bearing paths only", () => {
+		assert.ok(autoModeWriteDenial("/repo/.git/hooks/pre-commit", "/repo"));
+		assert.ok(autoModeWriteDenial("/repo/settings.json", "/repo"));
+		assert.ok(autoModeWriteDenial("/home/u/.zshrc", "/repo"));
+		assert.equal(autoModeWriteDenial("/repo/src/app.ts", "/repo"), undefined);
+		assert.equal(autoModeWriteDenial("/repo/docs/AGENTS.md", "/repo"), undefined, "only root AGENTS.md");
+	});
+
+	it("toolInputPaths ignores shells and picks up tool path keys", () => {
+		assert.deepEqual(toolInputPaths("bash", { command: "rm -rf /tmp/x" }, "/repo"), []);
+		assert.deepEqual(toolInputPaths("edit", { path: "a.ts", edits: [] }, "/repo"), ["/repo/a.ts"]);
+		assert.deepEqual(toolInputPaths("write", { file_path: "/tmp/b.md" }, "/repo"), ["/tmp/b.md"]);
 	});
 });

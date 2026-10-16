@@ -169,7 +169,7 @@ export async function main(args: string[], options?: MainOptions) {
 	// adds WebSearch (provider chain over WEB_SEARCH_PROVIDER/*_API_KEY env vars,
 	// keyless DuckDuckGo fallback last) and WebFetch (URL → text); pi-plus-permissions
 	// adds the /permissions command and the tool-call permission gate (bypass |
-	// accept-edits | plan; bypass is the default, so behavior stays pi-like until
+	// accept-edits | auto | plan; bypass is the default, so behavior stays pi-like until
 	// the user switches — in TUI mode accept-edits prompts through the dialog UI).
 	// Merged with any caller-provided factories; upstream appends its own
 	// built-ins (main.ts: extensionFactories = [...builtInExtensions, ...]).

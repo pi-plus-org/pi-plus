@@ -31,7 +31,7 @@ beforeAll(() => {
 });
 
 describe("PlanViewComponent rendering", () => {
-	it("renders the plan markdown without raw syntax and shows all three choices", () => {
+	it("renders the plan markdown without raw syntax and shows all four choices", () => {
 		const component = makeComponent("review", "## Step one\n\nDo the **first** thing.");
 		const lines = renderPlain(component);
 		const text = lines.join("\n");
@@ -42,6 +42,7 @@ describe("PlanViewComponent rendering", () => {
 		assert.ok(!text.includes("**first**"), "bold markers must not appear raw");
 		assert.ok(text.includes("first"));
 		assert.ok(text.includes("Approve & auto-accept edits"));
+		assert.ok(text.includes("Approve & run in auto mode"));
 		assert.ok(text.includes("Approve & bypass permissions"));
 		assert.ok(text.includes("Stay in plan mode"));
 		assert.ok(!text.includes("Edit plan"));
@@ -67,16 +68,29 @@ describe("PlanViewComponent review choices", () => {
 	it("arrow keys move the selection and enter confirms it", () => {
 		const seen: Array<PlanReviewDialogChoice | undefined> = [];
 		const component = makeComponent("review", "Plan body", (choice) => seen.push(choice));
+		component.handleInput("\x1b[B"); // down → Approve & run in auto mode
 		component.handleInput("\x1b[B"); // down → Approve & bypass permissions
 		component.handleInput("\x1b[B"); // down → Stay in plan mode
 		component.handleInput("\r");
 		assert.deepEqual(seen, ["stay"]);
 	});
 
-	it("digit keys pick a choice directly", () => {
+	it("arrow keys select auto mode", () => {
 		const seen: Array<PlanReviewDialogChoice | undefined> = [];
 		const component = makeComponent("review", "Plan body", (choice) => seen.push(choice));
-		component.handleInput("3");
+		component.handleInput("\x1b[B"); // down → Approve & run in auto mode
+		component.handleInput("\r");
+		assert.deepEqual(seen, ["approveAuto"]);
+	});
+
+	it("digit keys pick a choice directly", () => {
+		const auto: Array<PlanReviewDialogChoice | undefined> = [];
+		makeComponent("review", "Plan body", (choice) => auto.push(choice)).handleInput("2");
+		assert.deepEqual(auto, ["approveAuto"]);
+
+		const seen: Array<PlanReviewDialogChoice | undefined> = [];
+		const component = makeComponent("review", "Plan body", (choice) => seen.push(choice));
+		component.handleInput("4");
 		assert.deepEqual(seen, ["stay"]);
 	});
 

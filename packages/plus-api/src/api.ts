@@ -179,7 +179,7 @@ export interface PlusUIDialogHandlers {
 	/**
 	 * Dedicated plan-review dialog (ExitPlanMode). The host renders the plan
 	 * markdown and offers Claude Code style choices; "approveAcceptEdits" /
-	 * "approveBypass" approve the plan AND set the post-approval permission
+	 * "approveAuto" / "approveBypass" approve the plan AND set the post-approval permission
 	 * mode. Return undefined when dismissed (stays in plan mode). Omit to fall
 	 * back to the plain-text select.
 	 */
