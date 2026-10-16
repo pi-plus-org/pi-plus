@@ -519,7 +519,39 @@ describe("compact", () => {
 		await assert.rejects(() => compact(prep, MODEL, undefined), /Nothing to compact/);
 	});
 
-	it("throws when the model reply is cut off at the token cap", async () => {
+	it("recovers a summary cut off at the cap by continuing generation", async () => {
+		const calls: RecordedCall[] = [];
+		const result = await compact(
+			preparation(),
+			MODEL,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fakeStreamFn(
+				[
+					assistantMessage("<analysis>scratchpad cuts", "length"),
+					assistantMessage(
+						" off</analysis>\n\n<summary>\n1. Primary Request and Intent:\n   Do the work.\n</summary>",
+					),
+				],
+				calls,
+			),
+		);
+		assert.equal(calls.length, 2);
+		assert.ok(result.summary.startsWith("Summary:"));
+		assert.ok(result.summary.includes("Do the work."));
+		// The continuation replays the accumulated text as an assistant turn and
+		// asks the model to pick up mid-sentence.
+		const continuation = requestText(calls[1]);
+		assert.ok(continuation.includes("<analysis>scratchpad cuts"));
+		assert.ok(continuation.includes("Continue it exactly where it stopped"));
+		// Usage accumulates across rounds (fake: input 10, output 20, total 30 each).
+		assert.deepEqual(result.usage, { input: 20, output: 40, total: 60 });
+	});
+
+	it("fails only after the continuation budget is exhausted at the cap", async () => {
 		const calls: RecordedCall[] = [];
 		await assert.rejects(
 			() =>
@@ -531,10 +563,37 @@ describe("compact", () => {
 					undefined,
 					undefined,
 					undefined,
-					fakeStreamFn([assistantMessage("partial", "length")], calls),
+					fakeStreamFn(
+						[
+							assistantMessage("cut one", "length"),
+							assistantMessage("cut two", "length"),
+							assistantMessage("cut three", "length"),
+						],
+						calls,
+					),
 				),
 			/incomplete/,
 		);
+		assert.equal(calls.length, 3); // initial + 2 continuation rounds
+	});
+
+	it("does not continue an empty length-limited reply", async () => {
+		const calls: RecordedCall[] = [];
+		await assert.rejects(
+			() =>
+				compact(
+					preparation(),
+					MODEL,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					fakeStreamFn([assistantMessage("", "length")], calls),
+				),
+			/incomplete/,
+		);
+		assert.equal(calls.length, 1);
 	});
 
 	it("throws when the model reply was aborted mid-generation", async () => {
@@ -553,6 +612,28 @@ describe("compact", () => {
 				),
 			/aborted/,
 		);
+	});
+
+	it("does not count aborted compactions against the circuit breaker", async () => {
+		// Cancelling a compaction is user intent, not a compaction defect; three
+		// aborted cycles must not trip the breaker and suppress auto-compaction.
+		for (let cycle = 0; cycle < 3; cycle++) {
+			await assert.rejects(
+				() =>
+					compact(
+						preparation(),
+						MODEL,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						fakeStreamFn([assistantMessage("partial", "aborted")], []),
+					),
+				/aborted/,
+			);
+		}
+		assert.equal(isAutoCompactBreakerTripped(), false);
 	});
 });
 
@@ -592,5 +673,38 @@ describe("generateSummaryWithUsage", () => {
 		);
 		assert.equal("reasoning" in calls[0].options, false);
 		assert.equal(hasNoReasoning(calls[0].options), true);
+	});
+
+	it("floors the output cap at the 20k summary reservation, clamped by the model", async () => {
+		const calls: RecordedCall[] = [];
+		// MODEL.maxTokens is 8k: the model's own limit wins.
+		await generateSummaryWithUsage(
+			[userMessage("hi")],
+			MODEL,
+			16_384,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fakeStreamFn([assistantMessage(SUMMARY_TEXT)], calls),
+		);
+		assert.equal(calls[0].options.maxTokens, 8_192);
+		// A 384k-output model gets the 20k floor instead of 0.8 × 16384 = 13107.
+		const bigModel = { ...MODEL, maxTokens: 384_000 } as Model<any>;
+		await generateSummaryWithUsage(
+			[userMessage("hi")],
+			bigModel,
+			16_384,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fakeStreamFn([assistantMessage(SUMMARY_TEXT)], calls),
+		);
+		assert.equal(calls[1].options.maxTokens, 20_000);
 	});
 });

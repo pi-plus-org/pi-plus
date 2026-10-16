@@ -6,9 +6,16 @@
  * - Single full-conversation summary with the 9-section CC prompt; no cut-point,
  *   no split-turn merge, no incremental update prompt.
  * - Summarization requests never apply the session thinking level: the output cap
- *   is 0.8 × reserveTokens and reasoning tokens count against it, so reasoning
- *   could truncate the summary and fail compaction (marked via
- *   reasoning/effort.ts's markNoReasoning so wrapStreamFn skips effort too).
+ *   is 0.8 × reserveTokens (floored at the 20k summary reservation) and reasoning
+ *   tokens count against it, so reasoning could truncate the summary and fail
+ *   compaction (marked via reasoning/effort.ts's markNoReasoning so wrapStreamFn
+ *   skips effort too).
+ * - A summary cut off at the output cap is RECOVERED, not failed: a truncated
+ *   response feeds back as an assistant turn and the model continues where it
+ *   stopped (up to MAX_SUMMARY_CONTINUATIONS rounds). Long conversations with a
+ *   previousSummary merge otherwise fail deterministically once the thorough
+ *   9-section output outgrows the cap, and a failed compaction additionally
+ *   poisons the auto-compact circuit breaker (aborts excluded).
  * - Prompt-too-long retries drop oldest turn groups (CC truncateHeadForPTLRetry).
  * - Post-compact re-injection of recently read files happens inside the summary
  *   text (pi replaces everything up to firstKeptEntryId; CC uses attachments),
@@ -40,6 +47,7 @@ import {
 	getAutoCompactThreshold,
 	getCurrentModel,
 	isCompactDisabled,
+	MAX_OUTPUT_TOKENS_FOR_SUMMARY,
 	recordAutoCompactFailure,
 	recordAutoCompactSuccess,
 } from "../context/detection.ts";
@@ -171,6 +179,15 @@ function dropOldestTurn(messages: AgentMessage[]): AgentMessage[] {
 	return next;
 }
 
+/** Extra rounds allowed to finish a summary the output cap cut off. */
+const MAX_SUMMARY_CONTINUATIONS = 2;
+
+const SUMMARY_CONTINUATION_INSTRUCTION =
+	"Your summary above was cut off by the output token limit. Continue it exactly where it stopped: " +
+	"do not repeat anything already written, do not restart the analysis or summary sections, and resume " +
+	"mid-sentence if that is where the text ended. Finish all remaining required content and close any " +
+	"open tags. Respond with plain text only — no tool calls.";
+
 /** Build the provider context for a standalone summary request. */
 function buildSummarizationContext(promptText: string): TranscriptContext {
 	return normalizeContext({
@@ -182,6 +199,50 @@ function buildSummarizationContext(promptText: string): TranscriptContext {
 			},
 		],
 	});
+}
+
+/**
+ * Build the continuation context for a truncated summary: the original prompt,
+ * the response so far as an assistant turn (text blocks only, so reasoning/tool
+ * debris never re-enters the request), and the continue instruction.
+ */
+function buildSummaryContinuationContext(promptText: string, response: AssistantMessage): TranscriptContext {
+	return normalizeContext({
+		messages: [
+			{
+				role: "user",
+				content: [{ type: "text", text: promptText }],
+				timestamp: Date.now(),
+			},
+			{ ...response, content: [{ type: "text", text: contentText(response.content) }] },
+			{
+				role: "user",
+				content: [{ type: "text", text: SUMMARY_CONTINUATION_INSTRUCTION }],
+				timestamp: Date.now(),
+			},
+		],
+	});
+}
+
+/** Sum the numeric fields of two usage records (continuation rounds accumulate). */
+function mergeUsage(base: Usage, extra: Usage): Usage {
+	const merged = { ...base } as Record<keyof Usage, unknown>;
+	for (const [key, value] of Object.entries(extra) as [keyof Usage, unknown][]) {
+		const previous = merged[key];
+		if (typeof value === "number" && typeof previous === "number") {
+			merged[key] = previous + value;
+		} else if (
+			value !== null &&
+			typeof value === "object" &&
+			previous !== null &&
+			typeof previous === "object" &&
+			!Array.isArray(value) &&
+			!Array.isArray(previous)
+		) {
+			merged[key] = mergeUsage(previous as Usage, value as Usage);
+		}
+	}
+	return merged as Usage;
 }
 
 function createSummaryOptions(
@@ -245,8 +306,13 @@ export async function generateSummaryWithUsage(
 	callbacks?: RetryCallbacks,
 	sessionId?: string,
 ): Promise<{ text: string; usage: Usage }> {
+	// Floor the cap at the 20k summary reservation (MAX_OUTPUT_TOKENS_FOR_SUMMARY):
+	// 0.8 × the 16k default reserve (13.1k) does not fit a thorough 9-section
+	// summary once the compacted conversation passes ~90k tokens or carries a
+	// previousSummary to merge, and the resulting "length" stop failed compaction
+	// deterministically. Still clamped by the model's own output limit.
 	const maxTokens = Math.min(
-		Math.floor(0.8 * reserveTokens),
+		Math.max(Math.floor(0.8 * reserveTokens), MAX_OUTPUT_TOKENS_FOR_SUMMARY),
 		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
 	);
 
@@ -283,25 +349,46 @@ export async function generateSummaryWithUsage(
 	}
 
 	compactDebug("summary:prompt-built", { chars: promptText.length, maxTokens });
-	const response = await completeSummarization(
-		model,
-		buildSummarizationContext(promptText),
-		createSummaryOptions(maxTokens, apiKey, headers, env, signal, sessionId),
-		tracedStreamFn,
-		retry,
-		callbacks,
-	);
-	compactDebug("summary:response-received", { stopReason: response.stopReason });
-
-	const failure = getSummarizationFailure(response, "Summarization");
-	if (failure) {
+	let context = buildSummarizationContext(promptText);
+	let mergedText = "";
+	let usage: Usage | undefined;
+	// A summary cut off at the output cap is recovered by continuing generation from
+	// the partial text, up to MAX_SUMMARY_CONTINUATIONS extra rounds. Pi's #7048
+	// invariant is kept: a still-truncated summary is never persisted as complete.
+	for (let round = 0; ; round++) {
+		const response = await completeSummarization(
+			model,
+			context,
+			createSummaryOptions(maxTokens, apiKey, headers, env, signal, sessionId),
+			tracedStreamFn,
+			retry,
+			callbacks,
+		);
+		compactDebug("summary:response-received", { stopReason: response.stopReason, round });
+		usage = usage ? mergeUsage(usage, response.usage) : response.usage;
+		if (response.content.some((block) => block.type === "toolCall")) {
+			throw new Error("Summarization attempted to call a tool");
+		}
+		const text = contentText(response.content);
+		mergedText += text;
+		const failure = getSummarizationFailure(response, "Summarization");
+		if (!failure) break;
+		if (
+			response.stopReason === "length" &&
+			text.trim() !== "" &&
+			round < MAX_SUMMARY_CONTINUATIONS &&
+			!signal?.aborted
+		) {
+			context = buildSummaryContinuationContext(promptText, {
+				...response,
+				content: [{ type: "text", text: mergedText }],
+			});
+			continue;
+		}
 		throw new Error(failure);
 	}
-	if (response.content.some((block) => block.type === "toolCall")) {
-		throw new Error("Summarization attempted to call a tool");
-	}
 
-	return { text: formatCompactSummary(contentText(response.content)), usage: response.usage };
+	return { text: formatCompactSummary(mergedText), usage };
 }
 
 /** CC-style generateSummary; overrides the upstream export. */
@@ -570,7 +657,13 @@ export async function compact(
 				messages = dropOldestTurn(messages);
 				continue;
 			}
-			recordAutoCompactFailure();
+			// A user-cancelled compaction is intent, not a compaction defect: counting
+			// aborts trips the (process-global) auto-compact breaker, which then
+			// suppresses automatic compaction for every session in the host.
+			const message = error instanceof Error ? error.message : String(error);
+			if (!signal?.aborted && !/was aborted/i.test(message)) {
+				recordAutoCompactFailure();
+			}
 			throw error;
 		}
 	}
