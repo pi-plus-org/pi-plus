@@ -17,23 +17,22 @@
  *     disabled, short timeout) because it runs inline in front of every gated
  *     call.
  *
- * The transport follows the same shape as the recap one-shot call in this
- * package: caller-resolved auth, `streamFn` injectable, `markNoReasoning`, and
- * an explicit small context so the session's system prompt and skill
- * attachments never reach the provider with an empty turn ahead of it.
+ * The classifier asks the profile the session runs on, and nothing else. Which
+ * model of that profile asks is positional, not configured (see
+ * `resolveClassifierChoice`): the profile's second declared model, or its only
+ * one when it declares just one. The model object and its credentials are both
+ * re-resolved through the session's
+ * `ModelRegistry` (see `createModelClassifier`), so a host cannot point this
+ * call — which carries the transcript tail and raw tool input — at an endpoint
+ * the profile never declared. The request is a bounded one-shot: small token
+ * budget, `markNoReasoning`, no cache writes, and an explicit small context so
+ * the session's system prompt and skill attachments never reach the provider
+ * with an empty turn ahead of it.
  */
 
-import type { StreamFn } from "@earendil-works/pi-agent-core";
-import {
-	contentText,
-	type Message,
-	normalizeContext,
-	type ProviderHeaders,
-	type SimpleStreamOptions,
-	uuidv7,
-} from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { contentText, type Message, normalizeContext, type SimpleStreamOptions, uuidv7 } from "@earendil-works/pi-ai";
 import type { Model, TranscriptContext } from "@earendil-works/pi-ai/compat";
-import { completeSummarization } from "../../../../coding-agent/src/core/compaction/compaction.ts";
 import { serializeConversation } from "../../../../coding-agent/src/core/compaction/utils.ts";
 import type { ExtensionContext } from "../../../../coding-agent/src/core/extensions/types.ts";
 import { convertToLlm } from "../../../../coding-agent/src/core/messages.ts";
@@ -63,7 +62,12 @@ export type ActionClassifier = (
 ) => Promise<ClassifierDecision>;
 
 export interface ModelClassifierOptions {
-	/** Model to ask. Defaults to the session model (`ctx.model`). */
+	/**
+	 * Model to ask, overriding the profile's positional pick. Only `(provider, id)`
+	 * is read from it: the model must resolve through the session's registry, so a
+	 * name the active profile does not offer is refused rather than opening some
+	 * other endpoint with the session's transcript.
+	 */
 	model?: Model<any>;
 	/** Characters of serialized conversation kept (tail-biased). Default 24k. */
 	maxTranscriptChars?: number;
@@ -73,8 +77,6 @@ export interface ModelClassifierOptions {
 	timeoutMs?: number;
 	/** User allow / deny / environment bullets appended to the system prompt. */
 	policyAddendum?: string;
-	/** Injectable for tests and hosts with a custom transport. */
-	streamFn?: StreamFn;
 }
 
 const DEFAULT_MAX_TRANSCRIPT_CHARS = 24_000;
@@ -181,12 +183,17 @@ export function parseClassifierResponse(text: string): { block: boolean; reason?
 	return undefined;
 }
 
-/** Auth snapshot taken synchronously from the extension context. */
-interface ClassifierAuth {
-	apiKey?: string;
-	headers?: ProviderHeaders;
-	env?: Record<string, string>;
-}
+/**
+ * One completion request. Production binds this to the session's model registry
+ * (profile-composed provider, request-time auth); tests inject a fake. It is an
+ * internal seam: hosts steer the classifier through `ActionClassifier`, never
+ * through a transport of their own.
+ */
+type ClassifierCall = (
+	model: Model<any>,
+	context: TranscriptContext,
+	options: SimpleStreamOptions & { sessionId: string },
+) => Promise<AssistantMessage>;
 
 /**
  * Ask `model` for a verdict on one action. Never throws: every failure path
@@ -197,14 +204,13 @@ export async function classifyAction(
 	action: ClassifierAction,
 	params: {
 		model: Model<any>;
-		auth: ClassifierAuth;
+		call: ClassifierCall;
 		transcript: string;
 		systemPrompt: string;
 		maxInputChars?: number;
 		signal?: AbortSignal;
 		timeoutMs?: number;
 		sessionId?: string;
-		streamFn?: StreamFn;
 	},
 ): Promise<ClassifierDecision> {
 	const maxInputChars = params.maxInputChars ?? DEFAULT_MAX_INPUT_CHARS;
@@ -221,18 +227,19 @@ export async function classifyAction(
 		],
 	}) as unknown as TranscriptContext;
 
+	// Deliberately no retry wrapper (unlike `completeSummarization`, whose policy would be
+	// undefined here anyway): this call sits inline in front of every gated tool call, so a
+	// dropped stream should cost the user one prompt, not another stretch of the request timeout.
 	const streamOptions = markNoReasoning({
 		maxTokens: CLASSIFIER_MAX_OUTPUT_TOKENS,
 		signal: params.signal ?? AbortSignal.timeout(params.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-		apiKey: params.auth.apiKey,
-		headers: params.auth.headers,
-		env: params.auth.env,
+		cacheRetention: "none",
 		sessionId: params.sessionId ?? uuidv7(),
 	} as SimpleStreamOptions & { sessionId: string });
 
-	let response: Awaited<ReturnType<typeof completeSummarization>>;
+	let response: AssistantMessage;
 	try {
-		response = await completeSummarization(params.model, context, streamOptions, params.streamFn);
+		response = await params.call(params.model, context, streamOptions);
 	} catch (error) {
 		return {
 			status: "unavailable",
@@ -249,26 +256,85 @@ export async function classifyAction(
 }
 
 /**
- * The default classifier for auto mode: resolves the session model and its
- * credentials from the extension context, builds the transcript, and asks.
- * Construct once with the user's policy bullets; the gate calls it per action.
+ * The classifier's model for this session, with a label naming where it came
+ * from (used in `unavailable` reasons so a misconfigured profile says which
+ * slot is broken).
+ *
+ * The rule needs no settings key because the profile already carries the
+ * information: its model scope (`enabledModels`, written by the hub as the
+ * profile's declared model list, default model first when the two agree) is the
+ * list of models the profile owns, and a profile with more than one model has a
+ * spare one — the
+ * second — which is exactly the cheap side-call model this one-shot question
+ * wants. A single-model profile has nothing to spare, so its only model asks.
+ * With no declared scope at all (plain `pi`, or a profile that lists no
+ * models) there is no list to pick from and the session model classifies.
+ * The scope is the live session list, so enabling an extra model during a
+ * session appends it: a one-model profile gains a dedicated classifier model
+ * at the moment it has a second one.
+ */
+function resolveClassifierChoice(
+	options: ModelClassifierOptions,
+	ctx: ExtensionContext,
+): { model: Model<any>; source: string } | undefined {
+	if (options.model) return { model: options.model, source: "the configured classifier model" };
+	const scoped = Array.isArray(ctx.scopedModels) ? ctx.scopedModels : [];
+	if (scoped.length === 1 && scoped[0]?.model) return { model: scoped[0].model, source: "the profile's only model" };
+	if (scoped.length > 1 && scoped[1]?.model) return { model: scoped[1].model, source: "the profile's second model" };
+	if (ctx.model) return { model: ctx.model, source: "the session model" };
+	return undefined;
+}
+
+/**
+ * The default classifier for auto mode: picks the classifier model from the
+ * profile (`resolveClassifierChoice`), resolves it through the session registry
+ * so the request can only use a model and endpoint the current profile
+ * declares, builds the transcript, and asks. Construct once with the user's
+ * policy bullets; the gate calls it per action.
+ *
+ * Every rejection here is `status: "unavailable"`, never `"block"`, and never a
+ * substitution of some other model: a declared classifier the profile cannot
+ * serve is a misconfiguration, and the gate's contract for "no verdict" is to
+ * ask the human rather than to silently widen or narrow access.
  */
 export function createModelClassifier(options: ModelClassifierOptions = {}): ActionClassifier {
 	const systemPrompt = buildClassifierSystemPrompt(options.policyAddendum);
 	return async (action, ctx, signal) => {
-		const model = options.model ?? ctx.model;
-		if (!model) return { status: "unavailable", reason: "the session has no model to classify with" };
-		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		if (!auth.ok) return { status: "unavailable", reason: `no credentials for ${model.id}: ${auth.error}` };
+		const registry = ctx.modelRegistry;
+		const choice = resolveClassifierChoice(options, ctx);
+		if (!choice) return { status: "unavailable", reason: "the session has no model to classify with" };
+		const requested = choice.model;
+		// The requested model object is treated as an identity (provider + id) only: transport
+		// fields such as baseUrl and headers come from the profile's composed model, not from a
+		// caller's copy of it.
+		const model = registry.find(requested.provider, requested.id);
+		if (!model) {
+			return {
+				status: "unavailable",
+				reason: `classifier model ${requested.provider}/${requested.id} (${choice.source}) is not a model of this profile`,
+			};
+		}
+		if (!registry.hasConfiguredAuth(model)) {
+			return { status: "unavailable", reason: `no credentials for ${model.provider}/${model.id} in this profile` };
+		}
+		// Provider-side prompt-cache affinity. A context without a session (sub-agent, test
+		// stub) gets no id here, and `classifyAction` generates a fresh one per call.
+		let sessionId: string | undefined;
+		try {
+			sessionId = ctx.sessionManager.getSessionId() || undefined;
+		} catch {
+			sessionId = undefined;
+		}
 		return classifyAction(action, {
 			model,
-			auth: { apiKey: auth.apiKey, headers: auth.headers, env: auth.env },
+			call: (scopedModel, context, requestOptions) =>
+				registry.streamSimple(scopedModel, context, requestOptions).result(),
 			transcript: buildTranscript(ctx, options.maxTranscriptChars),
 			systemPrompt,
 			maxInputChars: options.maxInputChars,
 			signal,
 			timeoutMs: options.timeoutMs,
-			streamFn: options.streamFn,
+			sessionId,
 		});
 	};
 }
