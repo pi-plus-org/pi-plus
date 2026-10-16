@@ -58,6 +58,9 @@ import { formatCompactSummary, getCompactPrompt } from "./prompt.ts";
 const MAX_PTL_RETRIES = 3;
 const POST_COMPACT_TOKEN_BUDGET = 50_000;
 const TOKENS_PER_FILE_CAP = 5_000;
+// CC's POST_COMPACT_MAX_FILES_TO_RESTORE (services/compact/compact.ts): at most
+// the 5 most-recently-read files are re-injected, newest first.
+const POST_COMPACT_MAX_FILES_TO_RESTORE = 5;
 const CHARS_PER_TOKEN = 4;
 
 // Only these text formats are re-injected as excerpts; files with any other
@@ -429,18 +432,62 @@ export async function generateSummary(
 }
 
 /**
- * Re-inject the read files into the summary text, matching CC's post-compact
- * attachments (50k token budget, ~5k/file). Every read text file is included;
- * the token budget is the only cap.
+ * Last-read timestamp per file, newest first, from the summarized messages —
+ * CC selects re-injection candidates from its readFileState cache by recency
+ * (`sort((a, b) => b.timestamp - a.timestamp).slice(0, maxFiles)`), and the
+ * transcript is pi's equivalent. Mirrors extractFileOpsFromMessage's traversal:
+ * assistant toolCall blocks plus nested calls recorded on script tool results.
+ * Files only present in fileOps (read before the last compaction boundary) are
+ * excluded: CC's cache is cleared at every compaction, so a file is never
+ * re-injected across compactions without having been re-read since.
  */
-function buildRecentFilesSection(readFiles: string[]): string {
-	if (readFiles.length === 0) return "";
+function collectReadFilesByRecency(messages: readonly AgentMessage[], exclude: ReadonlySet<string>): string[] {
+	const lastReadMs = new Map<string, number>();
+	const record = (path: string | undefined, timestamp: number): void => {
+		if (!path || exclude.has(path)) return;
+		const previous = lastReadMs.get(path);
+		if (previous === undefined || timestamp > previous) lastReadMs.set(path, timestamp);
+	};
+	for (const message of messages) {
+		if (message.role === "toolResult") {
+			for (const call of message.nestedCalls?.calls ?? []) {
+				if (call.name !== "read") continue;
+				const path = call.arguments?.path;
+				record(typeof path === "string" ? path : undefined, message.timestamp);
+			}
+			continue;
+		}
+		if (message.role !== "assistant" || !("content" in message) || !Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (typeof block !== "object" || block === null) continue;
+			if (!("type" in block) || block.type !== "toolCall") continue;
+			if (!("name" in block) || block.name !== "read" || !("arguments" in block)) continue;
+			const args = block.arguments as Record<string, unknown> | undefined;
+			const path = typeof args?.path === "string" ? args.path : undefined;
+			record(path, message.timestamp);
+		}
+	}
+	return [...lastReadMs.entries()].sort((a, b) => b[1] - a[1]).map(([path]) => path);
+}
+
+/**
+ * Re-inject the read files into the summary text, matching CC's post-compact
+ * attachments: the newest 5 files (CC's POST_COMPACT_MAX_FILES_TO_RESTORE),
+ * ~5k tokens per file, 50k total. Skipped files (binary, unreadable) do not
+ * consume a slot. Unlike CC, files already visible in the kept tail may be
+ * re-injected: compact() only receives the summarized messages, so it cannot
+ * diff against what survived the cut.
+ */
+function buildRecentFilesSection(candidates: string[]): string {
+	if (candidates.length === 0) return "";
 
 	let totalChars = 0;
+	let injected = 0;
 	const maxTotalChars = POST_COMPACT_TOKEN_BUDGET * CHARS_PER_TOKEN;
 	const sections: string[] = [];
 
-	for (const file of readFiles) {
+	for (const file of candidates) {
+		if (injected >= POST_COMPACT_MAX_FILES_TO_RESTORE) break;
 		const remaining = maxTotalChars - totalChars;
 		const perFileCap = Math.min(TOKENS_PER_FILE_CAP * CHARS_PER_TOKEN, remaining);
 		if (perFileCap <= 0) break;
@@ -450,6 +497,7 @@ function buildRecentFilesSection(readFiles: string[]): string {
 			const content = buffer.toString("utf8");
 			const excerpt = content.length > perFileCap ? `${content.slice(0, perFileCap)}\n… [truncated]` : content;
 			totalChars += excerpt.length;
+			injected++;
 			sections.push(`### \`${file}\`\n\n\`\`\`\n${excerpt}\n\`\`\``);
 		} catch {
 			// Unreadable file (deleted, permission): skip, matching CC's tolerant restore.
@@ -676,7 +724,7 @@ export async function compact(
 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
 	summary += formatFileOperations(readFiles, modifiedFiles);
 	// …then CC-style post-compact re-injection inside the summary text.
-	summary += buildRecentFilesSection(readFiles);
+	summary += buildRecentFilesSection(collectReadFilesByRecency(allMessages, new Set(modifiedFiles)));
 	summary += await buildPlanSection(sessionId);
 	summary += buildSkillsSection(allMessages);
 
