@@ -7,8 +7,9 @@
  *   the same redirect plugin that produces the CLI, because this module imports
  *   upstream runtime values ONLY through the coding-agent index barrel (direct
  *   relative imports of redirected upstream modules would bypass the wrappers)
- * - the nine non-TUI pi-plus extensions (subagent, tasks, memory, plan,
- *   ask-user, hooks, context-guard, /cd, /init) are registered here the same
+ * - the twelve non-TUI pi-plus extensions (subagent, tasks, memory, plan,
+ *   ask-user, hooks, context-guard, diagram, web-search, recap, /cd, /init)
+ *   are registered here the same
  *   way the
  *   CLI wrapper registers them; the CLI-only ones (banner, vim, tab-title,
  *   plain-tools) live in the pi-plus artifact and are excluded from this
@@ -65,6 +66,20 @@ export {
 } from "../../plus/src/coding-agent/core/session-manager.ts";
 export * from "../../plus/src/context/plus-settings.ts";
 export * from "../../plus/src/extensions/cache.ts";
+export { type RenderDiagramHtmlOptions, renderDiagramHtml } from "../../plus/src/extensions/diagram/html.ts";
+export {
+	type DiagramLayout,
+	layoutDiagram,
+	type PlacedEdge,
+	type PlacedNode,
+} from "../../plus/src/extensions/diagram/layout.ts";
+export type {
+	DiagramDetails,
+	DiagramEdge,
+	DiagramNode,
+	DiagramShape,
+	DiagramSpec,
+} from "../../plus/src/extensions/diagram/types.ts";
 export * from "../../plus/src/extensions/permissions/index.ts";
 export * from "./packages.ts";
 
@@ -120,6 +135,7 @@ import {
 	registerAskUser,
 	registerCd,
 	registerContextGuard,
+	registerDiagram,
 	registerInit,
 	registerMemory,
 	registerPlan,
@@ -153,6 +169,7 @@ export function createPlusSdkExtensionFactories(agentDir?: string): InlineExtens
 		{ name: "pi-plus-ask-user", factory: registerAskUser, hidden: true },
 		{ name: "pi-plus-hooks", factory: registerUserHooks, hidden: true },
 		{ name: "pi-plus-context-guard", factory: registerContextGuard, hidden: true },
+		{ name: "pi-plus-diagram", factory: registerDiagram, hidden: true },
 		{ name: "pi-plus-cd", factory: registerCd, hidden: true },
 		{ name: "pi-plus-init", factory: registerInit, hidden: true },
 		{ name: "pi-plus-web-search", factory: registerWebSearch, hidden: true },
@@ -271,7 +288,7 @@ export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions
  * that embed pi in-process instead of running the `pipi` CLI.
  *
  * Differences from the upstream createAgentSession:
- * - the nine non-TUI pi-plus extensions are registered on the resource loader
+ * - the twelve non-TUI pi-plus extensions are registered on the resource loader
  * - the loader is reloaded here (createAgentSession skips reload for a
  *   caller-supplied loader), with one SettingsManager shared by both
  * - extensions are always bound once afterwards, which is what emits the
