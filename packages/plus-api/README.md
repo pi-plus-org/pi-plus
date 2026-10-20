@@ -25,9 +25,9 @@ await session.prompt("Review this repository");
 ```
 
 - The full pi-plus layer is included: the compaction/context/reasoning overrides are
-  baked into `api.js` by the shared bundle-time redirect plugin, and the eleven
+  baked into `api.js` by the shared bundle-time redirect plugin, and the twelve
   non-TUI pi-plus extensions (subagent, tasks, memory, plan, ask-user, hooks,
-  context-guard, recap, `/cd`, `/init`, web-search) are registered exactly as the CLI wrapper registers them. No CLI
+  context-guard, recap, diagram, `/cd`, `/init`, web-search) are registered exactly as the CLI wrapper registers them. The diagram capability is also exposed directly: `renderDiagramHtml(spec)` turns a node-edge `DiagramSpec` into a self-contained HTML/SVG document without a tool round-trip (`layoutDiagram`, the `Diagram*` types, and `DiagramError` are re-exported too). No CLI
   logic ships in this artifact: no hub command dispatch (`pipi profile ...`), no
   completion, no pipi help text, no banner/vim/tab-title/plain-tools.
 - Profile management ships as a library: the curated `@earendil-works/pi-hub`
