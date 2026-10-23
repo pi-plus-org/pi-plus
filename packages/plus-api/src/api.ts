@@ -66,7 +66,11 @@ export {
 } from "../../plus/src/coding-agent/core/session-manager.ts";
 export * from "../../plus/src/context/plus-settings.ts";
 export * from "../../plus/src/extensions/cache.ts";
-export { type RenderDiagramHtmlOptions, renderDiagramHtml } from "../../plus/src/extensions/diagram/html.ts";
+export {
+	type RenderDiagramHtmlOptions,
+	renderDiagramHtml,
+	renderDiagramSvg,
+} from "../../plus/src/extensions/diagram/html.ts";
 export {
 	type DiagramLayout,
 	layoutDiagram,
