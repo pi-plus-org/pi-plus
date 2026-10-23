@@ -88,6 +88,16 @@ function renderSvg(layout: DiagramLayout): string {
 	return parts.join("\n");
 }
 
+/**
+ * Render only the inline `<svg>` element for a diagram spec (no HTML document
+ * wrapper). For hosts that embed the drawing in their own UI (e.g. an editor
+ * chat card) instead of writing or serving a standalone page; the SVG carries
+ * its own sizing/style attributes and contains no scripts.
+ */
+export function renderDiagramSvg(spec: DiagramSpec): string {
+	return renderSvg(layoutDiagram(spec));
+}
+
 export interface RenderDiagramHtmlOptions {
 	/** Page <title> and heading (defaults to the diagram title, if any). */
 	title?: string;
