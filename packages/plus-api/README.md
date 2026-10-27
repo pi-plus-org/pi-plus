@@ -55,6 +55,14 @@ await session.prompt("Review this repository");
   explicit `cwd`/`agentDir` (or a caller-owned `SettingsManager`) plus `projectTrusted`
   and an `onProgress` callback; project-scope (`local`) writes are refused by the
   underlying manager when the project is not trusted.
+- MCP server management ships as a library (`src/mcp.ts`): `listMcpServers`,
+  `addMcpServer`, `removeMcpServer`, and `updateMcpServer` are the programmatic form of
+  `pi mcp`'s config CRUD (the global `<agentDir>/mcp.json`, or the trusted project's
+  `<cwd>/.pi/mcp.json` via `local`/`scope`); `validateMcpServer` checks an entry without
+  writing it; `checkMcpServers` reports each server's connection state, tools, and errors
+  like `pi mcp list`; and `loginMcpServer`/`logoutMcpServer`/`listMcpCredentials` run pi's
+  OAuth sign-in (browser `openUrl` callback, loopback redirect) and credential management.
+  pi-plus disables the TUI `/mcp` commands, so this is the MCP management entry for hosts.
 - Provider login ships as a library (`src/auth.ts`): `loginProvider(providerId, { agentDir?, interaction?, signal?, method? })`
   runs pi's model-runtime login flow (OAuth login page / API-key setup — the same
   flow `pipi profile add <name> -p <provider>` and the `--sign-in` flag on
