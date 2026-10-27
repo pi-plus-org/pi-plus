@@ -21,6 +21,11 @@
  * profile dir nor paired with the marker the factory delegates to the original
  * implementation unchanged, so plain pi keeps its exact single-file behavior.
  *
+ * The patched factory also installs the process HTTP dispatcher from the
+ * loaded profile's `httpIdleTimeoutMs` (see the dispatcher note at the create
+ * patch): upstream only arms it from its own CLI entry points, so an embedded
+ * host used to silently run on undici's defaults.
+ *
  * The patch also adds a `setExternalEditorCommand(command)` /
  * `getExternalEditorSetting()` instance-method pair alongside the upstream
  * read-side `getExternalEditorCommand` (which honors VISUAL/EDITOR fallbacks):
@@ -34,6 +39,7 @@
 export * from "../../../../coding-agent/src/core/settings-manager.ts";
 
 import { getAgentDir } from "../../../../coding-agent/src/config.ts";
+import { configureHttpDispatcher } from "../../../../coding-agent/src/core/http-dispatcher.ts";
 import {
 	FileSettingsStorage,
 	type SettingsManagerCreateOptions,
@@ -163,9 +169,19 @@ interface SettingsManagerWriteInternals {
 // own save(), so the layered storage routing (general key -> base file, with
 // stale profile shadows stripped) applies. Callers awaiting persistence must
 // flush() the manager.
+/** Structural view of the read internals, for the patched retry getter below. */
+interface SettingsManagerReadInternals {
+	getHttpIdleTimeoutMs(): number;
+}
+
 const prototypePatch = UpstreamSettingsManager.prototype as unknown as {
 	setExternalEditorCommand(this: SettingsManagerWriteInternals, command: string | undefined): void;
 	getExternalEditorSetting(this: SettingsManagerWriteInternals): string | undefined;
+	getProviderRetrySettings(this: SettingsManagerReadInternals): {
+		timeoutMs?: number;
+		maxRetries?: number;
+		maxRetryDelayMs: number;
+	};
 };
 prototypePatch.setExternalEditorCommand = function (command: string | undefined): void {
 	if (command === undefined) {
@@ -201,6 +217,43 @@ declare module "../../../../coding-agent/src/core/settings-manager.ts" {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// pi-plus: the LLM *request* ceiling is not the socket idle timeout
+// ---------------------------------------------------------------------------
+
+/**
+ * Floor for a provider request's total deadline. Upstream's `buildRequestOptions`
+ * resolves it as `retry.provider.timeoutMs ?? httpIdleTimeoutMs`, so on a default
+ * profile the OpenAI-compatible client arms a 300s deadline for the whole request
+ * — while `httpIdleTimeoutMs` is documented (and enforced by undici) as a
+ * between-bytes guard on the socket. A closing-summary request carrying a large
+ * aggregated transcript therefore dies at ~300s of perfectly healthy streaming
+ * with "Request timed out." (2026-10-27 cit-llm session, qwen-token-plan-cn:
+ * durationMs 300008, stopReason "error"). The socket keeps its own timeout; the
+ * request gets a ceiling of its own — at least this, which is the 10 minutes
+ * upstream documents as the OpenAI/Anthropic SDK default.
+ */
+const PI_PLUS_MIN_PROVIDER_REQUEST_TIMEOUT_MS = 600_000;
+/** Upstream's own "no deadline" sentinel, used when httpIdleTimeoutMs is 0/disabled. */
+const PI_PLUS_NO_REQUEST_CEILING_MS = 2_147_483_647;
+
+const upstreamGetProviderRetrySettings = prototypePatch.getProviderRetrySettings;
+// Same private-mutation idiom as the other patches: only the *default* is raised,
+// so an explicit `retry.provider.timeoutMs` in settings.json still wins, and the
+// value is never below the configured socket idle timeout.
+prototypePatch.getProviderRetrySettings = function (this: SettingsManagerReadInternals) {
+	const settings = upstreamGetProviderRetrySettings.call(this);
+	if (settings.timeoutMs !== undefined) return settings;
+	const httpIdleTimeoutMs = this.getHttpIdleTimeoutMs();
+	return {
+		...settings,
+		timeoutMs:
+			httpIdleTimeoutMs === 0
+				? PI_PLUS_NO_REQUEST_CEILING_MS
+				: Math.max(httpIdleTimeoutMs, PI_PLUS_MIN_PROVIDER_REQUEST_TIMEOUT_MS),
+	};
+};
+
 const upstreamCreate = UpstreamSettingsManager.create.bind(UpstreamSettingsManager);
 
 UpstreamSettingsManager.create = (
@@ -210,9 +263,24 @@ UpstreamSettingsManager.create = (
 ): UpstreamSettingsManager => {
 	const resolvedAgentDir = resolvePath(agentDir);
 	const baseDir = getBaseAgentDir(resolvedAgentDir);
-	if (!baseDir) {
-		return upstreamCreate(cwd, resolvedAgentDir, options);
+	const manager = baseDir
+		? UpstreamSettingsManager.fromStorage(new ProfileLayeredSettingsStorage(cwd, resolvedAgentDir, baseDir), options)
+		: upstreamCreate(cwd, resolvedAgentDir, options);
+	// Upstream arms the undici dispatcher from its CLI entry points only
+	// (main.ts / cli/setup.ts / rpc-entry.ts), so an embedder that never runs them
+	// — the desktop, an SDK script — silently ignored the profile's
+	// httpIdleTimeoutMs and ran on undici's defaults. Every host that loads a
+	// profile comes through this factory, so the loaded profile now owns the
+	// process timeouts everywhere; the call is idempotent per value, which also
+	// keeps a hub profile switch consistent. `inMemory()`/`fromStorage()` are
+	// deliberately not patched: a unit test must never rewrite global fetch.
+	// Best-effort: an unparseable httpIdleTimeoutMs keeps failing where upstream
+	// fails (the first request build reads it), instead of breaking every host
+	// that merely opens a settings manager for an unrelated read.
+	try {
+		configureHttpDispatcher(manager.getHttpIdleTimeoutMs());
+	} catch {
+		/* reported by the normal settings read paths */
 	}
-	const storage = new ProfileLayeredSettingsStorage(cwd, resolvedAgentDir, baseDir);
-	return UpstreamSettingsManager.fromStorage(storage, options);
+	return manager;
 };
