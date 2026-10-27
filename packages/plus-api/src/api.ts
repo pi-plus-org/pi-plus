@@ -85,6 +85,7 @@ export type {
 	DiagramSpec,
 } from "../../plus/src/extensions/diagram/types.ts";
 export * from "../../plus/src/extensions/permissions/index.ts";
+export * from "./mcp.ts";
 export * from "./packages.ts";
 
 import type { PlanReviewDialogChoice } from "../../plus/src/extensions/plan/index.ts";

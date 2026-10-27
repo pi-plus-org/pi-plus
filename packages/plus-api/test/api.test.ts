@@ -24,7 +24,9 @@ import { SessionManager } from "../../plus/src/coding-agent/core/session-manager
 import type { ExtensionAPI, SessionShutdownEvent, SessionStartEvent } from "../src/api.ts";
 import {
 	AGENT_DIR,
+	addMcpServer,
 	addProfile,
+	checkMcpServers,
 	clearDefaultProfile,
 	createAgentSession,
 	createPlusAgentSession,
@@ -33,21 +35,28 @@ import {
 	createTerminalAuthInteraction,
 	DEFAULT_AUTO_COMPACT_THRESHOLD_PERCENT,
 	DEFAULT_CONTEXT_FLOOR_TOKENS,
+	DEFAULT_MCP_LOGIN_TIMEOUT_MS,
 	DefaultResourceLoader,
 	findProfile,
 	getAutoCompactThresholdPercent,
 	getContextFloorTokens,
 	getContextWindowCapTokens,
 	getDefaultProfileName,
+	getMcpConfigPaths,
 	installPackage,
+	listMcpCredentials,
+	listMcpServers,
 	listPackages,
 	loadProfiles,
+	loginMcpServer,
 	loginProvider,
+	logoutMcpServer,
 	ModelRuntime,
 	materializeProfile,
 	plusSdkExtensionFactories,
 	profileDirFor,
 	readPiPlusSettings,
+	removeMcpServer,
 	removePackage,
 	removeProfile,
 	removeProfileDir,
@@ -60,8 +69,10 @@ import {
 	subscribeToRecapFailures,
 	syncProfilePackagesToSource,
 	THINKING_LEVELS,
+	updateMcpServer,
 	updatePackages,
 	updateProfile,
+	validateMcpServer,
 } from "../src/api.ts";
 
 const tempDirs: string[] = [];
@@ -246,6 +257,169 @@ describe("package maintenance surface", () => {
 
 		// An untrusted manager also stops reading project declarations.
 		expect(listPackages({ cwd, agentDir, projectTrusted: false })).toEqual([]);
+	});
+});
+
+describe("MCP management surface", () => {
+	it("re-exports the MCP maintenance entries", () => {
+		for (const fn of [
+			getMcpConfigPaths,
+			listMcpServers,
+			validateMcpServer,
+			addMcpServer,
+			removeMcpServer,
+			updateMcpServer,
+			checkMcpServers,
+			loginMcpServer,
+			logoutMcpServer,
+			listMcpCredentials,
+		]) {
+			expect(typeof fn).toBe("function");
+		}
+		expect(DEFAULT_MCP_LOGIN_TIMEOUT_MS).toBe(300_000);
+	});
+
+	it("adds, disables, and removes a global server without ever connecting", async () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		expect(getMcpConfigPaths({ cwd, agentDir })).toEqual({
+			global: join(agentDir, "mcp.json"),
+			project: join(cwd, ".pi", "mcp.json"),
+		});
+
+		const add = addMcpServer("demo", { command: "node", args: ["server.js"] }, { cwd, agentDir });
+		expect(add).toEqual({ replaced: false, path: join(agentDir, "mcp.json") });
+		expect(JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8")).mcpServers.demo).toEqual({
+			command: "node",
+			args: ["server.js"],
+		});
+		expect(addMcpServer("demo", { command: "node", args: ["other.js"] }, { cwd, agentDir }).replaced).toBe(true);
+
+		const listed = listMcpServers({ cwd, agentDir });
+		expect(listed.servers).toHaveLength(1);
+		expect(listed.servers[0]).toMatchObject({ name: "demo", scope: "global" });
+
+		expect(updateMcpServer("demo", { enabled: false }, { cwd, agentDir })).toEqual({
+			path: join(agentDir, "mcp.json"),
+		});
+		const check = await checkMcpServers({ cwd, agentDir });
+		expect(check.errors).toEqual([]);
+		expect(check.servers).toEqual([
+			expect.objectContaining({ name: "demo", scope: "global", enabled: false, state: "disabled", tools: [] }),
+		]);
+
+		expect(removeMcpServer("demo", { cwd, agentDir })).toEqual({ removed: true, path: join(agentDir, "mcp.json") });
+		expect(removeMcpServer("demo", { cwd, agentDir }).removed).toBe(false);
+		expect(listMcpServers({ cwd, agentDir }).servers).toEqual([]);
+	});
+
+	it("validates entries the way the loader does, without writing them", () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		expect(validateMcpServer("ok", { command: "node" })).toMatchObject({ command: "node" });
+		expect(validateMcpServer("ok", { url: "not-a-url" })).toContain("must be an http or https URL");
+		expect(validateMcpServer("bad name", { command: "node" })).toContain("invalid server name");
+		expect(() => addMcpServer("bad name", { command: "node" }, { cwd, agentDir })).toThrow(/invalid server name/);
+		expect(existsSync(join(agentDir, "mcp.json"))).toBe(false);
+	});
+
+	it("honors project trust and scopes for project writes and overrides", () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		addMcpServer("global-demo", { command: "node" }, { cwd, agentDir });
+
+		expect(() =>
+			addMcpServer("proj", { command: "node" }, { cwd, agentDir, local: true, projectTrusted: false }),
+		).toThrow(/Project is not trusted/);
+		expect(() =>
+			updateMcpServer(
+				"global-demo",
+				{ exposure: "direct" },
+				{ cwd, agentDir, scope: "project", projectTrusted: false },
+			),
+		).toThrow(/Project is not trusted/);
+
+		addMcpServer("proj", { command: "node" }, { cwd, agentDir, local: true });
+		expect(Object.keys(JSON.parse(readFileSync(join(cwd, ".pi", "mcp.json"), "utf8")).mcpServers)).toEqual(["proj"]);
+		expect(
+			listMcpServers({ cwd, agentDir })
+				.servers.map((server) => server.scope)
+				.sort(),
+		).toEqual(["global", "project"]);
+
+		// Auto-scope update writes the file that defines the entry; scope "project" creates an override.
+		updateMcpServer("global-demo", { enabled: false }, { cwd, agentDir });
+		expect(JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8")).mcpServers["global-demo"]).toEqual({
+			command: "node",
+			enabled: false,
+		});
+		expect(updateMcpServer("global-demo", { exposure: "direct" }, { cwd, agentDir, scope: "project" })).toEqual({
+			path: join(cwd, ".pi", "mcp.json"),
+		});
+		expect(JSON.parse(readFileSync(join(cwd, ".pi", "mcp.json"), "utf8")).mcpServers["global-demo"]).toEqual({
+			exposure: "direct",
+		});
+		const overridden = listMcpServers({ cwd, agentDir }).servers.find((server) => server.name === "global-demo");
+		expect(overridden?.override).toBe(join(cwd, ".pi", "mcp.json"));
+		expect(overridden?.config).toMatchObject({ exposure: "direct", enabled: false });
+
+		expect(() => updateMcpServer("missing", { enabled: false }, { cwd, agentDir })).toThrow(
+			/No MCP server named "missing"/,
+		);
+	});
+
+	it("reports broken configs and disabled servers in checkMcpServers", async () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		writeFileSync(
+			join(agentDir, "mcp.json"),
+			JSON.stringify({ mcpServers: { bad: {}, off: { command: "node", enabled: false } } }),
+		);
+		const check = await checkMcpServers({ cwd, agentDir });
+		expect(check.errors).toHaveLength(1);
+		expect(check.errors[0]).toContain("bad");
+		expect(check.servers).toEqual([expect.objectContaining({ name: "off", state: "disabled", tools: [] })]);
+	});
+
+	it("guards login for unknown and non-OAuth servers", async () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		await expect(loginMcpServer("missing", { cwd, agentDir, openUrl: () => {} })).rejects.toThrow(
+			/No MCP server named "missing"/,
+		);
+		addMcpServer("stdio-demo", { command: "node" }, { cwd, agentDir });
+		await expect(loginMcpServer("stdio-demo", { cwd, agentDir, openUrl: () => {} })).rejects.toThrow(
+			/does not use OAuth/,
+		);
+	});
+
+	it("lists and removes OAuth credentials without exposing secrets", () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		expect(listMcpCredentials({ cwd, agentDir })).toEqual([]);
+		writeFileSync(
+			join(agentDir, "mcp-auth.json"),
+			JSON.stringify({
+				"mcp__demo|http://127.0.0.1:9/mcp": {
+					clientInformation: { client_id: "cid" },
+					tokens: { access_token: "secret" },
+					tokensExpireAt: 123,
+				},
+			}),
+		);
+		expect(listMcpCredentials({ cwd, agentDir })).toEqual([
+			{ key: "mcp__demo|http://127.0.0.1:9/mcp", hasClientInformation: true, hasTokens: true, tokensExpireAt: 123 },
+		]);
+		expect(() => logoutMcpServer("missing", { cwd, agentDir })).toThrow(/No MCP server named "missing"/);
+		addMcpServer("demo", { url: "http://127.0.0.1:9/mcp" }, { cwd, agentDir });
+		addMcpServer(
+			"keyed",
+			{ url: "http://127.0.0.1:9/mcp", headers: { Authorization: "Bearer secret" } },
+			{ cwd, agentDir },
+		);
+		expect(() => logoutMcpServer("keyed", { cwd, agentDir })).toThrow(/does not use OAuth/);
+		expect(logoutMcpServer("demo", { cwd, agentDir })).toBe(true);
+		expect(listMcpCredentials({ cwd, agentDir })).toEqual([]);
 	});
 });
 
@@ -674,10 +848,15 @@ describe("api.d.ts drift guard", () => {
 		// `export * from "@earendil-works/pi-coding-agent"`; named exports must
 		// each appear in the declaration file.
 		const namedExports = new Set<string>();
-		for (const match of runtimeSource.matchAll(
-			/export\s+(?:async\s+)?(?:function|const|interface)\s+([A-Za-z0-9_]+)/g,
-		)) {
-			namedExports.add(match[1]);
+		const collect = (source: string) => {
+			for (const match of source.matchAll(/export\s+(?:async\s+)?(?:function|const|interface)\s+([A-Za-z0-9_]+)/g)) {
+				namedExports.add(match[1]);
+			}
+		};
+		collect(runtimeSource);
+		for (const match of runtimeSource.matchAll(/export\s+\*\s+from\s+"\.\/([A-Za-z0-9_.-]+)"/g)) {
+			// `export *` local modules contribute their own declarations to the entry; scan them too.
+			collect(readFileSync(join(plusDir, "src", match[1]), "utf8"));
 		}
 		assert.ok(namedExports.size >= 4, `expected named exports in api.ts, got: ${[...namedExports].join(", ")}`);
 		for (const name of namedExports) {

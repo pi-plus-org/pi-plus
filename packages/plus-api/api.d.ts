@@ -25,7 +25,10 @@ import type {
 	ExtensionError,
 	ExtensionUIContext,
 	InlineExtension,
+	LoadedMcpConfig,
 	LoadExtensionsResult,
+	McpExposure,
+	McpServerConfig,
 	PromptTemplate,
 	ResourceDiagnostic,
 	SessionInfo,
@@ -423,6 +426,146 @@ export declare function updatePackages(source?: string, options?: PlusPackageMai
  * successful install/remove/update.
  */
 export declare function clearExtensionCache(): void;
+
+// ---------------------------------------------------------------------------
+// MCP server maintenance — the programmatic equivalent of `pi mcp
+// list/add/remove/login/logout`. pi-plus disables the TUI's /mcp commands, so
+// hosts (desktop frontends, IDE adapters) manage MCP servers through these
+// entries: config CRUD on the same two files pi loads (<agentDir>/mcp.json and
+// a trusted project's <cwd>/.pi/mcp.json), live status checks, and the OAuth
+// sign-in/out flow — all reusing pi's own MCP runtime. Re-exported from
+// packages/plus-api/src/mcp.ts; the runtime bundle inlines the module.
+// ---------------------------------------------------------------------------
+
+/**
+ * Copy of the type from packages/coding-agent/src/extensions/mcp/config.ts
+ * (not exported by the upstream barrel). Only presentation keys are patchable;
+ * connection config changes go through addMcpServer.
+ */
+export interface McpServerConfigPatch {
+	enabled?: boolean | undefined;
+	exposure?: McpExposure | undefined;
+}
+
+/** Host options locating the two MCP config files. */
+export interface PlusMcpOptions {
+	/** Project root whose `.pi/mcp.json` participates. Defaults to `process.cwd()`. */
+	cwd?: string;
+	/** Pi agent directory holding the global `mcp.json`. Defaults to `getAgentDir()`. */
+	agentDir?: string;
+	/** Whether the project may contribute local MCP config. Defaults to true. */
+	projectTrusted?: boolean;
+}
+
+/** Options for writes choosing between the global and the project file. */
+export interface PlusMcpEditOptions extends PlusMcpOptions {
+	/** true targets `<cwd>/.pi/mcp.json`; false/undefined `<agentDir>/mcp.json`. */
+	local?: boolean;
+}
+
+/** Options for updates that need to find the file actually defining the server. */
+export interface PlusMcpUpdateOptions extends PlusMcpOptions {
+	/**
+	 * Where to write the patch. Omitted: the file that defines or overrides the
+	 * server. "project" writes/creates a project override; "user" forces the
+	 * global file.
+	 */
+	scope?: "user" | "project";
+}
+
+/** Absolute paths of the two mcp.json files for these options. */
+export declare function getMcpConfigPaths(options?: PlusMcpOptions): { global: string; project: string };
+/** Merged MCP config pi would start a session with; broken files report in `errors`, never throw. */
+export declare function listMcpServers(options?: PlusMcpOptions): LoadedMcpConfig;
+/** Validate a raw mcp.json entry pi's way without writing it: config or error string. */
+export declare function validateMcpServer(name: string, raw: unknown): McpServerConfig | string;
+/** Add or replace a server in the scope's mcp.json (validated first; invalid configs throw). */
+export declare function addMcpServer(
+	name: string,
+	config: McpServerConfig,
+	options?: PlusMcpEditOptions,
+): { replaced: boolean; path: string };
+/** Remove a server from the scope's mcp.json. Does not touch OAuth credentials. */
+export declare function removeMcpServer(name: string, options?: PlusMcpEditOptions): { removed: boolean; path: string };
+/** Patch `enabled`/`exposure` of an existing server without touching its connection config. */
+export declare function updateMcpServer(
+	name: string,
+	patch: McpServerConfigPatch,
+	options?: PlusMcpUpdateOptions,
+): { path: string };
+
+/** One server as `pi mcp list` reports it: static config plus live state when enabled. */
+export interface McpServerStatus {
+	name: string;
+	scope: "global" | "project" | "extension";
+	/** File defining the entry. */
+	source: string;
+	/** File overriding it, when a project override exists. */
+	override?: string;
+	enabled: boolean;
+	/** Server-level exposure; pi defaults to "codemode". */
+	exposure: string;
+	/** `"stdio"` (command line) or the server URL. */
+	transport: string;
+	/** "disabled" when not enabled; otherwise the runtime state after a connect attempt. */
+	state: "disabled" | "connecting" | "connected" | "disconnected" | "needs-auth" | "failed" | "closed";
+	/** Registered tool names (namespaced), empty unless connected. */
+	tools: string[];
+	/** Per-tool exposure overrides differing from `exposure`. */
+	toolExposure?: Record<string, string>;
+	resources?: boolean;
+	error?: string;
+}
+
+/** Result of checkMcpServers. */
+export interface PlusMcpCheckResult {
+	servers: McpServerStatus[];
+	/** Config-load problems (unreadable file, invalid entries). */
+	errors: string[];
+	/** Set when the project config exists but the project is not trusted. */
+	note?: string;
+}
+
+/** Connect to every enabled server in parallel and report state/tools, like `pi mcp list`. */
+export declare function checkMcpServers(options?: PlusMcpOptions): Promise<PlusMcpCheckResult>;
+
+/** Options for loginMcpServer. */
+export interface PlusMcpLoginOptions extends PlusMcpOptions {
+	/** Open the authorization URL in the user's browser (hosts own shell access). */
+	openUrl: (url: string) => void;
+	/**
+	 * Ask the user to paste the redirected URL when the loopback callback cannot
+	 * reach this machine. Omitted: sign-in waits for the callback only.
+	 */
+	promptForRedirectUrl?: (signal: AbortSignal) => Promise<string | undefined>;
+	/** Whole-flow timeout in ms. Defaults to 300000, like `pi mcp login`. */
+	timeoutMs?: number;
+	/** Cancels the flow with McpSignInCancelledError. */
+	signal?: AbortSignal;
+}
+
+/** Default deadline for `pi mcp login`-equivalent sign-in. */
+export declare const DEFAULT_MCP_LOGIN_TIMEOUT_MS: number;
+/**
+ * Run pi's OAuth sign-in for one configured server. An already-authenticated
+ * server resolves immediately; `needs-auth` opens `openUrl` and waits for the
+ * loopback callback. Returns the connected tool names; tokens are stored in
+ * `<agentDir>/mcp-auth.json`.
+ */
+export declare function loginMcpServer(name: string, options: PlusMcpLoginOptions): Promise<string[]>;
+/** Remove a server's stored OAuth credentials; false when it never signed in. */
+export declare function logoutMcpServer(name: string, options?: PlusMcpOptions): boolean;
+
+/** One stored OAuth credential record, keyed like `<agentDir>/mcp-auth.json`. */
+export interface McpCredentialInfo {
+	key: string;
+	hasClientInformation: boolean;
+	hasTokens: boolean;
+	tokensExpireAt?: number;
+}
+
+/** Summarize `<agentDir>/mcp-auth.json` without secret material; empty when absent. */
+export declare function listMcpCredentials(options?: PlusMcpOptions): McpCredentialInfo[];
 
 export interface CreatePlusAgentSessionOptions extends CreateAgentSessionOptions {
 	extensionFactories?: InlineExtension[];
