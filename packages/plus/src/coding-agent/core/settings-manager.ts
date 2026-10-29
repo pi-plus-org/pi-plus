@@ -39,7 +39,6 @@
 export * from "../../../../coding-agent/src/core/settings-manager.ts";
 
 import { getAgentDir } from "../../../../coding-agent/src/config.ts";
-import { configureHttpDispatcher } from "../../../../coding-agent/src/core/http-dispatcher.ts";
 import {
 	FileSettingsStorage,
 	type SettingsManagerCreateOptions,
@@ -49,6 +48,11 @@ import {
 } from "../../../../coding-agent/src/core/settings-manager.ts";
 import { resolvePath } from "../../../../coding-agent/src/utils/paths.ts";
 import { stripBom } from "../../../../coding-agent/src/utils/text.ts";
+import {
+	configureHttpDispatcher,
+	PI_PLUS_MIN_PROVIDER_REQUEST_TIMEOUT_MS,
+	PI_PLUS_NO_TIMEOUT_MS,
+} from "./http-dispatcher.ts";
 import { deepMergeSettingObjects, getBaseAgentDir, isProfileScopedSettingsKey } from "./profile-settings.ts";
 
 function parseSettingsJson(content: string | undefined): Record<string, unknown> | undefined {
@@ -230,12 +234,10 @@ declare module "../../../../coding-agent/src/core/settings-manager.ts" {
  * aggregated transcript therefore dies at ~300s of perfectly healthy streaming
  * with "Request timed out." (2026-10-27 cit-llm session, qwen-token-plan-cn:
  * durationMs 300008, stopReason "error"). The socket keeps its own timeout; the
- * request gets a ceiling of its own — at least this, which is the 10 minutes
- * upstream documents as the OpenAI/Anthropic SDK default.
+ * request gets a ceiling of its own — at least the floor shared with the
+ * dispatcher wrapper (see ./http-dispatcher.ts, which arms headersTimeout above
+ * it so this deadline is the one that fires first).
  */
-const PI_PLUS_MIN_PROVIDER_REQUEST_TIMEOUT_MS = 600_000;
-/** Upstream's own "no deadline" sentinel, used when httpIdleTimeoutMs is 0/disabled. */
-const PI_PLUS_NO_REQUEST_CEILING_MS = 2_147_483_647;
 
 const upstreamGetProviderRetrySettings = prototypePatch.getProviderRetrySettings;
 // Same private-mutation idiom as the other patches: only the *default* is raised,
@@ -249,7 +251,7 @@ prototypePatch.getProviderRetrySettings = function (this: SettingsManagerReadInt
 		...settings,
 		timeoutMs:
 			httpIdleTimeoutMs === 0
-				? PI_PLUS_NO_REQUEST_CEILING_MS
+				? PI_PLUS_NO_TIMEOUT_MS
 				: Math.max(httpIdleTimeoutMs, PI_PLUS_MIN_PROVIDER_REQUEST_TIMEOUT_MS),
 	};
 };

@@ -14,6 +14,12 @@ export const REDIRECTS = new Map([
 	// deep-merged under the profile's settings.json (profile wins), with writes
 	// routed back per key. Only active when PI_PLUS_BASE_AGENT_DIR is set.
 	["packages/coding-agent/src/core/settings-manager.ts", "packages/plus/src/coding-agent/core/settings-manager.ts"],
+	// Provider request timeouts: the socket must not cap a request at the
+	// between-bytes idle timeout (undici's headersTimeout is a first-byte budget),
+	// and the dispatcher is armed from SettingsManager.create so embedded hosts
+	// honor the profile's httpIdleTimeoutMs too. Redirected because the CLI, the
+	// RPC host and the SDK bundle all import the upstream path.
+	["packages/coding-agent/src/core/http-dispatcher.ts", "packages/plus/src/coding-agent/core/http-dispatcher.ts"],
 	// pi-plus session-marker overlay: the transcript header gains an optional
 	// `interactive` flag so headless runs (pipi -p / rpc, SDK embeds without UI
 	// handlers) stay out of user-facing session lists.
