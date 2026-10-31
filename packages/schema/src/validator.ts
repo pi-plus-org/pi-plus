@@ -1,29 +1,16 @@
 // compile(): a schema to a Validator, whose `check` is the fast boolean path and whose `errors` explains failures.
 
 import type { Static } from "./builders.ts";
-import { Coercer } from "./coerce.ts";
 import { Compiler, RESTART } from "./compiler.ts";
 import { Explainer } from "./explain.ts";
-import type { Check, CompileOptions, JsonSchema, ParseResult, ValidationError } from "./types.ts";
+import type { Check, CompileOptions, JsonSchema, ValidationError } from "./types.ts";
 
 /**
  * Compiles `schema` into a Validator. Throws if the schema is malformed or a `$ref` names nothing (register other
- * documents with `options.schemas`). The schema is read, never modified. With `coerce: true` the validator also
- * coerces and parses loosely typed input.
+ * documents with `options.schemas`). The schema is read, never modified.
  */
-export function compile<S extends JsonSchema>(
-	schema: S,
-	options: CompileOptions & { readonly coerce: true },
-): CoercingValidator<Static<S>>;
-export function compile<S extends JsonSchema>(schema: S, options?: CompileOptions): Validator<Static<S>>;
-export function compile<S extends JsonSchema>(
-	schema: S,
-	options: CompileOptions = NO_OPTIONS,
-): Validator<Static<S>> | CoercingValidator<Static<S>> {
-	const check = compileCheck(schema, options);
-	return options.coerce === true
-		? new CoercingValidator(schema, options, check)
-		: new Validator(schema, options, check);
+export function compile<S extends JsonSchema>(schema: S, options: CompileOptions = NO_OPTIONS): Validator<Static<S>> {
+	return new Validator(schema, options, compileCheck(schema, options));
 }
 
 const NO_OPTIONS: CompileOptions = Object.freeze({});
@@ -32,8 +19,8 @@ const NO_OPTIONS: CompileOptions = Object.freeze({});
 export class Validator<T = unknown> {
 	/** Whether `value` is valid. A plain function: it may be passed around without its validator. */
 	readonly check: (value: unknown) => value is T;
-	protected readonly schema: JsonSchema;
-	protected readonly options: CompileOptions;
+	private readonly schema: JsonSchema;
+	private readonly options: CompileOptions;
 	private explainer: Explainer | undefined = undefined;
 
 	constructor(schema: JsonSchema, options: CompileOptions, check: Check) {
@@ -51,39 +38,6 @@ export class Validator<T = unknown> {
 		if (this.check(value)) return [];
 		this.explainer ??= new Explainer(compiler(this.schema, this.options), this.schema);
 		return this.explainer.errors(value);
-	}
-
-	/**
-	 * `value` itself when it is valid, else its errors: check() and errors() in one result, without coercion.
-	 *
-	 * Not TypeBox's `Value.Parse`, which also clones, fills defaults, converts and strips undeclared properties before
-	 * it checks. This only checks: the strict replacement where `Value.Parse` is used to validate (its other steps
-	 * change nothing for a valid value of a schema without defaults or extra properties). Use `parse()` with
-	 * `coerce: true` for conversion.
-	 */
-	validate(value: unknown): ParseResult<T> {
-		return this.check(value) ? { ok: true, value } : { ok: false, errors: this.errors(value) };
-	}
-}
-
-/** A validator compiled with `coerce: true`: it also coerces loosely typed input towards the schema. */
-export class CoercingValidator<T = unknown> extends Validator<T> {
-	private coercer: Coercer | undefined = undefined;
-
-	/**
-	 * `value` coerced towards the schema: numeric strings to numbers, `"true"` to `true`, a single value to a one-item
-	 * array, an optional `null` dropped, the first union branch the value converts to (the README lists every rule).
-	 * Only the changed paths are copied; `value` comes back itself when nothing changes, and is never modified. Values
-	 * that cannot be coerced stay as they are. The rules are built on the first call.
-	 */
-	coerce(value: unknown): unknown {
-		this.coercer ??= new Coercer(compiler(this.schema, this.options), this.schema);
-		return this.coercer.coerce(value);
-	}
-
-	/** Coerces `value`, then checks it: the coerced value when it is valid, else its errors. */
-	parse(value: unknown): ParseResult<T> {
-		return this.validate(this.coerce(value));
 	}
 }
 

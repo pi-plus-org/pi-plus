@@ -12,86 +12,30 @@ export interface Resolved {
 /** The base URI of a root schema without `$id`; relative references resolve against it. */
 export const DEFAULT_BASE = "https://json-schema.invalid/root.json";
 
-/**
- * Resolves references in the root schema and the registered documents. The schema is indexed on the first
- * reference or the first `$id` a walker meets, so a schema with neither is never walked for identifiers.
- */
+/** Indexes the root schema and resolves references in it and in the registered documents. */
 export class Resolver {
 	readonly draft: "2020-12" | "7";
-	/** The base URI the root schema is walked from; walkers apply the root's own `$id` through `baseFor`. */
-	readonly rootBase = DEFAULT_BASE;
+	readonly rootBase: string;
 	/** Schema object to the base URI it was indexed under. */
 	readonly baseOf = new Map<object, string>();
 	/** URI (with a `#name` fragment) of every `$dynamicAnchor`, to its schema. */
 	readonly dynamicAnchors = new Map<string, SchemaObject>();
-	private readonly root: JsonSchema;
-	private readonly options: CompileOptions;
 	private readonly registry = new Map<string, JsonSchema>();
-	private readonly rejectUnresolved: boolean;
-	/** The references that named nothing and resolved to `false` (with `unresolvedRefs: "reject"`). */
-	private readonly unresolved = new Set<string>();
 	private readonly resources = new Map<string, unknown>();
 	private readonly anchors = new Map<string, SchemaObject>();
-	private indexed = false;
 
 	constructor(root: JsonSchema, options: CompileOptions) {
 		this.draft = options.draft === "7" ? "7" : "2020-12";
-		this.root = root;
-		this.options = options;
-		this.rejectUnresolved = options.unresolvedRefs === "reject";
-	}
-
-	/**
-	 * The base URI of `node`, whose parent has `base`: its `$id` changes it, unless draft 7 makes the `$id` inert. Once
-	 * the schema is indexed, the indexed base (a resolved reference target already has its own).
-	 */
-	baseFor(node: SchemaObject, base: string): string {
-		let indexed = this.baseOf.get(node);
-		if (indexed !== undefined) return indexed;
-		const id = node.$id;
-		if (typeof id !== "string") return base;
-		// Index before applying an `$id`: a caller's `base` may already include it, and the index applies it once.
-		if (!this.indexed) {
-			this.ensureIndexed();
-			indexed = this.baseOf.get(node);
-			if (indexed !== undefined) return indexed;
-		}
-		if (this.draft === "7" && (typeof node.$ref === "string" || id.startsWith("#"))) return base;
-		return documentOf(resolveUri(id, base));
-	}
-
-	/** Indexes the root schema and the registered documents' URIs (once). */
-	ensureIndexed(): void {
-		if (this.indexed) return;
-		this.indexed = true;
-		for (const [uri, schema] of Object.entries(this.options.schemas ?? {})) {
+		for (const [uri, schema] of Object.entries(options.schemas ?? {})) {
 			this.registry.set(documentOf(resolveUri(uri, DEFAULT_BASE)), schema);
 		}
-		this.resources.set(DEFAULT_BASE, this.root);
-		this.index(this.root, DEFAULT_BASE);
+		this.resources.set(DEFAULT_BASE, root);
+		this.index(root, DEFAULT_BASE);
+		this.rootBase = (isSchemaObject(root) && this.baseOf.get(root)) || DEFAULT_BASE;
 	}
 
-	/**
-	 * The schema a reference names, with the base URI it compiles under. Throws if it names nothing, or, with
-	 * `unresolvedRefs: "reject"`, resolves to `false`, the schema no value passes.
-	 */
+	/** The schema a reference names, with the base URI it compiles under. Throws if it names nothing. */
 	resolve(ref: string, base: string): Resolved {
-		this.ensureIndexed();
-		if (!this.rejectUnresolved) return this.find(ref, base);
-		try {
-			return this.find(ref, base);
-		} catch {
-			this.unresolved.add(resolveUri(ref, base));
-			return { node: false, base };
-		}
-	}
-
-	/** Whether `ref`, from `base`, named nothing and resolved to `false`. */
-	isUnresolved(ref: string, base: string): boolean {
-		return this.unresolved.has(resolveUri(ref, base));
-	}
-
-	private find(ref: string, base: string): Resolved {
 		const uri = resolveUri(ref, base);
 		const doc = documentOf(uri);
 		const fragment = uri.length > doc.length ? decodeURIComponent(uri.slice(doc.length + 1)) : "";
@@ -106,7 +50,6 @@ export class Resolver {
 
 	/** Whether `node` is the root of the schema resource at `base`. */
 	isResource(node: object, base: string): boolean {
-		this.ensureIndexed();
 		return this.resources.get(base) === node;
 	}
 

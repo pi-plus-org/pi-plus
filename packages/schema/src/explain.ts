@@ -3,7 +3,6 @@
 
 import { newAnnotations } from "./annotations.ts";
 import {
-	type Bound,
 	codePoints,
 	constCheck,
 	containsCheck,
@@ -23,11 +22,6 @@ import type { SchemaObject, ValidationError } from "./types.ts";
 export class Explainer {
 	private readonly c: Compiler;
 	private readonly schema: unknown;
-	/**
-	 * The errors of `$ref` targets for object values, within one errors() call: a recursive union explains each branch
-	 * to pick the one to blame, and every branch would explain the same children again, exponentially in the depth.
-	 */
-	private memo: Map<object, Map<object, { path: string; errors: ValidationError[] }>> | undefined = undefined;
 
 	constructor(compiler: Compiler, schema: unknown) {
 		this.c = compiler;
@@ -38,11 +32,7 @@ export class Explainer {
 	/** The errors of `value`, at least one (`value` failed the check). */
 	errors(value: unknown): ValidationError[] {
 		const out: ValidationError[] = [];
-		try {
-			this.walk(this.schema, this.c.r.rootBase, value, "", out);
-		} finally {
-			this.memo = undefined;
-		}
+		this.walk(this.schema, this.c.r.rootBase, value, "", out);
 		if (out.length === 0) out.push({ path: "", keyword: "schema", message: "invalid" });
 		return out;
 	}
@@ -59,14 +49,15 @@ export class Explainer {
 			return;
 		}
 		if (!isSchemaObject(node)) return;
-		const b = this.c.r.baseFor(node, base);
+		const b = this.c.r.baseOf.get(node) ?? base;
 		if (this.ok(node, b, v)) return;
 		const start = out.length;
 		const push = (keyword: string, message: string, at = path) => {
 			out.push({ path: at, keyword, message });
 		};
 		if (this.c.draft === "7" && typeof node.$ref === "string") {
-			this.walkRef(node.$ref, b, v, path, out);
+			const target = this.c.r.resolve(node.$ref, b);
+			this.walk(target.node, target.base, v, path, out);
 			return;
 		}
 		if (node.type !== undefined) {
@@ -78,12 +69,12 @@ export class Explainer {
 			}
 		}
 		if (Array.isArray(node.enum) && !enumCheck(node.enum)(v))
-			push("enum", `expected one of ${listValues(node.enum)}`);
+			push("enum", `expected one of ${JSON.stringify(node.enum)}`);
 		if (Object.hasOwn(node, "const") && !constCheck(node.const)(v))
 			push("const", `expected ${JSON.stringify(node.const)}`);
 		if (typeof v === "string" && node.type !== "bytes") this.walkString(node, v, push);
 		if (v instanceof Uint8Array && node.type === "bytes") this.walkBytes(node, v, push);
-		if (typeof v === "number" || typeof v === "bigint") this.walkNumber(node, v, push);
+		if (typeof v === "number") this.walkNumber(node, v, push);
 		if (isObject(v)) this.walkObject(node, b, v, path, out, push);
 		if (Array.isArray(v)) this.walkArray(node, b, v, path, out, push);
 		if (Array.isArray(node.allOf)) for (const s of node.allOf) this.walk(s, b, v, path, out);
@@ -94,40 +85,16 @@ export class Explainer {
 			const branch = this.ok(node.if, b, v) ? node.then : node.else;
 			if (branch !== undefined) this.walk(branch, b, v, path, out);
 		}
-		if (typeof node.$ref === "string") this.walkRef(node.$ref, b, v, path, out);
+		if (typeof node.$ref === "string") {
+			const target = this.c.r.resolve(node.$ref, b);
+			this.walk(target.node, target.base, v, path, out);
+		}
 		if (out.length === start && (node.unevaluatedProperties !== undefined || node.unevaluatedItems !== undefined)) {
 			this.walkUnevaluated(node, b, v, path, out);
 		}
 		if (out.length === start && typeof node.$dynamicRef === "string") {
 			push("$dynamicRef", "does not match the dynamically referenced schema");
 		}
-	}
-
-	private walkRef(ref: string, base: string, v: unknown, path: string, out: ValidationError[]): void {
-		const target = this.c.r.resolve(ref, base);
-		if (target.node === false && this.c.r.isUnresolved(ref, base)) {
-			out.push({ path, keyword: "$ref", message: `unresolved reference ${ref}` });
-			return;
-		}
-		if (!isSchemaObject(target.node) || typeof v !== "object" || v === null) {
-			this.walk(target.node, target.base, v, path, out);
-			return;
-		}
-		this.memo ??= new Map();
-		let values = this.memo.get(target.node);
-		const known = values?.get(v);
-		if (known !== undefined && known.path === path) {
-			out.push(...known.errors);
-			return;
-		}
-		const errors: ValidationError[] = [];
-		this.walk(target.node, target.base, v, path, errors);
-		if (values === undefined) {
-			values = new Map();
-			this.memo.set(target.node, values);
-		}
-		values.set(v, { path, errors });
-		out.push(...errors);
 	}
 
 	private walkString(node: SchemaObject, v: string, push: Push): void {
@@ -158,16 +125,18 @@ export class Explainer {
 		}
 	}
 
-	// Numbers and bigints alike: bounds of either kind compare with values of either kind.
-	private walkNumber(node: SchemaObject, v: Bound, push: Push): void {
-		const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf } = node;
-		if (isBound(minimum) && v < minimum) push("minimum", `expected >= ${minimum}`);
-		if (isBound(maximum) && v > maximum) push("maximum", `expected <= ${maximum}`);
-		if (isBound(exclusiveMinimum) && v <= exclusiveMinimum)
-			push("exclusiveMinimum", `expected > ${exclusiveMinimum}`);
-		if (isBound(exclusiveMaximum) && v >= exclusiveMaximum)
-			push("exclusiveMaximum", `expected < ${exclusiveMaximum}`);
-		if (isBound(multipleOf) && !isMultiple(v, multipleOf)) push("multipleOf", `expected a multiple of ${multipleOf}`);
+	private walkNumber(node: SchemaObject, v: number, push: Push): void {
+		if (typeof node.minimum === "number" && v < node.minimum) push("minimum", `expected >= ${node.minimum}`);
+		if (typeof node.maximum === "number" && v > node.maximum) push("maximum", `expected <= ${node.maximum}`);
+		if (typeof node.exclusiveMinimum === "number" && v <= node.exclusiveMinimum) {
+			push("exclusiveMinimum", `expected > ${node.exclusiveMinimum}`);
+		}
+		if (typeof node.exclusiveMaximum === "number" && v >= node.exclusiveMaximum) {
+			push("exclusiveMaximum", `expected < ${node.exclusiveMaximum}`);
+		}
+		if (typeof node.multipleOf === "number" && !isMultiple(v, node.multipleOf)) {
+			push("multipleOf", `expected a multiple of ${node.multipleOf}`);
+		}
 	}
 
 	private walkObject(
@@ -181,10 +150,8 @@ export class Explainer {
 		const properties = isSchemaObject(node.properties) ? node.properties : {};
 		const required = Array.isArray(node.required) ? node.required : [];
 		for (const k of required) {
-			if (typeof k !== "string") continue;
-			// Present and set to undefined: missing unless its schema takes undefined (see declaredObject).
-			const accepted = v[k] === undefined && Object.hasOwn(properties, k) && this.ok(properties[k], b, undefined);
-			if (!Object.hasOwn(v, k) || (v[k] === undefined && !accepted)) push("required", "missing", pointer(path, k));
+			if (typeof k === "string" && (!Object.hasOwn(v, k) || v[k] === undefined))
+				push("required", "missing", pointer(path, k));
 		}
 		for (const k of Object.keys(properties)) {
 			if (Object.hasOwn(v, k) && v[k] !== undefined) this.walk(properties[k], b, v[k], pointer(path, k), out);
@@ -263,7 +230,7 @@ export class Explainer {
 			const min = draft7 || typeof node.minContains !== "number" ? 1 : node.minContains;
 			const max = draft7 || typeof node.maxContains !== "number" ? Number.POSITIVE_INFINITY : node.maxContains;
 			if (!containsCheck(this.c.check(node.contains, b), min, max)(v)) {
-				push("contains", containsMessage(min, max));
+				push("contains", `expected between ${min} and ${max} matching items`);
 			}
 		}
 	}
@@ -291,39 +258,23 @@ export class Explainer {
 				out.push({
 					path: pointer(path, tag.key),
 					keyword,
-					message: `expected one of ${listValues(tag.values)}`,
+					message: `expected one of ${JSON.stringify(tag.values)}`,
 				});
 			else this.walk(branches[i], b, v, path, out);
 			return;
 		}
-		// An object is blamed on the branch that declares most of its properties (the one it was most likely meant for),
-		// then on the branch whose first error is deepest.
-		let best: { errors: ValidationError[]; declared: number } | undefined;
+		let best: ValidationError[] | undefined;
 		for (const s of branches) {
 			const errors: ValidationError[] = [];
 			this.walk(s, b, v, path, errors);
-			if (errors.length === 0) continue;
-			const declared = isObject(v) ? this.declaredKeys(s, b, v) : 0;
-			const better =
-				best === undefined ||
-				declared > best.declared ||
-				(declared === best.declared && errors[0].path.length > best.errors[0].path.length);
-			if (better) best = { errors, declared };
+			if (errors.length > 0 && (best === undefined || errors[0].path.length > best[0].path.length)) best = errors;
 		}
-		out.push(...(best?.errors ?? [{ path, keyword, message: "matches no alternative" }]));
-	}
-
-	/** How many of the keys of `v` the branch `s` (through a `$ref`) declares in `properties`. */
-	private declaredKeys(s: unknown, b: string, v: Record<string, unknown>): number {
-		const node =
-			isSchemaObject(s) && typeof s.$ref === "string" ? this.c.r.resolve(s.$ref, this.c.r.baseFor(s, b)).node : s;
-		const properties = isSchemaObject(node) && isSchemaObject(node.properties) ? node.properties : {};
-		return Object.keys(v).filter((k) => Object.hasOwn(properties, k)).length;
+		out.push(...(best ?? [{ path, keyword, message: "matches no alternative" }]));
 	}
 
 	private tagOf(branches: readonly unknown[], b: string): { key: string; values: unknown[] } | undefined {
 		const resolved = branches.map((s) =>
-			isSchemaObject(s) && typeof s.$ref === "string" ? this.c.r.resolve(s.$ref, this.c.r.baseFor(s, b)).node : s,
+			isSchemaObject(s) && typeof s.$ref === "string" ? this.c.r.resolve(s.$ref, b).node : s,
 		);
 		const first = resolved[0];
 		if (!isSchemaObject(first) || !isSchemaObject(first.properties)) return undefined;
@@ -339,8 +290,7 @@ export class Explainer {
 	}
 
 	private walkUnevaluated(node: SchemaObject, b: string, v: unknown, path: string, out: ValidationError[]): void {
-		// `b` already applies the node's `$id`; the copy must not apply it again.
-		const { unevaluatedProperties, unevaluatedItems, $id: _id, ...rest } = node;
+		const { unevaluatedProperties, unevaluatedItems, ...rest } = node;
 		const a = newAnnotations();
 		this.c.annotating(rest, b)(v, a);
 		if (isObject(v) && unevaluatedProperties !== undefined && !a.allProps) {
@@ -364,26 +314,6 @@ export class Explainer {
 
 type Push = (keyword: string, message: string, at?: string) => void;
 
-// Enum errors name the allowed values; a long list (an enum of thousands) is cut, so the message stays readable.
-const LISTED_VALUES = 20;
-
-/** `values` as JSON, at most LISTED_VALUES of them, then how many more there are. */
-function listValues(values: readonly unknown[]): string {
-	if (values.length <= LISTED_VALUES) return JSON.stringify(values);
-	const listed = JSON.stringify(values.slice(0, LISTED_VALUES));
-	return `${listed.slice(0, -1)}, ... and ${values.length - LISTED_VALUES} more]`;
-}
-
-function containsMessage(min: number, max: number): string {
-	if (max === Number.POSITIVE_INFINITY) return `expected at least ${min} matching ${min === 1 ? "item" : "items"}`;
-	if (min === 0) return `expected at most ${max} matching ${max === 1 ? "item" : "items"}`;
-	return `expected between ${min} and ${max} matching items`;
-}
-
-function isBound(value: unknown): value is Bound {
-	return typeof value === "number" || typeof value === "bigint";
-}
-
 function pointer(path: string, key: string | number): string {
 	return `${path}/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`;
 }
@@ -392,8 +322,6 @@ function typeName(v: unknown): string {
 	if (v === null) return "null";
 	if (Array.isArray(v)) return "array";
 	if (v instanceof Uint8Array) return "bytes";
-	if (typeof v === "bigint") return "bigint";
 	if (typeof v === "number" && Number.isInteger(v)) return "integer";
-	if (typeof v === "number" && !Number.isFinite(v)) return String(v);
 	return typeof v;
 }

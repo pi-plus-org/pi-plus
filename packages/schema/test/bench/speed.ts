@@ -20,37 +20,21 @@ function median(values: number[]): number {
 	return [...values].sort((a, b) => a - b)[values.length >> 1];
 }
 
-/**
- * Median ns per check, by case name, input ("valid"/"invalid") and candidate name; null where the candidate cannot
- * compile the schema (Ajv without eval).
- */
-export type SpeedResults = Record<string, Record<"valid" | "invalid", Record<string, number | null>>>;
+/** Median ns per check, by case name, input ("valid"/"invalid") and candidate name. */
+export type SpeedResults = Record<string, Record<"valid" | "invalid", Record<string, number>>>;
 
 const results: SpeedResults = {};
 for (const c of cases) {
 	results[c.name] = { valid: {}, invalid: {} };
 	for (const input of ["valid", "invalid"] as const) {
 		const value = c[input];
-		const runs: {
-			candidate: (typeof candidates)[number];
-			check: (v: unknown) => boolean;
-			n: number;
-			samples: number[];
-		}[] = [];
-		for (const candidate of candidates) {
-			let check: (v: unknown) => boolean;
-			try {
-				check = candidate.prepare(c.schema, { draft: "2020-12" }).check;
-			} catch (error) {
-				if (!(error instanceof EvalError)) throw error;
-				results[c.name][input][candidate.name] = null;
-				continue;
-			}
+		const runs = candidates.map((candidate) => {
+			const { check } = candidate.prepare(c.schema, { draft: "2020-12" });
 			if (check(value) !== (input === "valid")) throw new Error(`${candidate.name} gets ${c.name} (${input}) wrong`);
 			let n = 1000;
 			while (time(check, value, n) * n < ROUND_MS * 1e6 && n < 1e8) n *= 2;
-			runs.push({ candidate, check, n, samples: [] });
-		}
+			return { candidate, check, n, samples: [] as number[] };
+		});
 		for (let round = 0; round < ROUNDS; round++) {
 			for (let i = 0; i < runs.length; i++) {
 				const run = runs[(i + round) % runs.length];
@@ -73,7 +57,6 @@ const out = process.argv.indexOf("--json");
 if (out >= 0) writeFileSync(process.argv[out + 1], JSON.stringify(results, null, "\t"));
 if (sink < 0) console.log(sink);
 
-function format(ns: number | null): string {
-	if (ns === null) return "fails";
+function format(ns: number): string {
 	return ns >= 1000 ? `${(ns / 1000).toFixed(ns >= 10000 ? 0 : 1)} µs` : `${ns.toFixed(0)} ns`;
 }
