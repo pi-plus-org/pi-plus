@@ -40,7 +40,7 @@
 		"src/delta/README.md"
 	],
 	"scripts": {
-		"clean": "shx rm -rf dist",
+		"clean": "node ../../scripts/package-files.mjs clean dist",
 		"build": "tsc -p tsconfig.build.json",
 		"test": "vitest --run",
 		"prepublishOnly": "npm run clean && npm run build"
@@ -66,7 +66,13 @@
 		"esbuild": "0.28.2"
 	},
 	"devDependencies": {
+<<<<<<< HEAD
 		"shx": "0.3.4",
 		"vitest": "4.1.11"
+=======
+		"@types/ws": "8.18.2",
+		"vitest": "4.1.12",
+		"ws": "8.21.0"
+>>>>>>> 4871e9c1d (fix: remove vulnerable dependency chains)
 	}
 }
