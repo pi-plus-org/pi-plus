@@ -123,7 +123,8 @@ describe("Value.Convert.Array", () => {
 		const R = Value.Convert(T, undefined);
 		Assert.IsEqual(R, [undefined]);
 	});
-	it("Should Convert 10", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("Should Convert 10", () => {
 		const T = Type.Array(Type.BigInt());
 		const R = Value.Convert(T, 1n);
 		Assert.IsEqual(R, [1n]);
@@ -654,37 +655,44 @@ describe("Value.Convert.Literal", () => {
 	// ------------------------------------------------------------------
 	// LiteralBigInt
 	// ------------------------------------------------------------------
-	it("LiteralBigInt: Should convert 1", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 1", () => {
 		const T = Type.Literal(100n);
 		const R = Value.Convert(T, 100n);
 		Assert.IsEqual(R, 100n);
 	});
-	it("LiteralBigInt: Should convert 2", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 2", () => {
 		const T = Type.Literal(100n);
 		const R = Value.Convert(T, 100);
 		Assert.IsEqual(R, 100n);
 	});
-	it("LiteralBigInt: Should convert 3", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 3", () => {
 		const T = Type.Literal(1n);
 		const R = Value.Convert(T, "true");
 		Assert.IsEqual(R, 1n);
 	});
-	it("LiteralBigInt: Should convert 4", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 4", () => {
 		const T = Type.Literal(0n);
 		const R = Value.Convert(T, "false");
 		Assert.IsEqual(R, 0n);
 	});
-	it("LiteralBigInt: Should convert 5", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 5", () => {
 		const T = Type.Literal(1n);
 		const R = Value.Convert(T, "1");
 		Assert.IsEqual(R, 1n);
 	});
-	it("LiteralBigInt: Should convert 6", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 6", () => {
 		const T = Type.Literal(0n);
 		const R = Value.Convert(T, "0");
 		Assert.IsEqual(R, 0n);
 	});
-	it("LiteralBigInt: Should convert 7", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 7", () => {
 		const T = Type.Literal(100n);
 		const R = Value.Convert(T, "2");
 		Assert.IsEqual(R, "2");
@@ -692,37 +700,44 @@ describe("Value.Convert.Literal", () => {
 	// ------------------------------------------------------------------
 	// LiteralBigInt
 	// ------------------------------------------------------------------
-	it("LiteralBigInt: Should convert 1", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 1", () => {
 		const T = Type.Literal(100n);
 		const R = Value.Convert(T, 100n);
 		Assert.IsEqual(R, 100n);
 	});
-	it("LiteralBigInt: Should convert 2", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 2", () => {
 		const T = Type.Literal(100n);
 		const R = Value.Convert(T, 100);
 		Assert.IsEqual(R, 100n);
 	});
-	it("LiteralBigInt: Should convert 3", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 3", () => {
 		const T = Type.Literal(1n);
 		const R = Value.Convert(T, "true");
 		Assert.IsEqual(R, 1n);
 	});
-	it("LiteralBigInt: Should convert 4", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 4", () => {
 		const T = Type.Literal(0n);
 		const R = Value.Convert(T, "false");
 		Assert.IsEqual(R, 0n);
 	});
-	it("LiteralBigInt: Should convert 5", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 5", () => {
 		const T = Type.Literal(1n);
 		const R = Value.Convert(T, "1");
 		Assert.IsEqual(R, 1n);
 	});
-	it("LiteralBigInt: Should convert 6", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 6", () => {
 		const T = Type.Literal(0n);
 		const R = Value.Convert(T, "0");
 		Assert.IsEqual(R, 0n);
 	});
-	it("LiteralBigInt: Should convert 7", () => {
+	// Skipped: the schema or the value has no JSON form.
+	it.skip("LiteralBigInt: Should convert 7", () => {
 		const T = Type.Literal(100n);
 		const R = Value.Convert(T, "2");
 		Assert.IsEqual(R, "2");

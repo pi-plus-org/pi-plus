@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- `AgentTool` takes any JSON Schema object as `parameters` (`AgentTool<TParameters extends object>`) and types `params` and `prepareArguments` through `@earendil-works/pi-schema` (`AgentToolParams<TParameters>`): pi-schema's builders give their static type, other schemas (TypeBox included) give `unknown`, `AgentTool<any>` stays `any`. `outputSchema` is any JSON Schema object. `typebox` is no longer a dependency. Migration: build parameters with pi-schema (`obj({ path: str() })` instead of `Type.Object({ path: Type.String() })`), or keep TypeBox schemas and narrow `params` yourself.
+
+### Fixed
+
+- Fixed `streamProxy()` re-parsing the accumulated tool-call arguments on every delta and keeping their raw text on the partial content block ([#9265](https://github.com/earendil-works/pi/issues/9265))
+
+## [1.4.0] - 2026-10-21
+
+### Added
+
+- Added `AgentOptions.identity` and `Agent.identity` (a pi-ai `ClientIdentity`) to set the `User-Agent` and provider attribution of agent loop requests.
+
+## [1.3.0] - 2026-10-15
+
+## [1.2.0] - 2026-10-12
+
 ## [1.1.0] - 2026-10-07
 
 ### Added
