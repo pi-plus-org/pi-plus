@@ -3,7 +3,11 @@
 
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
+<<<<<<< HEAD
 import { event, hostKind, int, local, method, obj, remote, str } from "../../src/contracts/index.ts";
+=======
+import { hostKind, int, local, method, obj, remote, str } from "../../src/contracts/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { defineState } from "../../src/documents/index.ts";
 import {
 	createHost,
@@ -17,7 +21,10 @@ import {
 import { defineJob } from "../../src/jobs/index.ts";
 import { defineRegistry } from "../../src/registries/index.ts";
 import { constant } from "../../src/state/index.ts";
+<<<<<<< HEAD
 import { tableSqlName } from "../../src/store/sql.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { defineTable } from "../../src/store/table.ts";
 import { evolveTable } from "../../src/store/table-evolve.ts";
 import { flushed, memoryStore, Server } from "../support.ts";

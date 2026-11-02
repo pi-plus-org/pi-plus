@@ -6,10 +6,16 @@ import { getEventListeners } from "node:events";
 import { afterEach, describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context, withCancel } from "../../src/context/index.ts";
 import { int, str } from "../../src/contracts/index.ts";
+<<<<<<< HEAD
 import { applyWrite } from "../../src/store/applier.ts";
 import { ARCHIVE_FORMAT, type ArchivePart } from "../../src/store/archive.ts";
 import { createDocument, insertDocument, insertRevision } from "../../src/store/engine.ts";
 import { EXPORT_PAGE, StoreExport } from "../../src/store/export.ts";
+=======
+import { ARCHIVE_FORMAT } from "../../src/store/archive.ts";
+import { insertDocument, insertRevision } from "../../src/store/engine.ts";
+import { EXPORT_PAGE } from "../../src/store/export.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { STORE_SCHEMA } from "../../src/store/schema.ts";
 import type { StagedWrite } from "../../src/store/step.ts";
 import type { ChordStore } from "../../src/store/store.ts";

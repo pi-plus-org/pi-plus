@@ -1,7 +1,12 @@
 import { InMemoryTelemetryContext, type SpanAttributes } from "@earendil-works/pi-telemetry";
 import { describe, expect, it, vi } from "vitest";
+<<<<<<< HEAD
 import { BACKGROUND_CONTEXT as context, withAbortSignal, withCancel, withTelemetry } from "../../src/context/index.ts";
 import { type Address, evolve, hostKind, int, local, method, obj, remote, str } from "../../src/contracts/index.ts";
+=======
+import { BACKGROUND_CONTEXT as context, withAbortSignal, withCancel } from "../../src/context/index.ts";
+import { evolve, hostKind, int, local, method, obj, remote, str } from "../../src/contracts/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { broken } from "../../src/data/index.ts";
 import { type Ctx, createHost, defineFacet, type FacetHost, type HostError, type Self } from "../../src/host/index.ts";
 import type { ChordHost } from "../../src/host/internal.ts";

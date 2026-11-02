@@ -3,7 +3,19 @@
 import { BACKGROUND_CONTEXT } from "../../../src/context/index.ts";
 import { createHost } from "../../../src/host/index.ts";
 import * as chord from "../../../src/index.ts";
+<<<<<<< HEAD
+<<<<<<<< HEAD:packages/chord/test/examples/43-rollout/worker.ts
 import { workerMain } from "../../../src/node/workers/child.ts";
+========
+import { workerMain } from "../../../src/node/workers/index.ts";
+>>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root):packages/chord/test/examples/41-workers/worker.ts
+=======
+<<<<<<<< HEAD:packages/chord/test/examples/41-workers/worker.ts
+import { workerMain } from "../../../src/node/workers/child.ts";
+========
+import { workerMain } from "../../../src/node/workers/index.ts";
+>>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root):packages/chord/test/examples/43-rollout/worker.ts
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 workerMain(
 	async ({ address, parent, plugins, onClose }, context) => {

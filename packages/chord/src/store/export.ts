@@ -6,7 +6,10 @@
 // an abort while it waits for the queue ends the wait. Closing the store ends it too (`released`).
 
 import { awaitWithContext, type Context } from "../context/index.ts";
+<<<<<<< HEAD
 import { kindOfKey } from "../contracts/internal.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { ChordError } from "../data/index.ts";
 import type { JsonValue } from "../json.ts";
 import type { SqliteValue } from "../sqlite/index.ts";

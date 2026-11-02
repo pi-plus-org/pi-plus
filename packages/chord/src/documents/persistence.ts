@@ -3,8 +3,11 @@
 // checked `migrate`, and the writes one commit stages for a changed or retired document.
 
 import type { Context } from "../context/index.ts";
+<<<<<<< HEAD
 import type { KindShape } from "../contracts/index.ts";
 import { kindOfKey } from "../contracts/internal.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Op, Prepared } from "../delta/index.ts";
 import {
 	changeDocument,

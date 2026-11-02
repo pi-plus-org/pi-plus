@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT } from "../../src/context/index.ts";
+<<<<<<< HEAD
 import { canonicalJson, principalJson, principalKey, samePrincipal } from "../../src/data/internal.ts";
 import { counted, expectCollected, metered } from "../support.ts";
+=======
+import { canonicalJson, principalKey } from "../../src/data/internal.ts";
+import { counted, expectCollected } from "../support.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 describe("canonicalJson", () => {
 	it("sorts object keys and writes -0 as 0", () => {

@@ -1,14 +1,19 @@
 // Base bundles (slice 11 §1, decision "Slice 11, P3"): a client kind's base code built on the server at start by
 // esbuild from the app's entry (its start code, its API with the kind's module, Chord, React: inlined once), named by
 // the hash of everything it is made of, served forever. A page's is a browser script with its stylesheet and assets;
+<<<<<<< HEAD
 // a terminal's one CommonJS script the sandbox evaluates with its own `require` (its allowed builtins only). Packages
 // resolve as the server process resolves them, so a base reads the same package files as the server runs: with its
 // conditions (`--conditions`), and through a tsconfig's `paths` for a server that resolves through them; every file it
 // read is recorded with its bytes' hash (`BaseInputs`).
+=======
+// a terminal's one CommonJS script the sandbox evaluates with its own `require` (its allowed builtins only).
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 import { createHash } from "node:crypto";
 import { basename, extname } from "node:path";
 import { build } from "esbuild";
+<<<<<<< HEAD
 import { type BaseInputs, recordedSources } from "../plugins/base-inputs.ts";
 import { ASSET_EXTENSIONS, CSS, JAVASCRIPT, mimeOf, type ServedFile } from "./served.ts";
 
@@ -16,19 +21,30 @@ import { ASSET_EXTENSIONS, CSS, JAVASCRIPT, mimeOf, type ServedFile } from "./se
  * A built base bundle: its hash, its script's and stylesheet's paths (under the surface's prefix), every file by
  * path, and the files esbuild read for it with their bytes' hashes (the app's base code: a file that differs from them
  * outdates the bundle).
+=======
+import { CSS, JAVASCRIPT, mimeOf, type ServedFile } from "./served.ts";
+
+/**
+ * A built base bundle: its hash, its script's and stylesheet's paths (under the surface's prefix), and every file by
+ * path.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
  */
 export type BaseBundle = {
 	readonly hash: string;
 	readonly script: string;
 	readonly style: string | undefined;
 	readonly files: ReadonlyMap<string, ServedFile>;
+<<<<<<< HEAD
 	readonly inputs: BaseInputs;
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 };
 
 /** Where a base bundle runs: a page (a script, its CSS and assets), or a terminal's sandbox (one CommonJS script). */
 export type BasePlatform = "browser" | "sandbox";
 
 /**
+<<<<<<< HEAD
  * How a base bundle's packages resolve, as the server process resolves them: `conditions` (by default the server
  * process's, `processConditions`), and `tsconfig`, a tsconfig.json whose `paths` map packages to files, for a server
  * whose loader resolves through them (a source checkout without `dist/`). Without `tsconfig` every tsconfig.json is
@@ -50,6 +66,14 @@ export async function buildBase(
 	const browser = platform === "browser";
 	const inputs = new Map<string, string>();
 	const resolving = resolution.conditions ?? processConditions(process.execArgv, process.env.NODE_OPTIONS);
+=======
+ * Builds the base bundle of `entry` for `platform`, its files under `prefix` (`/_chord/web/`): the script
+ * `base.<hash>.js`, the stylesheet `base.<hash>.css` when it imports CSS, assets under `assets/` by their own hashes.
+ * Throws esbuild's failure: the server does not start with a broken base.
+ */
+export async function buildBase(entry: string, platform: BasePlatform, prefix: string): Promise<BaseBundle> {
+	const browser = platform === "browser";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	const result = await build({
 		entryPoints: [entry],
 		outdir: "/",
@@ -63,6 +87,7 @@ export async function buildBase(
 		target: browser ? "es2022" : "node22",
 		minify: true,
 		legalComments: "none",
+<<<<<<< HEAD
 		// The given tsconfig for every file (its `paths` are how the server resolves); else none: TypeScript is stripped,
 		// JSX compiled with the automatic React runtime.
 		...(resolution.tsconfig === undefined ? { tsconfigRaw: "{}" } : { tsconfig: resolution.tsconfig }),
@@ -73,6 +98,12 @@ export async function buildBase(
 		// Fonts and images a stylesheet's `url()` (or a script) names: files under `assets/`, named by their content.
 		loader: Object.fromEntries(ASSET_EXTENSIONS.map((extension) => [`.${extension}`, "file" as const])),
 		plugins: [recordedSources(inputs)],
+=======
+		// Ignore any tsconfig.json: TypeScript is stripped, JSX compiled with the automatic React runtime.
+		tsconfigRaw: "{}",
+		jsx: "automatic",
+		define: { "process.env.NODE_ENV": '"production"' },
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		logLevel: "silent",
 	});
 	const hash = createHash("sha256");
@@ -94,6 +125,7 @@ export async function buildBase(
 			files.set(`${prefix}assets/${basename(output.path)}`, { mime: mimeOf(output.path), bytes: output.contents });
 		}
 	}
+<<<<<<< HEAD
 	return { hash: digest, script, style, files, inputs };
 }
 
@@ -140,4 +172,7 @@ function splitNodeOptions(text: string): string[] {
 	}
 	if (started) args.push(current);
 	return args;
+=======
+	return { hash: digest, script, style, files };
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 }

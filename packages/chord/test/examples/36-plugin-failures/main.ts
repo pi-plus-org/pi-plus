@@ -11,8 +11,14 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+<<<<<<< HEAD
 import { BACKGROUND_CONTEXT } from "../../../src/context/index.ts";
 import { int, local, str } from "../../../src/contracts/index.ts";
+=======
+import { BACKGROUND_CONTEXT, withAbortSignal } from "../../../src/context/index.ts";
+import { int, local, str } from "../../../src/contracts/index.ts";
+import { isChordError } from "../../../src/data/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { createHost, type ReloadReport } from "../../../src/host/index.ts";
 import * as chord from "../../../src/index.ts";
 import { createPlugins, mapStack } from "../../../src/node/plugins/index.ts";

@@ -8,8 +8,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
+<<<<<<< HEAD
 import { type Address, hostKind, int, method, remote, str, unknown } from "../../../src/contracts/index.ts";
 import type { Principal } from "../../../src/data/index.ts";
+=======
+import { hostKind, int, method, remote, str, unknown } from "../../../src/contracts/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import * as chord from "../../../src/index.ts";
 import {
 	type App,
@@ -21,7 +25,11 @@ import {
 	WorkerInfo,
 } from "../../../src/node/app/index.ts";
 import { Http } from "../../../src/node/http/index.ts";
+<<<<<<< HEAD
 import { settleFileEvents, writeFiles, writePlugin } from "../plugins/support.ts";
+=======
+import { writeFiles, writePlugin } from "../plugins/support.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /** The principals of these tests. */
 export type TestPrincipal =

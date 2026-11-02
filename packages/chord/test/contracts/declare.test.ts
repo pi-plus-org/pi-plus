@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
 	arr,
@@ -15,6 +16,10 @@ import {
 	remote,
 	str,
 } from "../../src/contracts/index.ts";
+=======
+import { describe, expect, it } from "vitest";
+import { arr, evolve, hostKind, int, keyed, local, method, obj, remote, str } from "../../src/contracts/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { currentVariants, LOCAL } from "../../src/contracts/internal.ts";
 
 const Note = obj({ text: str() });

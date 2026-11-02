@@ -1,9 +1,14 @@
 // Table columns (decisions "Flat columns", "Nullable columns and the `set` form"): descriptors and row types.
 
 import { describe, expect, it } from "vitest";
+<<<<<<< HEAD
 import { type Address, arr, bool, hostKind, int, num, obj, opt, str } from "../../src/contracts/index.ts";
 import { type Columns, columnRecord, describeColumns, type PutRowOf, type RowOf } from "../../src/store/columns.ts";
 import { host } from "../../src/store/host-column.ts";
+=======
+import { arr, bool, int, num, obj, opt, str } from "../../src/contracts/index.ts";
+import { type Columns, columnRecord, describeColumns, type PutRowOf, type RowOf } from "../../src/store/columns.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { json } from "../../src/store/json-column.ts";
 import type { Equal } from "../support.ts";
 

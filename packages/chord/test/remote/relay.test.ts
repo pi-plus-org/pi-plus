@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT as context, withCancel } from "../../src/context/index.ts";
+<<<<<<< HEAD
 import { type EventSource, int, local, method, remote, str } from "../../src/contracts/index.ts";
 import { createHost, defineFacet, untilAborted } from "../../src/host/index.ts";
+=======
+import { local, str } from "../../src/contracts/index.ts";
+import { createHost, defineFacet } from "../../src/host/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { type Compression, type Link, memoryLinkPair } from "../../src/link/index.ts";
 import { binaryCodec, jsonPart, type Message, textCodec } from "../../src/link/internal.ts";
 import type * as Values from "../../src/link/values.ts";

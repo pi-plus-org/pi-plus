@@ -4,7 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
+<<<<<<< HEAD
 import { inviteFacet } from "../../../src/node/app/index.ts";
+=======
+import { inviteFacet, Sessions } from "../../../src/node/app/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { Http } from "../../../src/node/http/index.ts";
 import { send } from "../http/support.ts";
 import { API, bearerFor, testApp, type UserPrincipal, userOwnerApp, WHOAMI } from "./support.ts";

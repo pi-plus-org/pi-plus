@@ -2,6 +2,7 @@
 // It lays out the data directory, opens the server's store, creates the server host, the HTTP component and one
 // workers component per worker kind, the plugins component over the app's required root and the user's root, loads
 // the server's plugins with the kit's own facets (the start-data object, sessions, the owner link, pairing, files),
+<<<<<<< HEAD
 // and gives the app the controls it needs: the owner link, `applyChanges`, installs, export, import and delete per
 // address (the worker's data and the server's records and rows belonging to the address).
 // After the listen, off the start's path, it builds the bases (the surfaces' base bundles, each worker kind's worker
@@ -27,6 +28,23 @@ import type { Watchable } from "../../watch.ts";
 import { createHttp, type HttpComponent, type HttpError, type ListenAddress } from "../http/index.ts";
 import {
 	type BaseInputs,
+=======
+// and gives the app the controls it needs: the owner link, `applyChanges`, installs, export and import per address.
+
+import { join, resolve } from "node:path";
+import { type Context, withAbortSignal } from "../../context/index.ts";
+import { type Address, type HostKind, hostKind, type KindShape } from "../../contracts/index.ts";
+import type { Principal } from "../../data/index.ts";
+import { canonicalJson } from "../../data/principal.ts";
+import { createHost, type Facet, type Host, type HostError, type PluginFacet } from "../../host/index.ts";
+import type { JsonValue } from "../../json.ts";
+import { openNodeSqliteDatabase } from "../../sqlite/node.ts";
+import { openStore, type Store, sqliteBackend } from "../../store/index.ts";
+import { themeChoiceFacet, themesFacet } from "../../surfaces/index.ts";
+import type { Watchable } from "../../watch.ts";
+import { createHttp, type HttpComponent, type HttpError, type ListenAddress } from "../http/index.ts";
+import {
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	createPlugins,
 	type HostPackages,
 	type InstallOptions,
@@ -35,6 +53,7 @@ import {
 	type PluginsError,
 	type PluginsState,
 	type RolloutResult,
+<<<<<<< HEAD
 } from "../plugins/index.ts";
 import {
 	processConditions,
@@ -58,11 +77,22 @@ import {
 	type WorkersError,
 } from "../workers/index.ts";
 import { ARCHIVE_FORMAT, type ArchiveManifest, exists, packData, unpackStaging } from "./archive.ts";
+=======
+	type RolloutStep,
+} from "../plugins/index.ts";
+import { tuiSurface, WEB_PREFIX, type WebSurfaceOptions, webSurface } from "../surfaces/index.ts";
+import { createWorkers, type ProcessLock, processLock, type Workers, type WorkersError } from "../workers/index.ts";
+import { ARCHIVE_FORMAT, type ArchiveManifest, packData, unpackData } from "./archive.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { addressParam, HostData } from "./data.ts";
 import { type FilesCaps, filesFacet } from "./files.ts";
 import { appInfoFacet } from "./info.ts";
 import { type AppLayout, createLayout, defaultDataDir, openDataDir, privateStore, workerDirectory } from "./layout.ts";
+<<<<<<< HEAD
 import { OWNER_PATH, OwnerLink, ownerFacet, ownerTokenFile } from "./owner.ts";
+=======
+import { OWNER_PATH, OwnerLink, type OwnerPrincipal, ownerFacet, ownerTokenFile } from "./owner.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { Pairings, pairingFacet } from "./pairing.ts";
 import { secretFile } from "./secrets.ts";
 import { createSessions } from "./sessions.ts";
@@ -90,10 +120,14 @@ export type AppKind = { readonly platform: "node" | "browser"; readonly packages
 export type AppWorkerKind<P extends Principal> = {
 	/** The host kind (`hostKind("project", { id: str() })`). */
 	readonly kind: KindShape;
+<<<<<<< HEAD
 	/**
 	 * The worker's entry module (it calls `startWorker`), bundled with the base code it imports at start (every worker of
 	 * the kind runs that snapshot until the server restarts); its Node flags and environment.
 	 */
+=======
+	/** The worker's entry module (it calls `startWorker`), its Node flags and environment. */
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	readonly entry: string;
 	readonly execArgv?: readonly string[];
 	readonly env?: Readonly<Record<string, string>>;
@@ -107,16 +141,21 @@ export type AppWorkerKind<P extends Principal> = {
 	readonly idleMs?: () => number;
 };
 
+<<<<<<< HEAD
 /**
  * What the kit reports: from its host, its HTTP component, its workers or its plugins, a base that did not build after
  * the start (`base_build`: `base` is `web`, `tui` or the worker kind's name; the server runs on, the page answers 503,
  * the kind's workers fail their start), or a failed scan of the server's own code (`server_scan`: the server runs on,
  * that code is not compared).
  */
+=======
+/** What the kit reports: from its host, its HTTP component, its workers or its plugins. */
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 export type AppError =
 	| { readonly kind: "host"; readonly error: HostError }
 	| { readonly kind: "http"; readonly error: HttpError }
 	| { readonly kind: "workers"; readonly error: WorkersError }
+<<<<<<< HEAD
 	| { readonly kind: "plugins"; readonly error: PluginsError }
 	| { readonly kind: "base_build"; readonly base: string; readonly error: unknown }
 	| { readonly kind: "server_scan"; readonly error: unknown };
@@ -125,6 +164,11 @@ export type AppError =
  * What `startServer` takes. Worker kinds need `principal.worker`: a type error without it, also for a `workers` list
  * typed as an array (not a tuple) that is empty.
  */
+=======
+	| { readonly kind: "plugins"; readonly error: PluginsError };
+
+/** What `startServer` takes. `{ kind: "owner" }` must be one of the app's principals (the kit's owner). */
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 export type AppOptions<P extends Principal> = {
 	/** The app's name: its default data directory is `~/.<name>`, its archives carry it. */
 	readonly name: string;
@@ -137,12 +181,17 @@ export type AppOptions<P extends Principal> = {
 	readonly api: AppApi;
 	/** The app's facet kinds: `server` and each worker kind's facet kind among them. */
 	readonly kinds: Readonly<Record<string, AppKind>>;
+<<<<<<< HEAD
 	/**
 	 * The server's principal, each worker's (stamped on its link; only with worker kinds) and the owner's: whom the owner
 	 * link, the owner token file and device pairing sign in, and who approves pairings and makes invites (`AppInfo.owner`).
 	 * The owner must be strict JSON and not the server's principal (refused at start).
 	 */
 	readonly principal: { readonly server: P; readonly worker?: (address: Address) => P; readonly owner: P };
+=======
+	/** The server's principal and each worker's (stamped on its link). */
+	readonly principal: { readonly server: P; readonly worker: (address: Address) => P };
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	/** The worker kinds; none: a server with clients only. */
 	readonly workers?: readonly AppWorkerKind<P>[];
 	/** The caps of each host's files (the server's and every worker's). */
@@ -153,6 +202,7 @@ export type AppOptions<P extends Principal> = {
 	readonly install?: InstallOptions;
 	/**
 	 * The web surface (slice 11): the app's web entry (the base bundle's), its page template, the paths serving the
+<<<<<<< HEAD
 	 * page (`["/"]`), whether the page is public, the conditions its packages resolve with (the server process's by
 	 * default); the `web` facet kind. None: no web surface.
 	 */
@@ -188,6 +238,15 @@ export type AppOptions<P extends Principal> = {
 	readonly timeouts?: AppTimeouts;
 	readonly onError: (error: AppError) => void;
 } & ({ readonly workers?: readonly [] } | { readonly principal: { readonly worker: (address: Address) => P } });
+=======
+	 * page (`["/"]`), whether the page is public; the `web` facet kind. None: no web surface.
+	 */
+	readonly web?: AppWeb;
+	/** The terminal surface (slice 11): the app's terminal entry; the `tui` facet kind. None: no terminal clients. */
+	readonly tui?: { readonly entry: string };
+	readonly onError: (error: AppError) => void;
+} & (OwnerPrincipal extends P ? unknown : { readonly "the app's principal type must have { kind: 'owner' }": never });
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /**
  * The bounds of what public endpoints, clients and imports may cost: live ephemeral sessions (1,000; past it the
@@ -204,6 +263,7 @@ export type AppLimits = {
 	readonly importEntries?: number;
 };
 
+<<<<<<< HEAD
 /**
  * The hosts' timeouts in milliseconds (`HostOptions.closeTimeout`, `HostOptions.readyTimeout`,
  * `HostOptions.reloadDrainTimeout`).
@@ -216,6 +276,10 @@ export type AppTimeouts = {
 
 /** The kit's web surface options (`webSurface`'s, its kind `web` and plugins the kit's). */
 export type AppWeb = Pick<WebSurfaceOptions, "entry" | "conditions"> & Omit<WebRoutesOptions, "routes">;
+=======
+/** The kit's web surface options (`webSurface`'s, its kind `web` and plugins the kit's). */
+export type AppWeb = Pick<WebSurfaceOptions, "entry" | "page" | "paths" | "public">;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /** The plugins of a running app, for its "apply changes" control and its installs. */
 export type AppPlugins = {
@@ -234,6 +298,7 @@ export interface App<P extends Principal> {
 	/** The workers components, by host kind name. */
 	readonly workers: ReadonlyMap<string, Workers<HostKind>>;
 	readonly plugins: AppPlugins;
+<<<<<<< HEAD
 	/**
 	 * The web surface, when the app has one: its base bundle's hash once built (`basesBuilt`); `undefined` before, and
 	 * when its build failed.
@@ -241,12 +306,19 @@ export interface App<P extends Principal> {
 	readonly web: { readonly base: string | undefined } | undefined;
 	/** The terminal surface, when the app has one: its base bundle's hash, as `web`'s. */
 	readonly tui: { readonly base: string | undefined } | undefined;
+=======
+	/** The web surface's base bundle hash, when the app has one. */
+	readonly web: { readonly base: string } | undefined;
+	/** The terminal surface's base bundle hash, when the app has one. */
+	readonly tui: { readonly base: string } | undefined;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	/** The data directory. */
 	readonly dataDir: string;
 	/** The owner link of this start (single use, 10 minutes): `http://127.0.0.1:<port>/_chord/owner#<token>`. */
 	ownerLink(): string;
 	/** The owner token file's path (a device session of the owner, mode 0600). */
 	readonly ownerTokenFile: string;
+<<<<<<< HEAD
 	/**
 	 * Settles once every base (the web and terminal base bundles, each worker kind's worker base) was built after the
 	 * start, or failed (reported, `base_build`). Never rejects.
@@ -284,16 +356,34 @@ export interface App<P extends Principal> {
 	 * the worker's lock; refused while its worker runs.
 	 */
 	deleteData(address: Address, context: Context): Promise<void>;
+=======
+	/** Builds the dirty plugins and rolls them out: the server, every worker kind, then the clients; never by itself. */
+	applyChanges(context: Context): Promise<RolloutResult>;
+	/**
+	 * Writes the data the worker at `address` created (its store and finished files) as an archive at `path`, stopping
+	 * nothing: a running worker packs its own store at one consistent point; without one the server packs it under the
+	 * worker's lock (no worker starts meanwhile).
+	 */
+	exportData(address: Address, path: string, context: Context): Promise<void>;
+	/**
+	 * Makes the data of `address` (which must have none yet: nothing is overwritten) from the archive at `archive`,
+	 * under the worker's lock; its next hold starts it.
+	 */
+	importData(archive: string, address: Address, context: Context): Promise<void>;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	/** Closes the HTTP component, the workers, the host, the store, the watcher and the data directory's lock. */
 	close(context: Context): Promise<void>;
 }
 
+<<<<<<< HEAD
 /** What `importData` takes besides the archive and the address. */
 export type DataImportOptions = {
 	/** What happens when the address has data: refused (the default), or replaced. */
 	readonly existing?: "refuse" | "replace";
 };
 
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 /** What `startWorker` reads from its start data besides the app's: the kit's part. */
 export type KitStart = {
 	readonly dir: string;
@@ -301,36 +391,52 @@ export type KitStart = {
 	readonly principal: JsonValue;
 	readonly server: JsonValue;
 	readonly files: { readonly maxFile?: number; readonly maxTotal?: number };
+<<<<<<< HEAD
 	/** Whether the server has a telemetry store: the worker then sends what it records to `WorkerTelemetry`. */
 	readonly telemetry: boolean;
 	/** The cap of uploads under way per `Files` object (`limits.uploads`). */
 	readonly uploads?: number;
 	/** The app's host timeouts (`timeouts`), the worker's host takes them too. */
 	readonly timeouts: AppTimeouts;
+=======
+	/** The cap of uploads under way per `Files` object (`limits.uploads`). */
+	readonly uploads?: number;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 };
 
 /**
  * Starts the app's server (§1): resolves once its plugins are loaded and it listens. A failing plugin of the app's
  * root (or a problem discovery reports there) rejects with the plugins component's `PluginError`, everything closed.
+<<<<<<< HEAD
  * The bases are built right after the listen, from the files as they are then (`basesBuilt`): a page request waits
  * for its surface's, a worker start for its kind's.
  */
 export async function startServer<P extends Principal>(options: AppOptions<P>, context: Context): Promise<App<P>> {
 	checkOwner(options.principal.owner, options.principal.server, context);
+=======
+ */
+export async function startServer<P extends Principal>(options: AppOptions<P>, context: Context): Promise<App<P>> {
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	const { layout, cookieSecret, store, lock } = await openServer(
 		resolve(options.dataDir ?? defaultDataDir(options.name)),
 		context,
 	);
 	const { onError, api, limits = {} } = options;
 	const sessions = createSessions<P>(cookieSecret, { maxEphemeral: limits.ephemeralSessions });
+<<<<<<< HEAD
 	const { telemetry, principalAttributes } = options;
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	const host = createHost<P>({
 		address: Server(),
 		principal: options.principal.server,
 		store,
+<<<<<<< HEAD
 		telemetry,
 		...(principalAttributes === undefined ? {} : { principalAttributes }),
 		...options.timeouts,
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		onError: (error) => onError({ kind: "host", error }),
 	});
 	const http = createHttp(
@@ -338,7 +444,10 @@ export async function startServer<P extends Principal>(options: AppOptions<P>, c
 		{
 			listen: options.listen ?? { host: "127.0.0.1", port: 0 },
 			links: { path: "/chord", opened: sessions.opened },
+<<<<<<< HEAD
 			telemetry,
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			onError: (error) => onError({ kind: "http", error }),
 		},
 		context,
@@ -354,36 +463,57 @@ export async function startServer<P extends Principal>(options: AppOptions<P>, c
 				]),
 			),
 			install: options.install,
+<<<<<<< HEAD
 			// The server's own base code, hashed now; each base bundle's record is added once built (`watchBase`).
 			base: (options.base ?? []).map((path) => resolve(path)),
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			publicPath: `${WEB_PREFIX}assets/`,
 			onError: (error) => onError({ kind: "plugins", error }),
 		},
 		context,
 	);
 	const workers = new Map<string, Workers<HostKind>>();
+<<<<<<< HEAD
 	// The address key of each worker by its principal's key: the principal its link stamps on its telemetry batches.
 	const workerHosts = new Map<string, string>();
 	const link = new OwnerLink();
 	const { owner } = options.principal;
+=======
+	for (const kind of options.workers ?? []) {
+		workers.set(kind.kind.kind, workersOf(host, kind, options, layout.dataDir, plugins, context));
+	}
+	const link = new OwnerLink();
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	const core: PluginFacet<P>[] = [
 		{ name: "chord.http", facet: http.facet },
 		{
 			name: "chord.app.info",
+<<<<<<< HEAD
 			facet: appInfoFacet({ dataDir: layout.dataDir, name: options.name, version: api.versions[0] ?? "", owner }),
 		},
 		{ name: "chord.app.sessions", facet: sessions.facet },
 		{ name: "chord.app.owner", facet: ownerFacet(link, owner) },
+=======
+			facet: appInfoFacet({ dataDir: layout.dataDir, name: options.name, version: api.versions[0] ?? "" }),
+		},
+		{ name: "chord.app.sessions", facet: sessions.facet },
+		{ name: "chord.app.owner", facet: ownerFacet(link) },
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		{
 			name: "chord.app.pairing",
 			facet: pairingFacet(
 				new Pairings({ maxPending: limits.pendingPairings, perAddress: limits.pairingsPerAddress }),
+<<<<<<< HEAD
 				owner,
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			),
 		},
 		{ name: "chord.app.files", facet: filesFacet(join(layout.server, "files"), options.files, limits.uploads) },
 		{ name: "chord.themes", facet: themesFacet() },
 		{ name: "chord.themes.choice", facet: themeChoiceFacet() },
+<<<<<<< HEAD
 		{ name: "chord.translations", facet: translationsFacet() },
 		{ name: "chord.locale.choice", facet: localeChoiceFacet() },
 	];
@@ -422,6 +552,19 @@ export async function startServer<P extends Principal>(options: AppOptions<P>, c
 		const built = buildBases(bases, plugins, compared, report, () => app.closing());
 		const watching = watchBaseCode(plugins, built, compared, report, () => app.closing());
 		app.started(link.renew(), listening, built, watching);
+=======
+	];
+	const surfaces: Surface<P>[] = [];
+	const app = new RunningApp(host, http, workers, plugins, surfaces, { store, lock }, layout, options);
+	try {
+		for (const surface of await surfacesOf(host, options, plugins, context)) {
+			surfaces.push(surface);
+			core.push({ name: `chord.${surface.name}`, facet: surface.facet });
+		}
+		await plugins.load(host, { kind: "server", core, modules: modulesOf(api, options.kinds.server) }, context);
+		await ownerTokenFile(layout.ownerToken, host, context);
+		app.started(link.renew(), await http.listening(context));
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	} catch (error) {
 		await app.close(context);
 		throw error;
@@ -429,6 +572,7 @@ export async function startServer<P extends Principal>(options: AppOptions<P>, c
 	return app;
 }
 
+<<<<<<< HEAD
 /**
  * Refuses an owner the kit could not recognize or that would act as the server (a declaration policy the types cannot
  * express): sessions keep the owner as JSON, so a field `undefined` (or anything else not strict JSON) would never
@@ -544,6 +688,29 @@ function surfacesOf<P extends Principal>(host: Host<P>, options: AppOptions<P>, 
 		surfaces.push({ name: "web", surface: webSurface(host, { ...options.web, plugins }) });
 	if (options.tui !== undefined)
 		surfaces.push({ name: "tui", surface: tuiSurface(host, { ...options.tui, plugins }) });
+=======
+/** A client surface of the app: its name (`web`, `tui`), its facet, its rollout step, its base bundle's hash. */
+type Surface<P extends Principal> = {
+	readonly name: "web" | "tui";
+	readonly facet: Facet<P>;
+	step(name: string): RolloutStep;
+	readonly base: string;
+};
+
+/** The app's client surfaces, built (their base bundles) in order: the web's, the terminal's. */
+async function surfacesOf<P extends Principal>(
+	host: Host<P>,
+	options: AppOptions<P>,
+	plugins: Plugins,
+	context: Context,
+): Promise<Surface<P>[]> {
+	const surfaces: Surface<P>[] = [];
+	if (options.web !== undefined)
+		surfaces.push({ name: "web", ...(await webSurface(host, { ...options.web, plugins }, context)) });
+	if (options.tui !== undefined) {
+		surfaces.push({ name: "tui", ...(await tuiSurface(host, { entry: options.tui.entry, plugins }, context)) });
+	}
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	return surfaces;
 }
 
@@ -587,14 +754,19 @@ function modulesOf(api: AppApi, kind: AppKind | undefined): HostPackages {
 	return { ...api.modules, ...kind?.packages };
 }
 
+<<<<<<< HEAD
 /**
  * The workers component of one worker kind (its base built after the listen, into the kind's directory under
  * `cache/workers/`): started with the kit's part of the start data beside the app's.
  */
+=======
+/** The workers component of one worker kind: started with the kit's part of the start data beside the app's. */
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 function workersOf<P extends Principal>(
 	host: Host<P>,
 	kind: AppWorkerKind<P>,
 	options: AppOptions<P>,
+<<<<<<< HEAD
 	layout: AppLayout,
 	plugins: Plugins,
 	workerHosts: Map<string, string>,
@@ -605,6 +777,15 @@ function workersOf<P extends Principal>(
 	// `AppOptions` admits worker kinds only with `principal.worker`.
 	const worker = options.principal.worker as (address: Address) => P;
 	const { server } = options.principal;
+=======
+	dataDir: string,
+	plugins: Plugins,
+	context: Context,
+): Workers<HostKind> {
+	const facet = kind.facet ?? "worker";
+	const serverKey = canonicalJson(options.principal.server as unknown as JsonValue, context);
+	const isServer = (principal: P): boolean => canonicalJson(principal as unknown as JsonValue, context) === serverKey;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	return createWorkers(
 		host,
 		// A host kind of the app: any params; its addresses come back from its route as the kit hands them on.
@@ -614,6 +795,7 @@ function workersOf<P extends Principal>(
 			entry: kind.entry,
 			...(kind.execArgv === undefined ? {} : { execArgv: kind.execArgv }),
 			...(kind.env === undefined ? {} : { env: kind.env }),
+<<<<<<< HEAD
 			baseDir: join(layout.workerBases, kind.kind.kind),
 			compileCache: layout.compileCache,
 			// The server reaches its workers' kit objects (`HostData`) whatever the app admits.
@@ -623,10 +805,17 @@ function workersOf<P extends Principal>(
 			start: async (address, ctx) => {
 				const principal = worker(address);
 				workerHosts.set(principalKey(principal, ctx), address.key);
+=======
+			// The server reaches its workers' kit objects (`HostData`) whatever the app admits.
+			authorize: (principal, address) => isServer(principal) || kind.authorize(principal, address),
+			principal: options.principal.worker,
+			start: async (address, ctx) => {
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 				const kit: KitStart = {
 					dir: workerDirectory(dataDir, address),
 					facet,
 					// Principals are JSON (they cross links).
+<<<<<<< HEAD
 					principal: principal as unknown as JsonValue,
 					server: server as unknown as JsonValue,
 					files: { ...options.files },
@@ -637,6 +826,16 @@ function workersOf<P extends Principal>(
 				return { kit, app: await kind.start(address, ctx) };
 			},
 			lock: (address) => workerLock(options.name, dataDir, address.key),
+=======
+					principal: options.principal.worker(address) as unknown as JsonValue,
+					server: options.principal.server as unknown as JsonValue,
+					files: { ...options.files },
+					...(options.limits?.uploads === undefined ? {} : { uploads: options.limits.uploads }),
+				};
+				return { kit, app: await kind.start(address, ctx) };
+			},
+			lock: (address) => workerLock(options.name, dataDir, address),
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			...(kind.idleMs === undefined ? {} : { idleMs: kind.idleMs }),
 			plugins,
 			onError: (error) => options.onError({ kind: "workers", error }),
@@ -645,6 +844,7 @@ function workersOf<P extends Principal>(
 	);
 }
 
+<<<<<<< HEAD
 /**
  * Whether a host data commit's rejection leaves its outcome unknown: the store stopped after or during `COMMIT`
  * (`unavailable/storage_failed`), so the commit may stand.
@@ -656,6 +856,11 @@ function unknownOutcome(error: unknown): boolean {
 /** The process lock of the worker at `address`: its worker holds it while it runs, an export or import meanwhile. */
 function workerLock(name: string, dataDir: string, key: string): string {
 	return `${name}:${dataDir}:${key}`;
+=======
+/** The process lock of the worker at `address`: its worker holds it while it runs, an export or import meanwhile. */
+function workerLock(name: string, dataDir: string, address: Address): string {
+	return `${name}:${dataDir}:${address.key}`;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 }
 
 /** How long an export or import waits for a worker's lock: past it a worker holds it (it runs or starts). */
@@ -682,6 +887,7 @@ class RunningApp<P extends Principal> implements App<P> {
 	readonly #lock: ProcessLock;
 	readonly #options: AppOptions<P>;
 	#link = "";
+<<<<<<< HEAD
 	/** The bases' builds after the start (`buildBases`). */
 	#building: Promise<void> = Promise.resolve();
 	/** The recording of the base code after the start (`watchBaseCode`). */
@@ -689,6 +895,9 @@ class RunningApp<P extends Principal> implements App<P> {
 	#closing: Promise<void> | undefined;
 	/** The latest `applyChanges`, settled to nothing: the next one starts after it. */
 	#applying: Promise<void> = Promise.resolve();
+=======
+	#closing: Promise<void> | undefined;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 	constructor(
 		host: Host<P>,
@@ -717,6 +926,7 @@ class RunningApp<P extends Principal> implements App<P> {
 		};
 	}
 
+<<<<<<< HEAD
 	/**
 	 * The start finished: the owner link's token and the address it names (the one listened on), the bases' builds and
 	 * the recording of the base code under way (`basesBuilt`, `baseWatched`).
@@ -725,12 +935,18 @@ class RunningApp<P extends Principal> implements App<P> {
 		this.#link = `http://${linkHost(listening.host)}:${listening.port}${OWNER_PATH}#${token}`;
 		this.#building = building;
 		this.#scanning = scanning;
+=======
+	/** The start finished: the owner link's token and the address it names (the one listened on). */
+	started(token: string, listening: ListenAddress): void {
+		this.#link = `http://${linkHost(listening.host)}:${listening.port}${OWNER_PATH}#${token}`;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	}
 
 	ownerLink(): string {
 		return this.#link;
 	}
 
+<<<<<<< HEAD
 	get basesBuilt(): Promise<void> {
 		return this.#building;
 	}
@@ -768,12 +984,27 @@ class RunningApp<P extends Principal> implements App<P> {
 
 	/** One build of the dirty plugins and its rollout: the server, every worker kind, then the clients. */
 	async #applyChanges(context: Context): Promise<RolloutResult> {
+=======
+	get web(): { readonly base: string } | undefined {
+		return this.#surfaces.find(({ name }) => name === "web");
+	}
+
+	get tui(): { readonly base: string } | undefined {
+		return this.#surfaces.find(({ name }) => name === "tui");
+	}
+
+	async applyChanges(context: Context): Promise<RolloutResult> {
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		const plugins = this.#component;
 		const built = await plugins.build(plugins.state.value.dirty, context);
 		const steps = [
 			plugins.step("server", this.host),
 			...[...this.workers].map(([name, each]) => each.step(name)),
+<<<<<<< HEAD
 			...this.#surfaces.map(({ name, surface }) => surface.step(name)),
+=======
+			...this.#surfaces.map((surface) => surface.step(surface.name)),
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		];
 		return plugins.rollout(steps, built, context);
 	}
@@ -782,6 +1013,7 @@ class RunningApp<P extends Principal> implements App<P> {
 		const workers = this.#workersOf(address);
 		const manifest = this.#manifest(address);
 		const target = resolve(path);
+<<<<<<< HEAD
 		// The server's part first, staged beside the archive: the worker or `packData` packs it with the rest.
 		const staging = await mkdtemp(join(dirname(target), ".chord-server-"));
 		const server = join(staging, "server.archive");
@@ -803,12 +1035,18 @@ class RunningApp<P extends Principal> implements App<P> {
 		target: string,
 		context: Context,
 	): Promise<void> {
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		// Running: the worker packs its own store. Else the lock, unless a worker starts first: then ask it.
 		for (let attempt = 1; ; attempt++) {
 			if (workers.state.value[address.key]?.status === "running") {
 				const data = await this.host.get(HostData, { address: addressParam(address) }, context);
 				try {
+<<<<<<< HEAD
 					await data.exportTo({ path: target, manifest: JSON.stringify(manifest), server }, context);
+=======
+					await data.exportTo({ path: target, manifest: JSON.stringify(manifest) }, context);
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 				} finally {
 					data.release();
 				}
@@ -817,7 +1055,11 @@ class RunningApp<P extends Principal> implements App<P> {
 			const lock = await this.#workerLock(address, context);
 			if (lock !== undefined) {
 				try {
+<<<<<<< HEAD
 					await packData(workerDirectory(this.dataDir, address), manifest, server, target, context);
+=======
+					await packData(workerDirectory(this.dataDir, address), manifest, target, context);
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 				} finally {
 					await lock.release();
 				}
@@ -827,6 +1069,7 @@ class RunningApp<P extends Principal> implements App<P> {
 		}
 	}
 
+<<<<<<< HEAD
 	async importData(
 		archive: string,
 		address: Address,
@@ -836,10 +1079,16 @@ class RunningApp<P extends Principal> implements App<P> {
 		this.#workersOf(address);
 		const { name, limits = {} } = this.#options;
 		const existing = options.existing ?? "refuse";
+=======
+	async importData(archive: string, address: Address, context: Context): Promise<void> {
+		this.#workersOf(address);
+		const { name, limits = {} } = this.#options;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		const accept = (manifest: ArchiveManifest): void => {
 			// A trust boundary: an archive from anywhere.
 			if (manifest?.format !== ARCHIVE_FORMAT) throw new Error(`importData: not a format ${ARCHIVE_FORMAT} archive`);
 			if (manifest.app !== name) throw new Error(`importData: an archive of "${manifest.app}", not "${name}"`);
+<<<<<<< HEAD
 			if (manifest.address?.kind !== address.kind) {
 				throw new Error(`importData: an archive of a ${String(manifest.address?.kind)}, not a ${address.kind}`);
 			}
@@ -908,6 +1157,15 @@ class RunningApp<P extends Principal> implements App<P> {
 		if (lock === undefined) throw new Error(`${what}: ${address.key} ${held}`);
 		try {
 			await work();
+=======
+		};
+		const lock = await this.#workerLock(address, context);
+		// A worker holds it: it runs, so the address has data, and nothing is overwritten.
+		if (lock === undefined) throw new Error(`importData: ${address.key} has data (its worker runs)`);
+		try {
+			const bounds = { bytes: limits.importBytes, entries: limits.importEntries };
+			await unpackData(resolve(archive), workerDirectory(this.dataDir, address), accept, bounds, context);
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		} finally {
 			await lock.release();
 		}
@@ -918,7 +1176,11 @@ class RunningApp<P extends Principal> implements App<P> {
 		const waited = AbortSignal.timeout(ADDRESS_LOCK_MS);
 		try {
 			return await processLock(
+<<<<<<< HEAD
 				workerLock(this.#options.name, this.dataDir, address.key),
+=======
+				workerLock(this.#options.name, this.dataDir, address),
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 				withAbortSignal(waited, context),
 			);
 		} catch (error) {
@@ -950,6 +1212,7 @@ class RunningApp<P extends Principal> implements App<P> {
 		};
 	}
 
+<<<<<<< HEAD
 	/** Whether the app is closing or closed: what runs after the start stops there. */
 	closing(): boolean {
 		return this.#closing !== undefined;
@@ -959,6 +1222,11 @@ class RunningApp<P extends Principal> implements App<P> {
 	 * The close, in order: HTTP (it drains requests the host's close would seal), workers, host, store, the plugins'
 	 * watcher, then the data directory's lock. The bases' builds and the recording of the base code are not waited for:
 	 * what they finish after the close is dropped.
+=======
+	/**
+	 * The close, in order: HTTP first (it drains requests the host's close would seal), workers, host, store, the
+	 * plugins' watcher, then the data directory's lock.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	 */
 	async #close(context: Context): Promise<void> {
 		await this.http.close(context);

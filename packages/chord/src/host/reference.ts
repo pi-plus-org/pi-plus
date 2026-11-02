@@ -5,7 +5,11 @@
 // members (Q10).
 
 import { BACKGROUND_CONTEXT, type Context } from "../context/index.ts";
+<<<<<<< HEAD
 import type { Contract, EventSubscription, Implementation, KindShape, ParamsOf } from "../contracts/index.ts";
+=======
+import type { Contract, Implementation, ParamsOf } from "../contracts/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	type CurrentVariants,
 	currentVariants,
@@ -22,7 +26,10 @@ import { Keyed, type KeyedSlot, type SealToken, Singleton } from "../documents/i
 import type { JsonValue } from "../json.ts";
 import { RETRY_HOPS } from "../link/internal.ts";
 import { type Batch, Constant, type DeriveSource, Source } from "../state/internal.ts";
+<<<<<<< HEAD
 import { storedText } from "../store/text.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { NativeWatchable, Watch, Watchable } from "../watch.ts";
 import type { PinnedKey } from "./attempt.ts";
 import { type Caller, withLinkedAbortSignal } from "./ctx.ts";

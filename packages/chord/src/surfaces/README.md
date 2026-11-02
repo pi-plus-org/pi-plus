@@ -1,7 +1,11 @@
 # surfaces
 
 The client surfaces' portable part (slice 11; design §23 "Web and TUI"; decisions "Slice 11's points", "Slice 11, P3"
+<<<<<<< HEAD
 to "P9", "Looks and themes", "Messages and languages in the app kit"). What a page and a terminal's sandbox run alike, and what the server serves them: exported
+=======
+to "P9", "Looks and themes"). What a page and a terminal's sandbox run alike, and what the server serves them: exported
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 from `@earendil-works/chord`.
 
 - **Scripts objects** (`scripts.ts`): `WebScripts` and `TuiScripts`, remote objects on the server (`hostKind("server")()`,

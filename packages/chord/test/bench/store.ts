@@ -23,7 +23,10 @@ import { openNodeSqliteDatabase } from "../../src/sqlite/node.ts";
 import { sqliteBackend } from "../../src/store/backend.ts";
 import { changeDocument, createDocument } from "../../src/store/engine.ts";
 import { lt } from "../../src/store/expression.ts";
+<<<<<<< HEAD
 import { LiveQueries } from "../../src/store/live-query.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { query } from "../../src/store/query.ts";
 import { TableSql, tableSqlName } from "../../src/store/sql.ts";
 import type { StagedWrite } from "../../src/store/step.ts";

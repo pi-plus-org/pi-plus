@@ -10,7 +10,10 @@ import { snapshotSchema } from "../contracts/snapshot.ts";
 import { ChordError } from "../data/index.ts";
 import { validatorFor } from "../data/internal.ts";
 import type { JsonValue } from "../json.ts";
+<<<<<<< HEAD
 import { chordMetrics } from "../telemetry.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /** What `json(...)` takes besides the schema. */
 export type JsonColumnOptions<T> = {

@@ -5,9 +5,14 @@
 // members), its hold on the path's current link and calls through it: its hold in a `chord.hold` span until bound
 // (shared work: a root on the host's adapter), each call in a `chord.call` span, their carriers on the wire (slice 9).
 
+<<<<<<< HEAD
 import type { TelemetryCarrier, TelemetryContext, TelemetrySpan } from "@earendil-works/pi-telemetry";
 import { BACKGROUND_CONTEXT, type Context, withTelemetry } from "../context/index.ts";
 import type { Contract } from "../contracts/index.ts";
+=======
+import { BACKGROUND_CONTEXT, type Context } from "../context/index.ts";
+import type { Contract, ParamsOf } from "../contracts/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	currentVariants,
 	type MethodData,

@@ -2,13 +2,21 @@
 // the checked `migrate` of an older value and, for a persisted document, its checkpoint rule (slice 6a §10).
 
 import type { Context } from "../context/index.ts";
+<<<<<<< HEAD
 import type { KindShape, Schema, Static } from "../contracts/index.ts";
 import { checkName, fingerprintOf, kindParams } from "../contracts/internal.ts";
+=======
+import type { Schema, Static } from "../contracts/index.ts";
+import { checkName, fingerprintOf } from "../contracts/internal.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { snapshotSchema } from "../contracts/snapshot.ts";
 import { validatorFor } from "../data/internal.ts";
 import type { Op } from "../delta/index.ts";
 import type { JsonValue } from "../json.ts";
+<<<<<<< HEAD
 import { chordMetrics } from "../telemetry.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /** A document root: a JSON object. */
 export type JsonObject = { [key: string]: JsonValue };

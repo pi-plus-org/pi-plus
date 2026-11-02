@@ -5,8 +5,12 @@ over `http`, `workers` and `plugins` so an app is its API, its built-in plugins 
 server, `startWorker` in a worker's entry; the kit makes the data directory, the stores, the hosts, HTTP with deny by
 default, sessions and the owner's sign-in, device pairing, each host's files, export and import per address, and the
 plugin roots with "apply changes". Node-only. Exported as `@earendil-works/chord/app`. Examples 53 (`53-app/`, a whole
+<<<<<<< HEAD
 small app), 54 (sessions and pairing) and 55 (export and import) run one app; 65 (`65-files.ts`) shows `Files` on a
 host of its own.
+=======
+small app), 54 (sessions and pairing) and 55 (export and import) run one app.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ## For apps (`index.ts`)
 
@@ -19,11 +23,15 @@ const app = await startServer<P>({
 	listen: { host: "127.0.0.1", port: 8788 },      // 127.0.0.1 and a free port by default
 	api: { name: "@acme/app", versions: ["v3"], modules: { "@acme/app/v3": v3, "@acme/app/v3/server": v3server } },
 	kinds: { server: { platform: "node" }, worker: { platform: "node" } },
+<<<<<<< HEAD
 	principal: {
 		server: { kind: "server" },
 		worker: (address) => ({ kind: "worker", key: address.key }),   // only with worker kinds
 		owner: { kind: "user", id: "ada" },        // whom the owner's sign-in and pairing sign in
 	},
+=======
+	principal: { server: { kind: "server" }, worker: (address) => ({ kind: "worker", key: address.key }) },
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	workers: [{
 		kind: Project,                              // a host kind of the app, any params
 		entry: "./worker.ts", execArgv: [...], env: {...},
@@ -38,6 +46,7 @@ const app = await startServer<P>({
 		uploads: 64, importBytes: 4 * 2 ** 30, importEntries: 100_000 },
 	web: { entry: "./src/web/main.tsx", page: (request, assets) => shell(request.nonce, assets) },   // slice 11
 	tui: { entry: "./src/tui/main.ts" },
+<<<<<<< HEAD
 	base: ["./src/app/", "./start.ts"],             // base code besides worker entries and the base bundles' inputs
 	timeouts: { closeTimeout: 30_000, readyTimeout: 60_000 },   // every host's (server and workers; the defaults)
 	onError: (error) => log(error),                 // AppError: { kind: "host" | "http" | "workers" | "plugins" | "base_build" | "server_scan", error }
@@ -46,6 +55,12 @@ console.log(`Open ${app.ownerLink()}`);
 app.host; app.http; app.workers.get("project"); app.plugins.state; app.dataDir; app.ownerTokenFile;
 await app.basesBuilt;                                       // the bases built after the listen (failures reported)
 await app.baseWatched;                                      // base code recorded and watched (after the start)
+=======
+	onError: (error) => log(error),                 // AppError: { kind: "host" | "http" | "workers" | "plugins", error }
+}, ctx);
+console.log(`Open ${app.ownerLink()}`);
+app.host; app.http; app.workers.get("project"); app.plugins.state; app.dataDir; app.ownerTokenFile;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 await app.plugins.install({ git: url, ref: "v1" }, ctx);   // into <dataDir>/plugins/
 await app.applyChanges(ctx);                                // build the dirty plugins, roll out: server, then workers
 await app.exportData(Project({ id }), "p.tar", ctx);
@@ -56,6 +71,7 @@ await app.close(ctx);                                       // http, workers, ho
 startWorker<P>({ api, kinds, busy, onError });
 ```
 
+<<<<<<< HEAD
 - **The principal type** `P` is the app's. The kit needs `principal.server`, `principal.owner` (any value of `P`: one of
   the app's users or a variant of its own) and, with worker kinds, `principal.worker(address)` (worker kinds without it
   are a type error on `AppOptions`, also a `workers` list typed as an array, not a tuple, that is empty). The owner must
@@ -64,11 +80,16 @@ startWorker<P>({ api, kinds, busy, onError });
   exemption and invites recognize it by canonical JSON (`samePrincipal`: the default principal key, computed once per
   principal object). Changing `principal.owner` between starts replaces the owner token file and revokes its session;
   other sessions issued for the previous owner stay its own (the app revokes them through `Sessions` if it wants).
+=======
+- **The principal type** `P` is the app's; the kit needs `principal.server` and `principal.worker(address)` and adds
+  one variant, its owner: `{ kind: "owner" }` must be one of `P` (a type error otherwise, on `AppOptions`).
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - **The API's modules** are named by convention: `<api>/<version>` for every kind and `<api>/<version>/<kind>` for a
   kind's own; a kind's `packages` (React for a web kind) are host packages besides. The modules are this process's
   instances; the worker's entry passes the same `api` and `kinds`.
 - **`startServer`**, in order: the data directory, by its real path (refused when it is the home directory, a file
   system's root, or another user's: the kit would make it private), its lock (one server per data directory, also
+<<<<<<< HEAD
   through a symbolic link: a second is refused after a second's wait), the layout made private (below), the cookie
   secret, the server's store, the host (address `Server()`, `principal.server`), `createHttp` (the links endpoint at
   `/chord`), the plugins component with the two roots, one workers component per worker kind (none without worker
@@ -83,15 +104,32 @@ startWorker<P>({ api, kinds, busy, onError });
   at the address acting as `principal.worker(address)`, connected to the server first (trusted, as the server's
   principal), its plugins loaded with the worker's core facets (`chord.app.worker-info`, `chord.app.files`,
   `chord.translations`), `busy`
+=======
+  through a symbolic link: a second is refused after a second's wait), the layout made private (below), the cookie secret, the server's store, the host (address `Server()`,
+  `principal.server`), `createHttp` (the links endpoint at `/chord`), the plugins component with the two roots, one
+  workers component per worker kind (none without worker kinds), the server's plugins loaded with the kit's core
+  facets (`chord.http`, `chord.app.info`, `chord.app.sessions`, `chord.app.owner`, `chord.app.pairing`,
+  `chord.app.files`), the owner token file, the listening port, the owner link. A plugin of the required root failing
+  rejects with the plugins component's `PluginError`, everything closed. `close` is idempotent.
+- **`startWorker`** is `workerMain` plus: the worker's directory `workers/<kind>/<key>/` and its store there, the host
+  at the address acting as `principal.worker(address)`, connected to the server first (trusted, as the server's
+  principal), its plugins loaded with the worker's core facets (`chord.app.worker-info`, `chord.app.files`), `busy`
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
   from the app. A worker's errors reach the server as a fixed "worker failed" (the error stays in the worker's
   `onError`).
 
 ## Start data
 
 The kit's start-data objects serve process values to plugins: `AppInfo` (`chord.app.info`, on the server: `dataDir`,
+<<<<<<< HEAD
 `name`, `version`, the newest API version, `owner`, the app's `principal.owner`) and `WorkerInfo`
 (`chord.app.worker-info`, on workers: `address`, `start`, the start data the app's `start(address)` made). Plugins
 `self.get(AppInfo, {})` through the app's API, which re-exports them; nothing else of the process reaches a plugin.
+=======
+`name`, `version`, the newest API version) and `WorkerInfo` (`chord.app.worker-info`, on workers: `address`, `start`,
+the start data the app's `start(address)` made). Plugins `self.get(AppInfo, {})` through the app's API, which
+re-exports them; nothing else of the process reaches a plugin.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ## Base code
 
@@ -129,9 +167,14 @@ and reads `AppInfo`.
   The token stays in the fragment: browsers never send it, so it never reaches a log. No owner by loopback alone.
 - **The owner token file** `<dataDir>/owner-token`: a device session of the owner for command-line clients on the same
   machine, mode 0600, written in one step (a temporary file made exclusively with mode 0600, then linked or renamed into
+<<<<<<< HEAD
   place). Kept while its token authenticates as the owner (its session exists, the secret matches, not expired, its
   principal is `principal.owner`; its mode set to 0600 again); replaced at the next start otherwise, its session revoked
   when it names another principal (the owner changed).
+=======
+  place). Kept while its token authenticates as the owner (its session exists, the secret matches, not expired; its
+  mode set to 0600 again); replaced at the next start otherwise.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - **Device pairing** for clients elsewhere: `POST /_chord/pair` (public, `{ label? }`) returns `{ code, poll }`; the
   owner opens `/_chord/pair/<code>` signed in (owner only, a confirm page naming the device) and approves; the
   client's `POST /_chord/pair/poll { poll }` answers `{ status: "waiting" }` until then, `{ status: "approved", token }`
@@ -144,6 +187,7 @@ and reads `AppInfo`.
 
 ## Optional plugins
 
+<<<<<<< HEAD
 `defineUsers(profile)` (accounts by id with the app's profile schema: `Users` with `list`, `get`, `update`, `remove`),
 `inviteFacet()` (the owner, `AppInfo.owner`, makes a 7-day single-use link with `POST /_chord/invites { principal, label
 }`, whose page signs the invitee in as that principal) and `ephemeralLoginFacet<P>()` (a public `POST /_chord/login {
@@ -151,6 +195,15 @@ name }` signing in as `{ kind: "user", id: <fresh>, name }`, a type error unless
 facets, not plugin directories: each takes the app's settings as arguments (a profile schema, the principal type), and a
 plugin directory could not import the kit (plugins import only the app's API). The app re-exports one through its API
 and adds a one-line plugin to its root:
+=======
+`defineUsers(profile)` (accounts by id with the app's profile schema: `Users` with `list`, `get`, `update`,
+`remove`), `inviteFacet()` (the owner's `POST /_chord/invites { principal, label }` makes a 7-day single-use link,
+whose page signs the invitee in as that principal) and `ephemeralLoginFacet<P>()` (a public `POST /_chord/login {
+name }` signing in as `{ kind: "user", id: <fresh>, name }`, a type error unless `P` allows it). They are exported
+facets, not plugin directories: each takes the app's settings as arguments (a profile schema, the principal type),
+and a plugin directory could not import the kit (plugins import only the app's API). The app re-exports one through
+its API and adds a one-line plugin to its root:
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ```ts
 // app/v3/server.ts
@@ -166,12 +219,19 @@ export default users.facet;
 <dataDir>/                 mode 0700, like every directory below
   server/store.sqlite      the server's store, mode 0600 (and its journal files)
   server/cookie-secret     mode 0600
+<<<<<<< HEAD
   server/files/            the server's files: blobs/<id> (mode 0600), .uploads/ (uploads under way)
   workers/<kind>/<key>/    a worker's store.sqlite and files/
   plugins/                 the user's plugins root
   logs/
   cache/workers/<kind>/    the worker kind's base (files 0600), written again at every start, removed at close
   cache/node/              Node's compile cache for the workers
+=======
+  server/files/            the server's files, mode 0600
+  workers/<kind>/<key>/    a worker's store.sqlite and files/
+  plugins/                 the user's plugins root
+  logs/
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
   owner-token              mode 0600
 ```
 
@@ -182,6 +242,7 @@ read a store (it holds the sessions) nor replace it.
 A worker's key is percent-encoded as one directory name (`/`, `\`, `.` and capital letters included, so keys differing
 only in case stay apart on a case-insensitive file system), or `sha256-<hex>` past 160 characters.
 
+<<<<<<< HEAD
 `Files` (`chord.app.files`, local, one per host: the server's and each worker's; decision "Files v2") keeps a host's
 files: their bytes in its `files/` (`blobs/<id>`, uploads under way in `.uploads/`), their index in its store (tables
 `chord.app.files:files`, `:folders`, `:blobs`, `:paths` and the documents `summary` and `usage`; `files-index.ts`). Plugins never
@@ -239,6 +300,21 @@ see a path on disk.
   is open, while the source goes on (p2's fork).
 
 `Files` is `local`: a client uploads through the plugin's own remote methods, which call it.
+=======
+`Files` (`chord.app.files`, local, one per host: the server's and each worker's) keeps a host's files in its `files/`
+and their index (id, name, mime, size, created) in its store: `put({ name, mime, bytes })` (at most 4 MiB),
+chunked transfers (design §23): `begin({ name, mime })`, `append({ upload, offset, bytes })` (at most 4 MiB a chunk,
+about 1 MiB usual; `offset` must be the bytes stored so far, else `invalid` with the stored `{ offset }`),
+`uploaded(upload)` (where a writer resumes after a drop), `finish(upload)`; `read({ id, offset, length })` (at most 4
+MiB), `remove(id)`, `list`. Appends may be sent without waiting for the previous one: each is accepted at the offset
+the accepted ones reached and written at its position (one file handle per upload); `uploaded`, `finish` and expiry
+wait for the writes in flight, and a failed write ends its upload. Each upload under way holds a file handle, so at
+most `limits.uploads` (64) are under way per `Files` object: past it `begin` is refused `unavailable` (`busy`) until
+one finishes or an idle one expires. Caps per host (`files` option): a file over `maxFile` or a write past `maxTotal` (uploads
+under way count) is refused `too_large`. An upload unwritten for an hour expires; uploads end with the object, and
+those a previous run left are dropped when the object goes live. `Files` is `local`: a client uploads through the
+plugin's own remote methods, which call it.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ## Export and import
 
@@ -262,6 +338,7 @@ archive leaves nothing. The next hold starts the worker on the imported store an
 ## Plugins
 
 Roots: the app's `root` (required: a plugin of it failing stops `startServer`) and `<dataDir>/plugins/` (the user's:
+<<<<<<< HEAD
 installs go there). `app.plugins.state` is the plugins component's marks for the app's "apply changes" button.
 
 Its `base` ("restart needed") compares base code with what runs by content, with one latched exception. By content:
@@ -327,14 +404,23 @@ directory). The server's own process loads its modules before the kit runs, so t
 supervisor or start command should set `NODE_COMPILE_CACHE` (for example to `<dataDir>/cache/node`) for the server (a
 minimal server's module loading then takes about 110 ms instead of 390 ms once the cache is warm). Measured on a
 desktop (slayer, Linux x64, Node 24.4.1, warm file system).
+=======
+installs go there). `app.plugins.state` is the plugins component's marks for the app's "apply changes" button;
+`applyChanges` builds the dirty plugins (and installed ones) and rolls out to the server, then each worker kind;
+nothing is applied by itself.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ## Internals
 
 `app.ts` (`startServer`, the `App`), `worker.ts` (`startWorker`), `layout.ts` (the layout, private directories and
 stores), `secrets.ts` (tokens, hashes, files of mode 0600), `sessions.ts`, `owner.ts` (owner link and token file),
+<<<<<<< HEAD
 `pairing.ts`, `files.ts` (`Files`, `FilesFolder`, the facet), `files-index.ts` (the index's tables, documents,
 queries and changes), `blobs.ts` (blob files), `folder-views.ts` (live listings), `uploads.ts` (chunked uploads),
 `files-copy.ts` (`copyFiles`), `info.ts` (start-data objects), `archive.ts` and `tar.ts`
+=======
+`pairing.ts`, `files.ts` and `uploads.ts` (chunked uploads), `info.ts` (start-data objects), `archive.ts` and `tar.ts`
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 (export and import), `ephemeral-sessions.ts`, and the optional plugins `users.ts`, `invite.ts`, `ephemeral.ts`.
 
 ## Web and terminal (slice 11)
@@ -342,6 +428,7 @@ queries and changes), `blobs.ts` (blob files), `folder-views.ts` (live listings)
 With `web` the kit builds the page's base bundle from `web.entry`, publishes the `web` kind's plugin scripts and serves
 the page through `web.page` at `web.paths` (`["/"]`), signed in unless `web.public` (`webSurface`,
 `@earendil-works/chord/surfaces`); with `tui` the terminal's base bundle and the `tui` kind's scripts for launchers
+<<<<<<< HEAD
 (`tuiSurface`). Both base bundles resolve packages with the server process's conditions (`--conditions`/`-C` of its
 flags and `NODE_OPTIONS`: a server started with `--conditions=source` serves pages built from Chord's source, never
 `dist/`), or with `web.conditions`/`tui.conditions`. Plugin assets are served under `/_chord/web/assets/` (the plugins
@@ -349,5 +436,10 @@ component's `publicPath`).
 `applyChanges` rolls out to the server, the workers, then the surfaces (`web`, `tui`: the new set published, clients
 not waited for). Both base bundles are built right after the listen (see "Startup cost"); `app.web` and `app.tui` give
 their hashes once built (`undefined` before, and when the build failed). The server also serves the `Themes` registry and
+=======
+(`tuiSurface`). Plugin assets are served under `/_chord/web/assets/` (the plugins component's `publicPath`).
+`applyChanges` rolls out to the server, the workers, then the surfaces (`web`, `tui`: the new set published, clients
+not waited for). `app.web` and `app.tui` give the base bundles' hashes. The server also serves the `Themes` registry and
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 `ThemeChoice` (each principal's dark and light pick, kept in its store). Without `web` and `tui` an app has no client
 surface (API only).

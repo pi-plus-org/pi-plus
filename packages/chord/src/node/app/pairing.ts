@@ -9,7 +9,10 @@
 
 import { randomInt } from "node:crypto";
 import type { Principal } from "../../data/index.ts";
+<<<<<<< HEAD
 import { samePrincipal } from "../../data/principal.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { defineFacet, type Facet } from "../../host/index.ts";
 import { Http, type HttpRequest, type HttpResponse } from "../http/index.ts";
 import { hashToken, newToken } from "./secrets.ts";

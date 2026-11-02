@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { awaitWithContext, type Context, withAbortSignal, withoutAbortSignal } from "@earendil-works/chord/context";
+=======
+import { awaitWithContext, type Context } from "@earendil-works/chord/context";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { type Draft, overlap, ownedSlice } from "@earendil-works/chord/delta";
 import { copyJson, type JsonRepresentation, type JsonValue } from "@earendil-works/chord/json";
 import {

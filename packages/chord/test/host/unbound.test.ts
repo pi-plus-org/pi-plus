@@ -6,7 +6,10 @@ import { createHost, defineFacet } from "../../src/host/index.ts";
 import type { ChordHost } from "../../src/host/internal.ts";
 import { Binding } from "../../src/host/reference.ts";
 import { UnboundIndex, type UnboundRequest } from "../../src/host/unbound.ts";
+<<<<<<< HEAD
 import { UnboundClock } from "../../src/host/unbound-clock.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { memoryLinkPair } from "../../src/link/index.ts";
 import { jsonPart } from "../../src/link/internal.ts";
 import { Hold } from "../../src/remote/hold.ts";

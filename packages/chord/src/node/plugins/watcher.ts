@@ -3,6 +3,7 @@
 // never applies it. A changed file dirties every plugin whose facets used it (a copied contract every user), whose
 // directory contains it or which is a single-file plugin of it; a changed `package.json` asks for an install (and for
 // its metadata to be read again); a plugin directory, a facet file or a single-file plugin's file added or removed asks
+<<<<<<< HEAD
 // for discovery again. Base code is compared, not latched: `base` (the app restarts its hosts) is true exactly while a
 // file differs from what a running base artifact read (its bytes' hash: the server's own code hashed at start, each
 // base bundle's record), is gone, or is a source file new in a base directory; checked once when its watch starts and
@@ -26,6 +27,17 @@ import { BACKGROUND_CONTEXT, type Context } from "../../context/index.ts";
 import type { JsonValue } from "../../json.ts";
 import { type Batch, Source } from "../../state/internal.ts";
 import { type BaseInputs, contentHash } from "./base-inputs.ts";
+=======
+// for discovery again; a file of base code asks the app to restart its hosts. The
+// marks are a JSON watchable; each mark records the generation of its latest change (generations only increase), so a
+// change during a build keeps its mark, however late an older build's rollout clears.
+
+import { type Dirent, existsSync, type FSWatcher, lstatSync, readdirSync, realpathSync, watch } from "node:fs";
+import { basename, dirname, join, resolve, sep } from "node:path";
+import { BACKGROUND_CONTEXT, type Context } from "../../context/index.ts";
+import type { JsonValue } from "../../json.ts";
+import { type Batch, Source } from "../../state/internal.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { type BuiltFacet, inside } from "./build.ts";
 import { type Discovery, FACET_EXTENSIONS, type Plugin, sameFiles } from "./discover.ts";
 
@@ -46,7 +58,10 @@ export type DiscoverySnapshot = { readonly set: number; readonly manifest: numbe
 /** What the watcher watches and how it reports: the roots, the base code, the facet kinds, a failure to watch. */
 export type WatcherOptions = {
 	readonly roots: readonly string[];
+<<<<<<< HEAD
 	/** The server's own base code, files and directories: hashed when the watcher starts, the first base record. */
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	readonly base: readonly string[];
 	readonly kinds: readonly string[];
 	/** The watcher cannot watch (the system's limit): reported once, after which the app builds on demand. */
@@ -56,9 +71,12 @@ export type WatcherOptions = {
 /** Directories never watched, and changes under them never marked. */
 const IGNORED = new Set(["node_modules", ".git"]);
 
+<<<<<<< HEAD
 /** The files of a base directory that are code: one added there marks `base` (a swap file or a note does not). */
 const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css"]);
 
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 /**
  * The watcher and the marks (`state`), a JSON watchable published at most once per microtask turn with changes. It
  * marks for the plugins of the last discovery (`know`) and the files their last builds read (`used`).
@@ -66,6 +84,7 @@ const SOURCE_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx",
 export class PluginWatcher extends Source {
 	readonly #options: WatcherOptions;
 	readonly #roots: readonly string[];
+<<<<<<< HEAD
 	/** The base directories (watched as trees): a source file new in one marks `base`. */
 	readonly #baseDirs: readonly string[];
 	/** What each running base artifact read: each file's bytes' hash, by real path (the server's own first). */
@@ -94,6 +113,9 @@ export class PluginWatcher extends Source {
 	readonly #renamed = new Set<string>();
 	#renewing = false;
 	#closed = false;
+=======
+	readonly #baseDirs: readonly string[];
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	/** The trees it watches: the roots, the base code, and plugin directories linked from outside the roots. */
 	readonly #trees = new Set<string>();
 	/** Its watches, one per directory of its trees. */
@@ -109,6 +131,10 @@ export class PluginWatcher extends Source {
 	#set = 0;
 	/** The latest change of a known plugin's `package.json` since the last discovery (0: none). */
 	#manifest = 0;
+<<<<<<< HEAD
+=======
+	#baseChanged = false;
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	#discovery: Discovery = { plugins: [], problems: [] };
 	/** The files each built facet read (its inputs and copies), by plugin and kind. */
 	readonly #used = new Map<string, { readonly plugin: string; readonly files: ReadonlySet<string> }>();
@@ -120,10 +146,15 @@ export class PluginWatcher extends Source {
 		this.#options = options;
 		// Events name paths under the directories as watched: by their real paths, as discovery names plugins.
 		this.#roots = options.roots.map(real);
+<<<<<<< HEAD
 		const base = options.base.map(real);
 		this.#baseDirs = base.filter(isDirectory);
 		for (const dir of [...this.#roots, ...this.#baseDirs]) this.#watchTree(dir);
 		this.#recordOwn(base);
+=======
+		this.#baseDirs = options.base.map(real);
+		for (const dir of [...this.#roots, ...this.#baseDirs]) this.#watchTree(dir);
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	}
 
 	get value(): JsonValue {
@@ -131,7 +162,11 @@ export class PluginWatcher extends Source {
 			dirty: [...this.#dirty.keys()].sort(),
 			install: [...this.#install].sort(),
 			set: this.#set > 0,
+<<<<<<< HEAD
 			base: this.#differing.size > 0,
+=======
+			base: this.#baseChanged,
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		};
 		return this.#value;
 	}
@@ -220,6 +255,7 @@ export class PluginWatcher extends Source {
 		this.#changed();
 	}
 
+<<<<<<< HEAD
 	/**
 	 * Adds the record of a running base artifact (a base bundle's `inputs`): `base` is set while one of its files differs
 	 * from it. Each file's directory is watched alone (not its tree), then every file is compared once (an edit since the
@@ -252,20 +288,36 @@ export class PluginWatcher extends Source {
 			return;
 		}
 		this.#markPlugin(path, this.#generation++);
+=======
+	/** Marks what a change of the file or directory at `path` (absolute) asks for. */
+	mark(path: string): void {
+		if (path.split(sep).some((part) => IGNORED.has(part))) return;
+		if (this.#baseDirs.some((dir) => inside(dir, path))) {
+			this.#baseChanged = true;
+		} else {
+			this.#markPlugin(path, this.#generation++);
+		}
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		this.#changed();
 	}
 
 	/** Stops watching. */
 	close(): void {
+<<<<<<< HEAD
 		this.#closed = true;
 		for (const watcher of [...this.#watchers.values(), ...this.#baseWatchers.values()]) watcher.close();
 		this.#watchers.clear();
 		this.#baseWatchers.clear();
 		this.#identities.clear();
+=======
+		for (const watcher of this.#watchers.values()) watcher.close();
+		this.#watchers.clear();
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		this.#trees.clear();
 	}
 
 	/**
+<<<<<<< HEAD
 	 * Records the server's own base code `base` (files and the source files of directories), after their watches: the
 	 * bytes Node loaded, as far as a read now can tell (an edit between Node's load and this read is not seen).
 	 */
@@ -339,6 +391,8 @@ export class PluginWatcher extends Source {
 	}
 
 	/**
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	 * A change under a root, at `generation`: in a plugin's directory, it dirties that plugin (and asks for an install
 	 * and a new reading of its metadata for its `package.json`, for discovery for a facet file at its top); a single-file
 	 * plugin's file dirties it (and asks for discovery when it is gone); elsewhere under a root (a directory or a
@@ -369,6 +423,7 @@ export class PluginWatcher extends Source {
 		return this.#options.kinds.some((kind) => FACET_EXTENSIONS.some((extension) => file === `${kind}${extension}`));
 	}
 
+<<<<<<< HEAD
 	/**
 	 * Adds `dir` to where base code lives (a base directory, or one holding recorded files outside them): it and its
 	 * ancestors are watched. A directory inside a base directory is its tree's.
@@ -463,6 +518,8 @@ export class PluginWatcher extends Source {
 		this.#compareAt(path);
 	}
 
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	/** Watches the tree at `dir` (once): it and every directory under it but ignored ones; a missing one is skipped. */
 	#watchTree(dir: string): void {
 		if (this.#trees.has(dir)) return;
@@ -490,7 +547,10 @@ export class PluginWatcher extends Source {
 		}
 		watcher.on("error", (error) => this.#failed(error));
 		this.#watchers.set(dir, watcher);
+<<<<<<< HEAD
 		this.#identities.set(dir, identityOf(dir));
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		let entries: Dirent[];
 		try {
 			entries = readdirSync(dir, { withFileTypes: true });
@@ -503,6 +563,7 @@ export class PluginWatcher extends Source {
 		}
 	}
 
+<<<<<<< HEAD
 	/**
 	 * An event for `path` in a watched directory: a directory gets its watches (renewed when it is another directory than
 	 * the one watched: removed and made again, its old watches dead, its inode possibly reused), a removed one loses
@@ -515,6 +576,14 @@ export class PluginWatcher extends Source {
 				if (this.#watchers.has(path) && this.#replaced(path)) this.#unwatchDirs(path);
 				this.#watchDirs(path);
 			} else if (this.#watchers.has(path)) this.#unwatchDirs(path);
+=======
+	/** An event for `path` in a watched directory: a new directory gets its watches, a removed one loses them; marked. */
+	#changedIn(path: string): void {
+		const name = basename(path);
+		if (!IGNORED.has(name)) {
+			if (isDirectory(path)) this.#watchDirs(path);
+			else if (this.#watchers.has(path)) this.#unwatchDirs(path);
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		}
 		this.mark(path);
 	}
@@ -525,7 +594,10 @@ export class PluginWatcher extends Source {
 			if (watched !== dir && !inside(dir, watched)) continue;
 			watcher.close();
 			this.#watchers.delete(watched);
+<<<<<<< HEAD
 			this.#identities.delete(watched);
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		}
 	}
 
@@ -567,6 +639,7 @@ function isDirectory(path: string): boolean {
 	}
 }
 
+<<<<<<< HEAD
 /** Whether `path` lies under a directory never watched (`node_modules`, `.git`). */
 function ignored(path: string): boolean {
 	return path.split(sep).some((part) => IGNORED.has(part));
@@ -615,6 +688,8 @@ function identityOf(path: string): string | undefined {
 	}
 }
 
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 /** `dir` absolute and by its real path; as given (absolute) when it does not exist. */
 function real(dir: string): string {
 	try {

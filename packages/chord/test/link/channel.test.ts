@@ -8,7 +8,10 @@ import { PROTOCOL_VERSION } from "../../src/data/internal.ts";
 import { createHost, type HostError } from "../../src/host/index.ts";
 import { memoryLinkPair } from "../../src/link/index.ts";
 import { binaryCodec, Channel, type Message, textCodec } from "../../src/link/internal.ts";
+<<<<<<< HEAD
 import { chordMetrics } from "../../src/telemetry.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	bindNext,
 	expectCollected,

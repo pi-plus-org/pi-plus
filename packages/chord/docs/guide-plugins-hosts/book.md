@@ -13,7 +13,11 @@ note: |
   `slice-10.md`, `slice-12.md`, `slice-13.md`, the decision log and the code in `packages/chord/src`. API names
   are the current ones. The early chapters wire hosts by hand to show the parts; the last chapter shows the app kit
   (`chord/app`), which does that wiring for an app.
+<<<<<<< HEAD
 colophon: Hosts and Plugins · fourth edition · 2026-11-04 · Chord v2 slices 1-13, messages and languages, telemetry
+=======
+colophon: Hosts and Plugins · third edition · 2026-11-02 · Chord v2 slices 1-10, 12 and 13
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 ---
 
 # Before we begin {.preface}

@@ -82,5 +82,10 @@ histories and migrations (`table.ts`, `table-evolve.ts`, `table-history.ts`, `ta
 (`outbox.ts`), archives (`archive.ts`, `export.ts`, `import.ts`, `applier.ts`, `jsonl.ts`), the store's SQL schema
 (`schema.ts`) and backends (`backend.ts`).
 
+<<<<<<< HEAD
 Tests: `test/store/` (one file per source); the benchmarks in `test/bench/store.ts` and `test/bench/live-query.ts`
 (results in `docs/benchmarks.md`). Examples: `20-tables.ts`, `22-migrations.ts`, `25-export-import.ts`.
+=======
+Tests: `test/store/` (one file per source); the benchmarks in `test/bench/store.ts` (results in
+`docs/benchmarks.md`). Examples: `20-tables.ts`, `22-migrations.ts`, `25-export-import.ts`.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

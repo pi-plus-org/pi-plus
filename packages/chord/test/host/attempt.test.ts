@@ -1,7 +1,11 @@
 import { createHook } from "node:async_hooks";
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+<<<<<<< HEAD
 import { type Context, BACKGROUND_CONTEXT as context, withCancel, withTelemetry } from "../../src/context/index.ts";
+=======
+import { type Context, BACKGROUND_CONTEXT as context, withCancel } from "../../src/context/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { arr, int, local, method, obj, opt, remote, str } from "../../src/contracts/index.ts";
 import { broken, ChordError, isChordError } from "../../src/data/index.ts";
 import { defineState, type SingletonHandle } from "../../src/documents/index.ts";

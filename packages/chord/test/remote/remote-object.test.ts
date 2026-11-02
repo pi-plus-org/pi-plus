@@ -1,13 +1,23 @@
+<<<<<<< HEAD
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT as context, withCancel, withTelemetry } from "../../src/context/index.ts";
 import { hostKind, int, local, method, obj, remote, str } from "../../src/contracts/index.ts";
 import { ChordError, PluginError } from "../../src/data/index.ts";
+=======
+import { describe, expect, it, vi } from "vitest";
+import { BACKGROUND_CONTEXT as context, withCancel } from "../../src/context/index.ts";
+import { int, local, method, obj, remote, str } from "../../src/contracts/index.ts";
+import { PluginError } from "../../src/data/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { defineState } from "../../src/documents/index.ts";
 import {
 	createHost,
 	defineFacet,
+<<<<<<< HEAD
 	type FacetHost,
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	type Host,
 	type HostError,
 	type Reference,
@@ -16,10 +26,15 @@ import {
 import { resolveWatchable } from "../../src/host/reference.ts";
 import { type Link, memoryLinkPair } from "../../src/link/index.ts";
 import { jsonPart, wireError } from "../../src/link/internal.ts";
+<<<<<<< HEAD
 import { Path } from "../../src/remote/path.ts";
 import { RemoteObject } from "../../src/remote/remote-object.ts";
 import { constant } from "../../src/state/index.ts";
 import type { Watchable } from "../../src/watch.ts";
+=======
+import { RemoteObject } from "../../src/remote/remote-object.ts";
+import { constant } from "../../src/state/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	bindHold,
 	bindNext,
@@ -33,14 +48,19 @@ import {
 	framesOf,
 	instancesOf,
 	linked,
+<<<<<<< HEAD
 	Match,
 	Notes,
 	PlacedNotes,
+=======
+	Notes,
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	partValue,
 	RawPeer,
 	rawParent,
 	rawProvider,
 	rejection,
+<<<<<<< HEAD
 	relayed,
 	Server,
 	Session,
@@ -51,6 +71,13 @@ import {
 	transported,
 	valuesOf,
 	waitLive,
+=======
+	Server,
+	serveNotes,
+	type TestPrincipal,
+	testCodec,
+	transported,
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	wireNames,
 } from "../support.ts";
 
@@ -95,6 +122,7 @@ forEachCodec(() => {
 			expect(() => notes.count.value).toThrow("app.notes(S1): ended");
 		});
 
+<<<<<<< HEAD
 		it("two references from one host with one key share one hold; another key is another hold", async () => {
 			const { client, peer } = await rawProvider();
 			const first = client.get(Notes, { session: "S1" }, context);
@@ -104,6 +132,15 @@ forEachCodec(() => {
 			expect(await bindNext(peer)).toBe(1);
 			await Promise.all([first, second, other]);
 			expect(peer.kinds().filter((kind) => kind === "hold")).toEqual([]);
+=======
+		it("two references from one host are two holds", async () => {
+			const { client, peer } = await rawProvider();
+			const first = client.get(Notes, { session: "S1" }, context);
+			const second = client.get(Notes, { session: "S1" }, context);
+			expect(await bindNext(peer)).toBe(0);
+			expect(await bindNext(peer)).toBe(1);
+			await Promise.all([first, second]);
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		});
 
 		it("a member failure fails only that replica: reads throw it, its watch gets a failure call and stays open; the others update", async () => {
@@ -861,6 +898,7 @@ forEachCodec(() => {
 		});
 	});
 });
+<<<<<<< HEAD
 
 describe("consumer spans (slice 9)", () => {
 	it("holds in a `chord.hold` span until bound, its carrier on the hold; a call in a `chord.call` span, its carrier on the call", async () => {
@@ -2106,3 +2144,5 @@ describe('references sharing one wire hold (decision "References share one wire 
 		});
 	});
 });
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

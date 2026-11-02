@@ -9,6 +9,7 @@ peer), non-React apps never load it. No components, no styling.
 - `useWatch(watchable)`: its current value (`undefined` while it has none), re-rendering on change
   (`useSyncExternalStore` over `watchStore`).
 - `useRegistry(R)`: the registry's composed value; `useRefState(ref)`: the reference's state.
+<<<<<<< HEAD
 - `useEvents(member, listener)`: an event member (a reference's, decision "Events: fire-and-forget members")
   subscribed while the component is mounted (and while `member` stays the same object): each event calls the latest
   `listener` (a new function per render subscribes nothing again); nothing without a member; events re-render nothing
@@ -27,3 +28,8 @@ peer), non-React apps never load it. No components, no styling.
 
 Tests: `test/node/react/` (`stores.test.ts` in Node, `hooks.test.ts` in a real browser); the page state alone in
 `test/surfaces/page-state.test.ts`.
+=======
+- A component unmounted by a reload has not left (design §21): its releases are plain releases.
+
+Tests: `test/node/react/` (`stores.test.ts` in Node, `hooks.test.ts` in a real browser).
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

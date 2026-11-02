@@ -9,7 +9,10 @@
 // hold of an older version follows its object's adapted members (Q10). A bound hold taps its instance's event members
 // from the counter value of its `bound` (decision "Events: fire-and-forget members"), until it unbinds.
 
+<<<<<<< HEAD
 import type { TelemetryContext } from "@earendil-works/pi-telemetry";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Context } from "../context/index.ts";
 import { type VariantData, type VariantNames, variantNames, variantOrder, variantsAt } from "../contracts/internal.ts";
 import { ChordError, type FailureCause, isChordError, type Principal } from "../data/index.ts";

@@ -5,9 +5,14 @@
 // restarts every affected object; old work finishes on old code"): its routines stop, it serves old work under its
 // own contract, and it is sealed once that work settled.
 
+<<<<<<< HEAD
 import type { TelemetryContext, TelemetrySpan } from "@earendil-works/pi-telemetry";
 import { awaitWithContext, type Context, withAbortSignal, withContextValue, withTelemetry } from "../context/index.ts";
 import type { Contract, EventSource, Implementation, ParamsOf } from "../contracts/index.ts";
+=======
+import { awaitWithContext, type Context, withAbortSignal } from "../context/index.ts";
+import type { Contract, Implementation, ParamsOf } from "../contracts/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { contractData, type ShapeOf } from "../contracts/internal.ts";
 import { ChordError, type FailureCause, type Principal } from "../data/index.ts";
 import { asChordError, checkArgs, checkParams, invalid, openFailure, type Value } from "../data/internal.ts";
@@ -34,7 +39,10 @@ import type { ChordStore } from "../store/store.ts";
 import type { TableDefinition } from "../store/table.ts";
 import { type Table, TableHandle } from "../store/table-handle.ts";
 import { prepareTables } from "../store/table-migration.ts";
+<<<<<<< HEAD
 import { capped, MAX_MESSAGE, OpenSpan, spanFailed, untraced } from "../telemetry.ts";
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { NativeWatchable, Watchable, WatchEnd } from "../watch.ts";
 import { AdaptedMembers } from "./adapted.ts";
 import { CallContext, type Caller, type Ctx, withLinkedAbortSignal } from "./ctx.ts";

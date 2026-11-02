@@ -4,6 +4,7 @@
 
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
+<<<<<<< HEAD
 import {
 	type Context,
 	BACKGROUND_CONTEXT as context,
@@ -11,6 +12,9 @@ import {
 	withCancel,
 	withTelemetry,
 } from "../../src/context/index.ts";
+=======
+import { type Context, BACKGROUND_CONTEXT as context, withAbortSignal, withCancel } from "../../src/context/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { arr, int, local, obj, remote, str, unknown } from "../../src/contracts/index.ts";
 import { ChordError, PluginError, type Principal } from "../../src/data/index.ts";
 import type { Op } from "../../src/delta/index.ts";

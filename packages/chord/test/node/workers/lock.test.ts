@@ -1,15 +1,24 @@
 // Tests of process locks (slice 10 §3): one holder at a time, a waiter taking the lock when the holder releases it
+<<<<<<< HEAD
 // (told by its connection's close, no polling), a waiter's abort, socket files failing closed when stale, and clearing
 // a stale one.
 
 import { spawnSync } from "node:child_process";
+=======
+// (told by its connection's close, no polling), a waiter's abort.
+
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context, withAbortSignal } from "../../../src/context/index.ts";
 import { processLock } from "../../../src/node/workers/index.ts";
+<<<<<<< HEAD
 import { clearStaleLockAt, lockAt } from "../../../src/node/workers/lock.ts";
+=======
+import { lockAt } from "../../../src/node/workers/lock.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 describe("processLock", () => {
 	it("makes a second taker wait until the holder releases, then takes it", async () => {
@@ -43,6 +52,7 @@ describe("processLock", () => {
 
 describe("socket file locks (macOS, the BSDs)", () => {
 	it("fail closed on a stale lock file, naming it: two takers never both take it over (Sol)", async () => {
+<<<<<<< HEAD
 		await inTemporaryDirectory(async (dir) => {
 			// What a holder killed without its exit hooks leaves (a socket nobody listens on), and a regular file (ENOTSOCK
 			// on macOS: it once made the taker spin until its context ended).
@@ -122,3 +132,24 @@ async function leaveSocketFile(path: string): Promise<void> {
 	const result = spawnSync(process.execPath, ["-e", script]);
 	expect(result.signal).toBe("SIGKILL");
 }
+=======
+		const dir = await mkdtemp(join(tmpdir(), "chord-lock-file-"));
+		const address = join(dir, "lock.sock");
+		// What a crashed holder leaves: a path nobody accepts on.
+		await writeFile(address, "");
+		const takers = [lockAt({ kind: "file", address }, context), lockAt({ kind: "file", address }, context)];
+		for (const taker of takers) await expect(taker).rejects.toThrow(`lock: ${address} is a stale lock file`);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	it("are taken, waited for and released like the others", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "chord-lock-file-"));
+		const address = join(dir, "lock.sock");
+		const first = await lockAt({ kind: "file", address }, context);
+		const second = lockAt({ kind: "file", address }, context);
+		await first.release();
+		await (await second).release();
+		await rm(dir, { recursive: true, force: true });
+	});
+});
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

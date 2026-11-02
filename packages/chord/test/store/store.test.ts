@@ -1,12 +1,21 @@
 // The store (slice 6a §2, §3, slice 6b §1): opening, the commit step, refusals and unknown outcomes (D4), the id
+<<<<<<< HEAD
 // allocator (D3), one host per store (rule 7), close, a commit series, group commit.
+=======
+// allocator (D3), one host per store (rule 7), close.
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+<<<<<<< HEAD
 import { NOOP_TELEMETRY_CONTEXT, NOOP_TELEMETRY_METRICS } from "@earendil-works/pi-telemetry";
 import { afterEach, describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context, withCancel, withTelemetry } from "../../src/context/index.ts";
+=======
+import { afterEach, describe, expect, it } from "vitest";
+import { BACKGROUND_CONTEXT as context, withCancel } from "../../src/context/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { int, str } from "../../src/contracts/index.ts";
 import { isChordError } from "../../src/data/index.ts";
 import { openNodeSqliteDatabase } from "../../src/sqlite/node.ts";
@@ -77,6 +86,7 @@ describe("opening", () => {
 		await reopened.close(context);
 	});
 
+<<<<<<< HEAD
 	it("migrates a store of schema 2 to 3: its records kept, a host column and its index added", async () => {
 		directory = await mkdtemp(join(tmpdir(), "chord-store-"));
 		const path = join(directory, "store.sqlite");
@@ -100,6 +110,8 @@ describe("opening", () => {
 		await migrated.close(context);
 	});
 
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	it("refuses a database that is not UTF-8, closing the backend (rule 12)", async () => {
 		const db = await openNodeSqliteDatabase(":memory:");
 		await db.exec('PRAGMA encoding = "UTF-16le"');
@@ -367,6 +379,7 @@ describe("close", () => {
 	});
 });
 
+<<<<<<< HEAD
 describe("onCommitted", () => {
 	it("announces the new lastSeq after commits are durable, once per microtask, never inside a commit", async () => {
 		const store = await memoryStore();
@@ -443,6 +456,8 @@ describe("onCommitted", () => {
 	});
 });
 
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 describe("a commit series", () => {
 	/** A series commit with no check of its own. */
 	const unchecked = (writes: readonly StagedWrite[]) => ({ check: async () => {}, writes });
@@ -677,6 +692,7 @@ describe("a commit series", () => {
 		expect(await rejection(store.read(async () => 1, context))).toMatchObject({ reason: "storage_failed" });
 	});
 });
+<<<<<<< HEAD
 
 describe("group commit", () => {
 	/** A store on `:memory:` counting its backend transactions. */
@@ -1190,3 +1206,5 @@ describe("group commit", () => {
 		expect(await rejection(store.read(async () => 1, context))).toMatchObject({ reason: "storage_failed" });
 	});
 });
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

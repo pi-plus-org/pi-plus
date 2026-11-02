@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // Document handles (slice 6a §4): keyed handles' reads, watches and `at(key)`, host-keyed handles taking addresses,
 // and sealed handles refusing every use.
 
@@ -7,6 +8,15 @@ import { type Address, hostKind, obj, str } from "../../src/contracts/index.ts";
 import { defineState, type KeyedHandle, type SingletonHandle } from "../../src/documents/index.ts";
 import { ChordObject } from "../../src/host/object.ts";
 import type { Watchable } from "../../src/watch.ts";
+=======
+// Document handles (slice 6a §4): keyed handles' reads, watches and `at(key)`, and sealed handles refusing every use.
+
+import { describe, expect, it } from "vitest";
+import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
+import { obj, str } from "../../src/contracts/index.ts";
+import { defineState, type KeyedHandle, type SingletonHandle } from "../../src/documents/index.ts";
+import { ChordObject } from "../../src/host/object.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { instancesOf, rejection, restartable } from "../support.ts";
 
 const objects = instancesOf(ChordObject, "attempt");
@@ -75,6 +85,7 @@ describe("sealed handles", () => {
 		expect(await rejection(notes!.retire("k", context))).toEqual(released);
 	});
 });
+<<<<<<< HEAD
 
 describe("host-keyed handles", () => {
 	const Session = hostKind("session", { id: str() });
@@ -134,3 +145,5 @@ describe("host-keyed handles", () => {
 		expect(await rejection(tx!(undefined))).toMatchObject(refused);
 	});
 });
+=======
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

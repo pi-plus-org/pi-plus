@@ -22,6 +22,11 @@ export const workspaceSourcePaths = {
 	chordReact: fileURLToPath(new URL("./packages/chord/src/react/index.ts", import.meta.url)),
 	chordTui: fileURLToPath(new URL("./packages/chord/src/tui/index.ts", import.meta.url)),
 	chordTuiLauncher: fileURLToPath(new URL("./packages/chord/src/node/tui/index.ts", import.meta.url)),
+<<<<<<< HEAD
+=======
+	chordOld: fileURLToPath(new URL("./packages/chord/src/old/index.ts", import.meta.url)),
+	chordOldNode: fileURLToPath(new URL("./packages/chord/src/old/node.ts", import.meta.url)),
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	telemetryIndex: fileURLToPath(new URL("./packages/telemetry/src/index.ts", import.meta.url)),
 	telemetryTesting: fileURLToPath(new URL("./packages/telemetry/src/testing/index.ts", import.meta.url)),
 	mcpIndex: fileURLToPath(new URL("./packages/mcp/src/index.ts", import.meta.url)),
@@ -66,6 +71,11 @@ export default defineConfig({
 			{ find: /^@earendil-works\/chord\/react$/, replacement: workspaceSourcePaths.chordReact },
 			{ find: /^@earendil-works\/chord\/tui$/, replacement: workspaceSourcePaths.chordTui },
 			{ find: /^@earendil-works\/chord\/tui\/launcher$/, replacement: workspaceSourcePaths.chordTuiLauncher },
+<<<<<<< HEAD
+=======
+			{ find: /^@earendil-works\/chord\/old$/, replacement: workspaceSourcePaths.chordOld },
+			{ find: /^@earendil-works\/chord\/old\/node$/, replacement: workspaceSourcePaths.chordOldNode },
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			{ find: /^@earendil-works\/pi-telemetry$/, replacement: workspaceSourcePaths.telemetryIndex },
 			{ find: /^@earendil-works\/pi-telemetry\/testing$/, replacement: workspaceSourcePaths.telemetryTesting },
 			{ find: /^@earendil-works\/pi-mcp$/, replacement: workspaceSourcePaths.mcpIndex },

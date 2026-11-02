@@ -2,8 +2,12 @@
 
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
+<<<<<<< HEAD
 import { bool, hostKind, int, num, obj, opt, str } from "../../src/contracts/index.ts";
 import { host } from "../../src/store/host-column.ts";
+=======
+import { bool, int, num, obj, opt, str } from "../../src/contracts/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { json } from "../../src/store/json-column.ts";
 import { defineTable } from "../../src/store/table.ts";
 

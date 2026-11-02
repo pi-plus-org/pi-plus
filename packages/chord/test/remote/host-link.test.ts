@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+<<<<<<< HEAD
 import { BACKGROUND_CONTEXT as context, withCancel } from "../../src/context/index.ts";
+=======
+import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { int, local, method, remote, str } from "../../src/contracts/index.ts";
 import { createHost, defineFacet, type FacetHost, type HostError } from "../../src/host/index.ts";
 import { type Compression, memoryLinkPair, type PartLimits } from "../../src/link/index.ts";

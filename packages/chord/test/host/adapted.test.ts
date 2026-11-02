@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { type Context, BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
+<<<<<<< HEAD
 import {
 	arr,
 	type EventSource,
@@ -20,6 +21,12 @@ import { defineState } from "../../src/documents/index.ts";
 import { AdaptedMembers } from "../../src/host/adapted.ts";
 import { EventNode } from "../../src/host/events.ts";
 import { createHost, defineFacet, type FacetHost, type Host, type HostError } from "../../src/host/index.ts";
+=======
+import { arr, evolve, int, keyed, local, method, obj, str } from "../../src/contracts/index.ts";
+import { defineState } from "../../src/documents/index.ts";
+import { AdaptedMembers } from "../../src/host/adapted.ts";
+import { createHost, defineFacet, type FacetHost, type Host } from "../../src/host/index.ts";
+>>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { constant } from "../../src/state/index.ts";
 import {
 	changesOf,
