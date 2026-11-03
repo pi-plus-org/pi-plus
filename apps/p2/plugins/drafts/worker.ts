@@ -29,17 +29,14 @@ export default defineFacet((host) => {
 			claim: async ({ conversation, authorId, ids }, ctx) => {
 				const key = draftKey(conversation, authorId);
 				const wanted = new Set(ids);
-				// Read and removed in one change: two tabs claiming at once get each draft once.
-				const texts = await store.change((draft) => {
-					const items = draft.drafts[key] ?? [];
-					const claimed = items.filter((item) => wanted.has(item.id)).map((item) => item.text);
-					if (!claimed.length) return [];
-					const rest = items.filter((item) => !wanted.has(item.id));
+				const claimed = (store.value.drafts[key] ?? []).filter((item) => wanted.has(item.id));
+				if (!claimed.length) return { texts: [] };
+				await store.change((draft) => {
+					const rest = (draft.drafts[key] ?? []).filter((item) => !wanted.has(item.id));
 					if (rest.length) draft.drafts[key] = rest;
 					else delete draft.drafts[key];
-					return claimed;
 				}, ctx);
-				return { texts };
+				return { texts: claimed.map((item) => item.text) };
 			},
 		};
 	});

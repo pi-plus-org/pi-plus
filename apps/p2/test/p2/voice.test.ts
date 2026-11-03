@@ -777,18 +777,15 @@ describe("voice mode's switch and voice", () => {
 			"participant",
 		);
 		await owner.set({ enabled: true }, BACKGROUND_CONTEXT);
-		// The answer follows its state: the owner's switch and voice are on the page when each call resolves.
-		assert.equal(owner.enabled.value, true);
 		await owner.choose({ engine: "kokoro", voice: "kokoro-af_heart", speed: 1, language: "de" }, BACKGROUND_CONTEXT);
-		assert.equal(owner.voice.value?.voice, "kokoro-af_heart");
 		// The guest sees the owner's choice, language included.
 		assert.equal((await until(alice.voice, (voice) => voice?.voice === "kokoro-af_heart"))?.language, "de");
 		assert.equal(alice.enabled.value, false, "a guest's switch is its own");
 		await alice.set({ enabled: true }, BACKGROUND_CONTEXT);
-		assert.equal(alice.enabled.value, true);
+		await until(alice.enabled, (value) => value);
 		// The guest turning its microphone off leaves the owner's voice mode on.
 		await alice.set({ enabled: false }, BACKGROUND_CONTEXT);
-		assert.equal(alice.enabled.value, false);
+		await until(alice.enabled, (value) => !value);
 		assert.equal(owner.enabled.value, true);
 		// A reference carries every variant's members; the participant's binding refuses the owner's (cast: the type has
 		// only the participant's).
@@ -872,7 +869,7 @@ describe("voice routes and mode", () => {
 			await poll(() => texts.some((event) => event.type === "welcome"), 5000, "welcome");
 			return { socket, texts, frames };
 		};
-		const ownerRoom = await join_({ Cookie: fixture.owner.cookie });
+		const ownerRoom = await join_({});
 		const guestRoom = await join_(full);
 		const room = `p2-${session}-1`;
 		const [ownerHeaders, guestHeaders] = speech.upgrades.slice(-2);
@@ -959,21 +956,15 @@ describe("voice routes and mode", () => {
 		};
 		assert.equal(await status(path, view), 403, "view-only guests have no voice");
 		assert.equal(await status(`/voice/room?session=other-session&conversation=1`, full), 403, "another session's");
-		const local = { Cookie: fixture.owner.cookie };
-		assert.equal(await status("/voice/room?conversation=1", local), 400);
-		assert.equal(await status(`/voice/room?session=${session}&conversation=0`, local), 400);
-		assert.equal(await status(path, {}), 403, "loopback alone is nobody");
+		assert.equal(await status("/voice/room?conversation=1", {}), 400);
+		assert.equal(await status(`/voice/room?session=${session}&conversation=0`, {}), 400);
 
 		// The engines for both (pushed live); a sample for the owner only; logs for both, the guest's marked as such.
 		const alice = await holdIn(fixture.client(full).host, VoiceService, {}, "talker");
 		assert.deepEqual(await until(alice.voices, (value) => value !== null), VOICES);
 		alice.release();
 		await expectChord(whenLive(fixture.client(view).host.hold(VoiceService, {}, BACKGROUND_CONTEXT)), "forbidden");
-		const origin = {
-			Origin: `http://127.0.0.1:${port}`,
-			"Content-Type": "application/json",
-			Cookie: fixture.owner.cookie,
-		};
+		const origin = { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" };
 		const sample = await http(port, "/voice/sample", {
 			method: "POST",
 			headers: origin,
@@ -1005,11 +996,7 @@ describe("voice routes and mode", () => {
 
 	it("writes the browser's diagnostics to the server log, for the owner only", async () => {
 		const port = fixture.server.port;
-		const origin = {
-			Origin: `http://127.0.0.1:${port}`,
-			"Content-Type": "application/json",
-			Cookie: fixture.owner.cookie,
-		};
+		const origin = { Origin: `http://127.0.0.1:${port}`, "Content-Type": "application/json" };
 		const lines: string[] = [];
 		const log = mock.method(console, "log", (line: unknown) => {
 			lines.push(String(line));

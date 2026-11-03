@@ -9,7 +9,6 @@ import type { TuiContext } from "@p2/app/v1/tui";
 import {
 	ListOverlay,
 	lineText,
-	type OptimisticAdd,
 	type TuiCommand,
 	TuiCommands,
 	type TuiRuntime,
@@ -31,11 +30,8 @@ function sourceLabel(source: string): string {
 export class NoticeWatch implements TuiSurface {
 	readonly runtime: TuiRuntime;
 	private scope: TuiScope | undefined;
-	private service: Held<typeof LogNotices> | undefined;
-	/** The notices as shown (those dismissed while their calls are in flight left out), and how to dismiss one. */
-	private shown: () => Notice[] = () => this.received;
-	private dismissing: OptimisticAdd<number> | undefined;
-	private received: Notice[] = [];
+	private service: () => Held<typeof LogNotices> | undefined = () => undefined;
+	notices: Notice[] = [];
 	private seen = new Set<number>();
 	private first = true;
 	private stop: () => void;
@@ -44,10 +40,6 @@ export class NoticeWatch implements TuiSurface {
 		const changed = (): void => {
 			if (runtime.role !== "owner" || this.scope) return;
 			this.scope = new TuiScope(runtime);
-			[this.shown, this.dismissing] = this.scope.optimistic(
-				() => this.received,
-				(notices, id: number) => notices.filter((notice) => notice.id !== id),
-			);
 			this.service = this.scope.watch(LogNotices, {}, (ref, follow) =>
 				follow(ref.notices, (notices) => this.arrived(notices ?? [])),
 			);
@@ -56,18 +48,8 @@ export class NoticeWatch implements TuiSurface {
 		this.stop = () => runtime.listeners.delete(changed);
 		changed();
 	}
-	/** The notices as shown: those dismissed meanwhile left out. */
-	get notices(): Notice[] {
-		return this.shown();
-	}
-	/** Dismisses notice `id`: it leaves the list at once and comes back if the server refuses. */
-	dismiss(id: number): void {
-		const service = liveIn(this.service, "owner");
-		if (service && this.dismissing)
-			this.runtime.perform(this.dismissing(id, service.dismiss({ id }, BACKGROUND_CONTEXT)));
-	}
 	private arrived(notices: Notice[]): void {
-		this.received = notices;
+		this.notices = notices;
 		const fresh = notices.filter((notice) => !this.seen.has(notice.id));
 		for (const notice of notices) this.seen.add(notice.id);
 		if (!fresh.length) return;
@@ -78,6 +60,10 @@ export class NoticeWatch implements TuiSurface {
 			for (const notice of fresh)
 				this.runtime.notify(`${sourceLabel(notice.source)}: ${lineText(notice.message)}`, "warning");
 		this.first = false;
+	}
+	owner(): Held<typeof LogNotices> | undefined {
+		const ref = this.service();
+		return liveIn(ref, "owner");
 	}
 	render(): string[] {
 		return [];
@@ -116,7 +102,11 @@ function openNotices(ctx: TuiContext): void {
 					id: "app.session.delete",
 					label: "dismiss",
 					run: (row) => {
-						if (row) watch.dismiss(Number(row.key));
+						const service = watch.owner();
+						if (row && service?.variant === "owner")
+							void service
+								.dismiss({ id: Number(row.key) }, BACKGROUND_CONTEXT)
+								.catch((error: unknown) => ctx.notify(String(error), "error"));
 					},
 				},
 			],
@@ -149,7 +139,9 @@ function openLogs(ctx: TuiContext, initial: string | undefined): void {
 				ctx.requestRender();
 			}),
 		];
-		void whenLive(current).catch((error: unknown) => ctx.fail(error));
+		void whenLive(current).catch((error: unknown) =>
+			ctx.notify(error instanceof Error ? error.message : String(error), "error"),
+		);
 	};
 	acquire();
 	const overlay = ctx.overlay(

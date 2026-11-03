@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { createPowerShellTool } from "@earendil-works/pi-durable/tools";
 import { defineFacet, type Location, signalOf } from "@p2/app/v1";
+import { durableContext } from "@p2/app/v1/node";
 import { CommitSignal, Extensions, harnessOf, workerOf } from "@p2/app/v1/worker";
 import { Subagents } from "../subagents/contract.worker.ts";
 import { POWERSHELL_EXTENSION, POWERSHELL_TOOL, PowerShell } from "./contract.ts";
@@ -93,7 +94,8 @@ export default defineFacet((host) => {
 				const seen = signal.version;
 				let unknown = false;
 				try {
-					const registry = await durable.snapshot(Subagents, ROOT_CONVERSATION_ID, ctx);
+					const context = durableContext(ctx);
+					const registry = await durable.snapshot(Subagents, ROOT_CONVERSATION_ID, context);
 					const ids: ConversationId[] = [
 						ROOT_CONVERSATION_ID,
 						...Object.values(registry?.agents ?? {}).map((agent) => agent.conversationId),
@@ -102,8 +104,8 @@ export default defineFacet((host) => {
 					const offered: Record<string, boolean> = {};
 					const changes: { id: ConversationId; on: boolean }[] = [];
 					for (const id of ids) {
-						const state = await durable.snapshot(AgentDoc, id, ctx);
-						const windows = await isWindows(await harness().environments.locate(id, ctx));
+						const state = await durable.snapshot(AgentDoc, id, context);
+						const windows = await isWindows(await harness().environments.locate(id, context));
 						if (windows === undefined) unknown = true;
 						// Unknown keeps what it has: an unreachable machine does not take PowerShell away.
 						const on = windows === undefined ? offersPowerShell(state) : windows && enables(state, "bash");
@@ -113,7 +115,7 @@ export default defineFacet((host) => {
 					if (changes.length)
 						await durable.commit(async (tx) => {
 							for (const { id, on } of changes) setPowerShell(await tx.doc(AgentDoc, id), on);
-						}, ctx);
+						}, context);
 					offeredState.set(offered);
 				} catch (error) {
 					if (signalOf(ctx).aborted) return;

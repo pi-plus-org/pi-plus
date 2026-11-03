@@ -17,7 +17,7 @@ import {
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import type { TuiContext } from "../runtime/tui-context.ts";
-import type { TuiSettingField, TuiSettings } from "../runtime/tui-preferences.ts";
+import type { TuiSettings } from "../runtime/tui-preferences.ts";
 import { ListOverlay, type ListRow } from "./components/list-overlay.ts";
 import { builtinKeybindings, isKeyId, isPrivileged } from "./keybindings.ts";
 import { formatKeyText, lineText } from "./render-context.ts";
@@ -33,8 +33,7 @@ const FIELDS: Field[] = [
 		label: "Hide thinking",
 		description: "Hide thinking blocks in assistant responses",
 		path: ["hideThinkingBlock"],
-		// p2 hides thinking until the setting says otherwise (pi shows it by default).
-		fallback: true,
+		fallback: false,
 		values: [true, false],
 	},
 	{
@@ -264,22 +263,8 @@ export class ThemePicker implements Component, Focusable {
 }
 
 /** `/settings`: pi's list; changes stay pending until the overlay closes, then go to the launcher as one patch. */
-/** `/settings`: the built-in rows, then the plugins' `TuiSettingFields` rows in key order. */
-export function openSettings(ctx: TuiContext, pluginFields: ReadonlyMap<string, TuiSettingField>): void {
+export function openSettings(ctx: TuiContext): void {
 	const settings = ctx.settings;
-	const fields: Field[] = [
-		...FIELDS,
-		...[...pluginFields]
-			.sort(([a], [b]) => a.localeCompare(b))
-			.map(([key, field]) => ({
-				id: `plugin:${key}`,
-				label: field.label,
-				description: field.description,
-				path: ["plugins", field.plugin, field.name],
-				fallback: field.fallback,
-				values: [...field.values],
-			})),
-	];
 	const patch: { settings: Record<string, unknown>; theme?: string } = { settings: {} };
 	const set = (path: string[], value: Value) => {
 		let target = patch.settings;
@@ -298,7 +283,7 @@ export function openSettings(ctx: TuiContext, pluginFields: ReadonlyMap<string, 
 			currentValue: themeSetting,
 			submenu: (current, done) => new ThemePicker(ctx, current, done),
 		},
-		...fields.map((field) => ({
+		...FIELDS.map((field) => ({
 			id: field.id,
 			label: field.label,
 			description: field.description,
@@ -333,13 +318,12 @@ export function openSettings(ctx: TuiContext, pluginFields: ReadonlyMap<string, 
 				patch.theme = value;
 				return;
 			}
-			const field = fields.find((entry) => entry.id === id);
+			const field = FIELDS.find((entry) => entry.id === id);
 			if (!field) return;
 			const typed = field.values.find((option) => String(option) === value);
 			if (typed !== undefined) set(field.path, typed);
 		},
 		finish,
-		{ enableSearch: true },
 	);
 	const framed = box(ctx, "Settings", list, () =>
 		changed

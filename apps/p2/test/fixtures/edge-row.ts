@@ -32,6 +32,7 @@ const transcript: Transcript = {
 		label: `Marker ${index + 1}`,
 	})),
 	earlier: false,
+	artifacts: [],
 	busy: false,
 	working: false,
 	compactions: [],

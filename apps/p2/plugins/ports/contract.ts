@@ -57,8 +57,7 @@ export const ForwardsNative = defineRegistry<
 >("p2.forwards", { version: 1 });
 /** Owner management and worker tool calls share one registry; worker identity fixes its session. */
 export const Ports = remote("p2.ports", {
-	/** 2: the worker's query has no `origin`. */
-	version: 2,
+	version: 1,
 	params: {},
 	hostAddress: serverHost,
 	variants: {
@@ -78,7 +77,14 @@ export const Ports = remote("p2.ports", {
 		},
 		worker: {
 			methods: {
-				query: method(obj({ conversation: literal(1), query: QuerySchema }), ReplySchema),
+				query: method(
+					obj({
+						conversation: literal(1),
+						origin: union([literal("owner"), literal("peer")]),
+						query: QuerySchema,
+					}),
+					ReplySchema,
+				),
 			},
 		},
 	},

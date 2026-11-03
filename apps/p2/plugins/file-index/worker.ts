@@ -1,9 +1,10 @@
 import type { ConversationId } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { type Ctx, canSend, defineFacet, FileIndex, FileIndexCache, type FileItem, forbidden } from "@p2/app/v1";
-import { conversationEnvironment, harnessOf, workerOf } from "@p2/app/v1/worker";
+import { durableContext } from "@p2/app/v1/node";
+import { conversationEnvironment, harnessOf, isLocalEnvironment, workerOf } from "@p2/app/v1/worker";
 import { WorkspaceBackend, workspacePath } from "../workspace/contract.ts";
-import { listIndex } from "./listing.ts";
+import { inside, listIndex } from "./listing.ts";
 import { rankFiles, withDirectories } from "./rank.ts";
 
 /** A rebuild at most this often while files keep changing: completion may lag a burst of writes by this much. */
@@ -25,23 +26,31 @@ export default defineFacet((host) => {
 			let unsupported: ExecutionEnv | undefined;
 			/**
 			 * The environment's own listing, with the workspace's confinement (workspace/worker.ts: the conversation's
-			 * location, canonical root). `undefined` falls back to the workspace's index, which also reports an
-			 * unavailable working directory.
+			 * location, canonical root, p2's private data directory for local sessions). `undefined` falls back to the
+			 * workspace's index, which also reports a private or unavailable working directory.
 			 */
 			const listed = async (ctx: Ctx) => {
+				const context = durableContext(ctx);
 				try {
 					return await worker().liveness.call(async () => {
-						const handle = await harness().durable.conversation(conversation as ConversationId, ctx);
+						const handle = await harness().durable.conversation(conversation as ConversationId, context);
 						if (!handle) return undefined;
-						const { env } = await conversationEnvironment(harness().environments, handle.id, ctx);
+						const { env } = await conversationEnvironment(harness().environments, handle.id, context);
 						if (env === unsupported) return undefined;
 						if (env.listFiles === undefined) {
 							unsupported = env;
 							return undefined;
 						}
-						const root = await env.canonicalPath(env.cwd, ctx);
+						const root = await env.canonicalPath(env.cwd, context);
 						if (!root.ok) return undefined;
-						const result = await listIndex(env, root.value, ctx);
+						const init = worker().init;
+						// Decided from the environment, not the location, which lags behind it during a move.
+						const privatePath = isLocalEnvironment(env)
+							? await env.canonicalPath(init.dataDir, context)
+							: undefined;
+						const denied = privatePath === undefined ? [] : [privatePath.ok ? privatePath.value : init.dataDir];
+						if (denied.some((directory) => inside(directory, root.value))) return undefined;
+						const result = await listIndex(env, root.value, denied, context);
 						if (result === undefined) unsupported = env;
 						return result;
 					});

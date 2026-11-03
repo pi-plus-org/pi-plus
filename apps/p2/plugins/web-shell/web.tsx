@@ -1,27 +1,23 @@
-// App layout: the sidebar and main slots, the drawer on phones, Back/Forward navigation; the layout's and the theme's
-// commands of the command menu (commands.tsx).
+// App layout: the sidebar and main slots, the drawer on phones, Back/Forward navigation.
 
 import { contribute, defineFacet } from "@p2/app/v1";
 import {
 	AppLayout,
-	CommandPages,
-	Commands,
 	ComposerState,
 	closeLayers,
 	getNavigation,
 	NavigationContext,
-	SIDEBAR_DOCKS,
+	NewSessionState,
 	Slots,
 	startNavigation,
 } from "@p2/app/v1/web";
 import { useEffect } from "react";
-import { SHELL_COMMANDS, SHELL_PAGES } from "./commands.tsx";
 
 function App() {
 	const nav = getNavigation();
 	useEffect(() => startNavigation(), []);
 	useEffect(() => {
-		const wide = window.matchMedia(SIDEBAR_DOCKS);
+		const wide = window.matchMedia("(min-width: 900px)");
 		const change = () => {
 			if (wide.matches && nav.route.layers.at(-1)?.kind === "drawer") closeLayers();
 		};
@@ -41,9 +37,11 @@ function App() {
 	}, [nav]);
 	return (
 		<NavigationContext.Provider value={nav}>
-			<ComposerState>
-				<AppLayout />
-			</ComposerState>
+			<NewSessionState>
+				<ComposerState>
+					<AppLayout />
+				</ComposerState>
+			</NewSessionState>
 		</NavigationContext.Provider>
 	);
 }
@@ -51,7 +49,5 @@ function App() {
 export default defineFacet((host) => {
 	contribute(host, "p2.web-shell", (self) => {
 		self.contribute(Slots, { app: App });
-		self.contribute(Commands, SHELL_COMMANDS);
-		self.contribute(CommandPages, SHELL_PAGES);
 	});
 });

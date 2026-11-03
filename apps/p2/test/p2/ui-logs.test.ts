@@ -15,7 +15,6 @@ test(
 		const fixture = await startFixture({ web: true });
 		t.after(() => fixture.close());
 		const browser = await Browser.start();
-		await browser.signIn(fixture.owner);
 		t.after(() => browser.close());
 		await browser.metrics(1280, 900);
 		const worker = `session:logs-worker-${Date.now()}`;
@@ -30,14 +29,15 @@ test(
 			if (event.method === "Runtime.exceptionThrown") errors.push(JSON.stringify(event.params));
 		});
 		await browser.call("Runtime.enable");
-		await browser.open(`http://127.0.0.1:${fixture.server.port}/new`);
+		await browser.open(`http://127.0.0.1:${fixture.server.port}/`);
 		try {
-			await browser.openSettings("Logs");
+			await browser.wait(`[...document.querySelectorAll('.foot-button')].some(e=>e.textContent==='Logs')`);
 		} catch (error) {
 			console.error(await browser.evaluate("document.body.innerText"), errors);
 			throw error;
 		}
-		await browser.wait(`document.querySelector('[role=dialog] [aria-label=Logs] #logs-source')`);
+		await browser.evaluate(`[...document.querySelectorAll('.foot-button')].find(e=>e.textContent==='Logs').click()`);
+		await browser.wait(`document.querySelector('[role=dialog][aria-label=Logs] #logs-source')`);
 		await browser.evaluate(
 			`(()=>{const e=document.querySelector('#logs-source');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,${JSON.stringify(worker)});e.dispatchEvent(new Event('change',{bubbles:true}));})()`,
 		);
@@ -58,11 +58,11 @@ test(
 		);
 		await browser.wait("window.logsCopied?.includes('second-failure live-marker')");
 		assert(!(await browser.evaluate<string>("window.logsCopied")).includes("worker-ready-marker"));
-		await browser.open(`http://127.0.0.1:${fixture.server.port}/new`);
+		await browser.open(`http://127.0.0.1:${fixture.server.port}/`);
 		await browser.wait(`document.querySelector('#logs-source')?.value===${JSON.stringify(worker)}`);
 		await browser.wait(`document.querySelector('.logs-output')?.textContent.includes('worker-start-failure')`);
 		await browser.click("[role=dialog] button[aria-label=Close]");
-		await browser.wait("!document.querySelector('[role=dialog]')");
+		await browser.wait("!document.querySelector('[role=dialog][aria-label=Logs]')");
 	},
 );
 
@@ -88,13 +88,12 @@ test(
 			}, BACKGROUND_CONTEXT);
 		await setEnv("missing");
 		const browser = await Browser.start();
-		await browser.signIn(fixture.owner);
 		t.after(() => browser.close());
 		await browser.metrics(1280, 900);
 		processLogs.append("session:another-worker", "event", "other-worker-only-marker");
 		await browser.open(`http://127.0.0.1:${fixture.server.port}/s/${session.id}`);
 		await browser.wait("document.querySelector('.worker-start-error')?.textContent.includes('not configured')");
-		await browser.wait("document.querySelector('.session-worker-error')?.textContent==='Failed'");
+		await browser.wait("document.querySelector('.session-worker-error')?.textContent==='Worker failed'");
 		await browser.wait("document.querySelector('.owner-notice')?.textContent.includes('not configured')");
 		const failed = await until(status.statuses, (value) => Boolean(value?.[session.id]?.error));
 		assert.equal(failed?.[session.id]?.running, false);

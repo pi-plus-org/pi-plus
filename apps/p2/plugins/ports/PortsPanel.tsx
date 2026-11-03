@@ -1,51 +1,29 @@
-import type { Static } from "@earendil-works/pi-schema";
 import { BACKGROUND_CONTEXT, liveIn } from "@p2/app/v1";
-import { CopyButton, errorText, Sheet, Switch, useObject, useOptimisticCall, useReadable } from "@p2/app/v1/web";
+import { CopyButton, Sheet, useObject, useReadable } from "@p2/app/v1/web";
 import { useState } from "react";
-import { type ForwardSchema, Ports } from "./contract.ts";
+import { Ports } from "./contract.ts";
 
-type Forward = Static<typeof ForwardSchema>;
-
-/** A change of the list while its call is in flight. */
-type PortGuess =
-	| { readonly kind: "add"; readonly key: string; readonly port: number; readonly name: string | undefined }
-	| { readonly kind: "remove"; readonly id: string }
-	| { readonly kind: "public"; readonly id: string; readonly open: boolean };
-
-/**
- * The list with a change applied. An added forward's id and addresses are the server's: until it answers, the row
- * shows the port and name only (no Open, no link).
- */
-function applyPort(forwards: Forward[] | undefined, guess: PortGuess): Forward[] | undefined {
-	if (!forwards) return forwards;
-	if (guess.kind === "add")
-		return [...forwards, { id: guess.key, port: guess.port, ...(guess.name ? { name: guess.name } : {}) }];
-	if (guess.kind === "remove") return forwards.filter((forward) => forward.id !== guess.id);
-	return forwards.map((forward) =>
-		forward.id === guess.id
-			? { ...forward, public: guess.open, ...(guess.open ? {} : { publicUrl: undefined }) }
-			: forward,
-	);
-}
-
-/**
- * Every forward is visible to the owner. Making one public requires a second explicit tap. Adding, removing and the
- * public switch show at once; a refused one rolls back with its error.
- */
+/** Every forward is visible to the owner. Making one public requires a second explicit tap. */
 export function PortsPanel({ onClose }: { onClose: () => void }) {
 	const service = liveIn(useObject(Ports, {}), "owner");
+	const forwards = useReadable(service?.forwards);
 	const origin = useReadable(service?.radiusOrigin);
 	const [port, setPort] = useState("");
 	const [name, setName] = useState("");
 	const [removing, setRemoving] = useState<string>();
 	const [publishing, setPublishing] = useState<string>();
+	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string>();
-	const [forwards, change] = useOptimisticCall(useReadable(service?.forwards), applyPort, (reason) =>
-		setError(errorText(reason)),
-	);
-	const run = (guess: PortGuess, call: () => Promise<unknown>) => {
+	const run = async (action: () => Promise<unknown>) => {
+		setBusy(true);
 		setError(undefined);
-		change(guess, call);
+		try {
+			await action();
+		} catch (reason) {
+			setError(reason instanceof Error ? reason.message : String(reason));
+		} finally {
+			setBusy(false);
+		}
 	};
 	const onDevice = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
 	return (
@@ -64,14 +42,11 @@ export function PortsPanel({ onClose }: { onClose: () => void }) {
 			<div className="list">
 				{forwards?.map((forward) => {
 					const url = forward.url ?? (onDevice ? `http://localhost:${forward.port}/` : undefined);
-					const pending = forward.id.startsWith("adding-");
-					const setPublic = (open: boolean) => {
-						setPublishing(undefined);
-						if (service)
-							run({ kind: "public", id: forward.id, open }, () =>
-								service.setPublic({ id: forward.id, public: open }, BACKGROUND_CONTEXT),
-							);
-					};
+					const setPublic = (open: boolean) =>
+						void run(async () => {
+							await service?.setPublic({ id: forward.id, public: open }, BACKGROUND_CONTEXT);
+							setPublishing(undefined);
+						});
 					return (
 						<div className="forward" key={forward.id}>
 							<div className="guest-row forward-row">
@@ -88,13 +63,10 @@ export function PortsPanel({ onClose }: { onClose: () => void }) {
 											<button
 												type="button"
 												className="text-action danger"
-												onClick={() => {
-													setRemoving(undefined);
-													if (service)
-														run({ kind: "remove", id: forward.id }, () =>
-															service.remove({ id: forward.id }, BACKGROUND_CONTEXT),
-														);
-												}}
+												disabled={busy}
+												onClick={() =>
+													void run(() => service!.remove({ id: forward.id }, BACKGROUND_CONTEXT))
+												}
 											>
 												Remove
 											</button>
@@ -104,12 +76,7 @@ export function PortsPanel({ onClose }: { onClose: () => void }) {
 										</>
 									) : (
 										<>
-											<button
-												type="button"
-												className="text-action"
-												disabled={pending}
-												onClick={() => setRemoving(forward.id)}
-											>
+											<button type="button" className="text-action" onClick={() => setRemoving(forward.id)}>
 												Remove
 											</button>
 											{forward.url && <CopyButton text={forward.url} />}
@@ -127,7 +94,12 @@ export function PortsPanel({ onClose }: { onClose: () => void }) {
 									<span className="small">
 										Anyone with the link can open localhost:{forward.port} without signing in.
 									</span>
-									<button type="button" className="text-action danger" onClick={() => setPublic(true)}>
+									<button
+										type="button"
+										className="text-action danger"
+										disabled={busy}
+										onClick={() => setPublic(true)}
+									>
 										Make public
 									</button>
 									<button type="button" className="text-action" onClick={() => setPublishing(undefined)}>
@@ -135,14 +107,17 @@ export function PortsPanel({ onClose }: { onClose: () => void }) {
 									</button>
 								</div>
 							) : (
-								<div className="forward-public">
-									<Switch
-										label="Public: no sign-in"
+								<label className="check forward-public">
+									<input
+										type="checkbox"
 										checked={forward.public ?? false}
-										disabled={pending}
-										onChange={(checked) => (checked ? setPublishing(forward.id) : setPublic(false))}
+										disabled={busy}
+										onChange={(event) =>
+											event.target.checked ? setPublishing(forward.id) : setPublic(false)
+										}
 									/>
-								</div>
+									Public: no sign-in
+								</label>
 							)}
 							{forward.publicUrl && (
 								<div className="inline-form forward-public">
@@ -159,13 +134,14 @@ export function PortsPanel({ onClose }: { onClose: () => void }) {
 				className="inline-form"
 				onSubmit={(event) => {
 					event.preventDefault();
-					if (!service) return;
-					const added = { port: Number(port.trim()), ...(name.trim() ? { name: name.trim() } : {}) };
-					run({ kind: "add", key: `adding-${crypto.randomUUID()}`, port: added.port, name: added.name }, () =>
-						service.add(added, BACKGROUND_CONTEXT),
-					);
-					setPort("");
-					setName("");
+					void run(async () => {
+						await service?.add(
+							{ port: Number(port.trim()), ...(name.trim() ? { name: name.trim() } : {}) },
+							BACKGROUND_CONTEXT,
+						);
+						setPort("");
+						setName("");
+					});
 				}}
 			>
 				<input
@@ -185,7 +161,7 @@ export function PortsPanel({ onClose }: { onClose: () => void }) {
 					placeholder="Name (optional)"
 					aria-label="Name"
 				/>
-				<button type="submit" className="button primary" disabled={!service || !/^\d+$/.test(port.trim())}>
+				<button type="submit" className="button primary" disabled={!service || busy || !/^\d+$/.test(port.trim())}>
 					Add
 				</button>
 			</form>

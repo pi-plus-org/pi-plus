@@ -1,87 +1,71 @@
 import { num, obj } from "@earendil-works/pi-schema";
 import {
-	type AcceptsTable,
 	canView,
 	defineFacet,
+	defineState,
 	defineTypedState,
 	deriveTyped,
 	forbidden,
 	isGuest,
 	isOwner,
 	isWorker,
-	PluginError,
 	record,
 } from "@p2/app/v1";
 import { Hosts, serverOf } from "@p2/app/v1/server";
-import { ReportFields, SessionMetrics, SessionStatus, type Status, StatusStore, WorkerControl } from "./contract.ts";
+import {
+	SessionMetrics,
+	SessionStatus,
+	type Status,
+	StatusesSchema,
+	StatusStore,
+	Viewers,
+	WorkerControl,
+} from "./contract.ts";
 
-/** The latest report of each session's worker, with the generation that sent it. 2: `work`. */
-const Reports = defineTypedState("p2.status-reports", {
-	schema: obj({ reports: record(obj({ generation: num(), ...ReportFields })) }),
-	version: 2,
-	initial: () => ({ reports: {} }),
+const Statuses = defineTypedState("p2.status-store", {
+	schema: obj({ statuses: StatusesSchema }),
+	version: 1,
+	initial: () => ({ statuses: {} }),
 });
 
-/**
- * `SessionStatus` 1: pages read statuses without `work`; a worker built then reports none (its conversations show
- * as busy without a step).
- */
-const STATUS_ACCEPTS: AcceptsTable<typeof SessionStatus> = {
-	1: {
-		state: {
-			reader: {
-				statuses: (statuses) =>
-					Object.fromEntries(
-						Object.entries(statuses).map(([session, { work: _work, ...status }]) => [session, status]),
-					),
-			},
-		},
-		methods: { report: { args: (old) => ({ ...old, work: {} }) } },
-	},
-};
+const Counts = defineState("p2.session-viewers", {
+	schema: obj({ counts: record(num()) }),
+	version: 1,
+	initial: () => ({ counts: {} }),
+});
 
 export default defineFacet((host) => {
-	// Who looks at a session: one entry per `SessionMetrics` reference (its params name the session and the viewer).
-	const metrics = host.references(SessionMetrics);
-
 	host.serve(StatusStore, (_params, self) => {
-		const reports = self.state(Reports);
+		const store = self.state(Statuses);
 		const hosts = self.get(Hosts, {});
-		// Whether a worker runs comes from the workers component, what it does from its own generation's latest report.
-		const statuses = deriveTyped(self, [hosts.workers, reports], ([workers, { reports: latest }]) =>
-			Object.fromEntries(
-				Object.entries(workers).map(([session, worker]): [string, Status] => {
-					if (!worker.running)
-						return [
-							session,
-							{
-								running: false,
-								tasks: 0,
-								busy: [],
-								work: {},
-								...(worker.error ? { error: worker.error } : {}),
-							},
-						];
-					const report = latest[session];
-					if (report === undefined || report.generation !== worker.generation)
-						return [session, { running: true, tasks: 0, busy: [], work: {} }];
-					const { generation: _generation, ...reported } = report;
-					return [session, { running: true, ...reported }];
-				}),
-			),
-		);
+		// Whether a worker runs comes from the workers component; what it does, from the worker's reports.
+		self.on(hosts.workers, async ({ value: workers }, ctx) => {
+			await store.change((draft) => {
+				for (const [session, worker] of Object.entries(workers)) {
+					const current = draft.statuses[session];
+					if (!worker.running) {
+						draft.statuses[session] = {
+							running: false,
+							tasks: 0,
+							busy: [],
+							...(worker.error ? { error: worker.error } : {}),
+						};
+					} else if (current?.running !== true || current.error)
+						draft.statuses[session] = { running: true, tasks: 0, busy: [] };
+				}
+			}, ctx);
+		});
 		return {
-			statuses,
-			report: async ({ session, generation, tasks, busy, work, usage }, ctx) => {
+			statuses: deriveTyped(self, [store], ([value]) => value.statuses as Record<string, Status>),
+			report: async ({ session, generation, tasks, busy, usage }, ctx) => {
 				// A report of an older worker (one that exited while its report travelled) is dropped.
 				const worker = hosts.workers.value[session];
 				if (worker === undefined || !worker.running || worker.generation !== generation) return null;
-				await reports.change((draft) => {
-					draft.reports[session] = {
-						generation,
+				await store.change((draft) => {
+					draft.statuses[session] = {
+						running: true,
 						tasks,
 						busy: [...busy].sort((a, b) => a - b),
-						work,
 						...(usage ? { usage } : {}),
 					};
 				}, ctx);
@@ -96,57 +80,80 @@ export default defineFacet((host) => {
 		return {
 			variant: "owner",
 			members: {
-				// Answers with the start's outcome: the worker runs, or the call fails with why it could not start.
-				restart: async (ctx) => {
-					const outcome = await server().workers.retry(session, ctx);
-					if (outcome.error !== undefined) throw new PluginError("worker_failed", outcome.error);
+				restart: async () => {
+					await server().workers.retry(session);
 					return null;
 				},
 			},
 		};
 	});
 
-	host.serve(SessionMetrics, ({ session }, principal, self) => {
+	host.serve(Viewers, (_params, self) => {
+		const viewers = new Map<string, Set<string>>();
+		const counts = self.state(Counts);
+		return {
+			counts: self.derive([counts], ([value]) => value.counts),
+			enter: async ({ session, viewer }, ctx) => {
+				const list = viewers.get(session) ?? new Set<string>();
+				list.add(viewer);
+				viewers.set(session, list);
+				await counts.change((draft) => {
+					draft.counts[session] = list.size;
+				}, ctx);
+				return null;
+			},
+			leave: async ({ session, viewer }, ctx) => {
+				const list = viewers.get(session);
+				list?.delete(viewer);
+				await counts.change((draft) => {
+					draft.counts[session] = list?.size ?? 0;
+				}, ctx);
+				return null;
+			},
+		};
+	});
+	host.serve(SessionMetrics, ({ session, viewer }, principal, self) => {
 		if (!canView(principal, session)) throw forbidden("viewers only");
+		const counts = self.get(Viewers, {});
 		const status = self.get(StatusStore, {});
-		const clients = self.derive(
-			[metrics],
-			([references]) =>
-				new Set(references.filter((each) => each.params.session === session).map((each) => each.params.viewer))
-					.size,
-		);
+		const server = serverOf(self);
+		const clients = self.derive([counts.counts], ([value]) => value[session] ?? 0);
 		const usage = deriveTyped(self, [status.statuses], ([value]) => value[session]?.usage ?? null);
+		self.open(
+			async () => server().root((ctx) => counts.enter({ session, viewer }, ctx)),
+			async () => {
+				await server()
+					.root((ctx) => counts.leave({ session, viewer }, ctx))
+					.catch(() => {});
+			},
+		);
 		return { variant: "reader", members: { clients, usage } };
 	});
 
-	host.serve(
-		SessionStatus,
-		(_params, principal, self) => {
-			const store = self.get(StatusStore, {});
-			if (isWorker(principal)) {
-				const { session, generation } = principal;
-				return {
-					variant: "reporter",
-					members: { report: (report, ctx) => store.report({ ...report, session, generation }, ctx) },
-				};
-			}
-			if (isGuest(principal)) {
-				// As in Pi Mobile: whether it runs, its work and spend, never the worker's error text (paths, stacks).
-				const statusesView = deriveTyped(self, [store.statuses], ([statuses]) =>
-					Object.fromEntries(
-						Object.keys(principal.sessions).flatMap((session) => {
-							const status = statuses[session];
-							if (status === undefined) return [];
-							const { running, tasks, busy, work, usage } = status;
-							return [[session, { running, tasks, busy, work, ...(usage === undefined ? {} : { usage }) }]];
-						}),
-					),
-				);
-				return { variant: "reader", members: { statuses: statusesView } };
-			}
-			if (!isOwner(principal)) throw forbidden("owners and guests only");
-			return { variant: "reader", members: { statuses: store.statuses } };
-		},
-		{ accepts: STATUS_ACCEPTS },
-	);
+	host.serve(SessionStatus, (_params, principal, self) => {
+		const store = self.get(StatusStore, {});
+		if (isWorker(principal)) {
+			const { session, generation } = principal;
+			return {
+				variant: "reporter",
+				members: { report: (report, ctx) => store.report({ ...report, session, generation }, ctx) },
+			};
+		}
+		if (isGuest(principal)) {
+			// As in Pi Mobile: whether it runs, its work and spend, never the worker's error text (paths, stacks).
+			const statusesView = deriveTyped(self, [store.statuses], ([statuses]) =>
+				Object.fromEntries(
+					Object.keys(principal.sessions).flatMap((session) => {
+						const status = statuses[session];
+						if (status === undefined) return [];
+						const { running, tasks, busy, usage } = status;
+						return [[session, { running, tasks, busy, ...(usage === undefined ? {} : { usage }) }]];
+					}),
+				),
+			);
+			return { variant: "reader", members: { statuses: statusesView } };
+		}
+		if (!isOwner(principal)) throw forbidden("owners and guests only");
+		return { variant: "reader", members: { statuses: store.statuses } };
+	});
 });

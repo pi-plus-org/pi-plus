@@ -62,22 +62,19 @@ test("/fork picks a message and opens the fork with it in the editor; /clone; do
 						sessions,
 						defaultCwd,
 						defaultEnv,
-						operations: self.state([]),
-						dismissOperation: () => {},
 						create: () => SESSION,
 						relocate: () => {},
 						rename: () => {},
 						pin: () => {},
 						archive: () => {},
 						restore: () => {},
-						// The copy's ID is the TUI's (client-chosen, Sessions v6).
-						clone: (args: { id: string; copy: string }, ctx: Ctx) => {
+						clone: (args: { id: string }, ctx: Ctx) => {
 							record("clone", args);
-							return copy(args.copy, "copy", ctx);
+							return copy(`clone-${calls.clone?.length}`, "copy", ctx);
 						},
-						fork: (args: { id: string; conversation: number; before: number; copy: string }, ctx: Ctx) => {
+						fork: (args: { id: string; conversation: number; before: number }, ctx: Ctx) => {
 							record("fork", args);
-							return copy(args.copy, "fork", ctx);
+							return copy(`fork-${calls.fork?.length}`, "fork", ctx);
 						},
 					};
 				},
@@ -127,22 +124,19 @@ test("/fork picks a message and opens the fork with it in the editor; /clone; do
 	send(UP);
 	send(ENTER);
 	await poll(() => (calls.fork?.length ?? 0) === 1);
-	const forked = calls.fork?.[0] as { copy: string };
-	assert.deepEqual(forked, { id: "s", conversation: 1, before: 1, copy: forked.copy });
-	// The fork opened at once with the chosen message in its editor (this fixture's single worker serves only "s").
-	assert.equal(runtime.identity, `${forked.copy}#1`);
-	assert.equal(runtime.drafts.get(`${forked.copy}#1`), "first question");
+	assert.deepEqual(calls.fork?.[0], { id: "s", conversation: 1, before: 1 });
+	// The fork is open with the chosen message in its editor (this fixture's single worker serves only "s").
+	await poll(() => runtime.identity === "fork-1#1");
+	assert.equal(runtime.drafts.get("fork-1#1"), "first question");
 	assert.equal(chat().editor.getText(), "first question");
-	// /clone opens the copy at once.
+	assert(runtime.notices.some((notice) => notice.text === "Forked to new session"));
+	// /clone opens the copy.
 	assert(runtime.ctx.commands.run("p2.session.clone"));
-	await poll(() => (calls.clone?.length ?? 0) === 1);
-	const cloned = calls.clone?.[0] as { copy: string };
-	assert.deepEqual(cloned, { id: forked.copy, copy: cloned.copy });
-	assert.equal(runtime.identity, `${cloned.copy}#1`);
+	await poll(() => runtime.identity === "clone-1#1");
+	assert.deepEqual(calls.clone, [{ id: "fork-1" }]);
 	runtime.navigate("chat", "s", 1);
 	await poll(() => chat().editable);
 	// doubleEscapeAction "fork": a second Escape within 500 ms on an empty editor opens the picker; "none" never.
-	runtime.appearance.settings = { doubleEscapeAction: "none" };
 	send(ESC);
 	send(ESC);
 	await new Promise((resolve) => setTimeout(resolve, 50));

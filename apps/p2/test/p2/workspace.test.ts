@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -30,11 +29,11 @@ describe("workspace plugin (fake provider, temporary git repository)", () => {
 		headers: Record<string, string> = { Origin: origin },
 		id = session.id,
 	) =>
-		fixture.http(`/workspace-upload?${new URLSearchParams({ session: id, conversation: "1", path, name })}`, {
-			method: "POST",
-			headers,
-			body,
-		});
+		http(
+			fixture.server.port,
+			`/workspace-upload?${new URLSearchParams({ session: id, conversation: "1", path, name })}`,
+			{ method: "POST", headers, body },
+		);
 	const joinGuest = async (mode: "view" | "full") => {
 		const share = fixture.browser().hold(Sharing, { session: session.id }, BACKGROUND_CONTEXT);
 		await share.link({ mode }, BACKGROUND_CONTEXT);
@@ -80,8 +79,7 @@ describe("workspace plugin (fake provider, temporary git repository)", () => {
 		await writeFile(join(fixture.workspace, "new.md"), "# Untracked hello\n");
 		await writeFile(join(fixture.workspace, "ignored.txt"), "hello ignored\n");
 		await writeFile(join(fixture.workspace, "clip.mp3"), "0123456789");
-		// A link out of the working directory (to p2's data directory, which is no exception otherwise).
-		await symlink(fixture.dataDir, join(fixture.workspace, "outside"));
+		await symlink(fixture.dataDir, join(fixture.workspace, "private"));
 		const browser = fixture.browser();
 		const sessions = await holdIn(browser, Sessions, {}, "owner");
 		session = await sessions.create({ cwd: fixture.workspace, title: "Workspace" }, BACKGROUND_CONTEXT);
@@ -137,34 +135,30 @@ describe("workspace plugin (fake provider, temporary git repository)", () => {
 			/Invalid/,
 		);
 		await assert.rejects(workspace.query({ kind: "file", path: ".git/config" }, BACKGROUND_CONTEXT), /Invalid/);
-		await assert.rejects(workspace.query({ kind: "list", path: "outside" }, BACKGROUND_CONTEXT), /leaves/);
+		await assert.rejects(workspace.query({ kind: "list", path: "private" }, BACKGROUND_CONTEXT), /private|leaves/);
 		await assert.rejects(workspace.query({ kind: "log", skip: -1, limit: 1000 }, BACKGROUND_CONTEXT));
 	});
 
-	it("rejects unknown conversations; serves a session rooted in p2's data directory like any other", async () => {
+	it("rejects unknown conversations and sessions rooted in private application data", async () => {
 		const browser = fixture.browser();
 		const unknown = browser.hold(Workspace, { session: session.id, conversation: 99999 }, BACKGROUND_CONTEXT);
 		// A failed open leaves its holders waiting (it would heal): the failure names the cause.
 		assert.match((await failureOf(unknown)).message, /Unknown conversation/);
 		unknown.release();
-		// Sessions work in <data>/plugins (agent plugins): the data directory is a workspace like any other.
-		mkdirSync(join(fixture.dataDir, "plugins", "counter"), { recursive: true });
-		const pluginsSession = await (await holdIn(browser, Sessions, {}, "owner")).create(
-			{ cwd: join(fixture.dataDir, "plugins"), title: "Plugins" },
+		const privateSession = await (await holdIn(browser, Sessions, {}, "owner")).create(
+			{
+				cwd: fixture.dataDir,
+				title: "Private",
+			},
 			BACKGROUND_CONTEXT,
 		);
-		const pluginsWorkspace = await holdIn(
-			browser,
+		const privateWorkspace = browser.hold(
 			Workspace,
-			{ session: pluginsSession.id, conversation: 1 },
-			"reader",
+			{ session: privateSession.id, conversation: 1 },
+			BACKGROUND_CONTEXT,
 		);
-		const listed = await pluginsWorkspace.query({ kind: "list", path: "" }, BACKGROUND_CONTEXT);
-		assert(
-			listed.kind === "list" && listed.entries.some((entry) => entry.name === "counter"),
-			JSON.stringify(listed),
-		);
-		pluginsWorkspace.release();
+		assert.match((await failureOf(privateWorkspace)).message, /private/);
+		privateWorkspace.release();
 	});
 
 	it("answers where it is open, without a waiting or failed move", async () => {
@@ -183,13 +177,13 @@ describe("workspace plugin (fake provider, temporary git repository)", () => {
 		await until(workspace.changes, (value) => value !== undefined && value > revision!);
 	});
 
-	it("streams bytes, HEAD and media ranges; denies paths out of the working directory and cross-site reads", async () => {
-		const bytes = await fixture.http(url("src/hello.ts"));
+	it("streams bytes, HEAD and media ranges; denies private paths and cross-site reads", async () => {
+		const bytes = await http(fixture.server.port, url("src/hello.ts"));
 		assert.equal(bytes.status, 200, bytes.body);
 		assert.equal(bytes.body, "const hello = 'after';\n");
 		// As Pi Mobile: only media keeps its type; anything else is an opaque download.
 		assert.equal(bytes.headers["content-type"], "application/octet-stream");
-		const head = await fixture.http(url("clip.mp3"), { method: "HEAD" });
+		const head = await http(fixture.server.port, url("clip.mp3"), { method: "HEAD" });
 		assert.equal(head.status, 200);
 		assert.equal(head.headers["content-type"], "audio/mpeg");
 		assert.equal(head.headers["content-length"], "10");
@@ -199,24 +193,24 @@ describe("workspace plugin (fake provider, temporary git repository)", () => {
 			["bytes=-3", "789"],
 			["bytes=7-", "789"],
 		]) {
-			const response = await fixture.http(url("clip.mp3"), { headers: { Range: range! } });
+			const response = await http(fixture.server.port, url("clip.mp3"), { headers: { Range: range! } });
 			assert.equal(response.status, 206, response.body);
 			assert.equal(response.body, expected);
 		}
-		assert.equal((await fixture.http(url("clip.mp3"), { headers: { Range: "bytes=20-" } })).status, 416);
+		assert.equal((await http(fixture.server.port, url("clip.mp3"), { headers: { Range: "bytes=20-" } })).status, 416);
 		assert.equal(
-			(await fixture.http(url("src/hello.ts"), { headers: { "Sec-Fetch-Site": "cross-site" } })).status,
+			(await http(fixture.server.port, url("src/hello.ts"), { headers: { "Sec-Fetch-Site": "cross-site" } })).status,
 			403,
 		);
 		// A whole file over 25 MiB is refused (Pi Mobile's limit); a sparse file keeps the fixture small on disk.
 		await writeFile(join(fixture.workspace, "huge.bin"), "");
 		await truncate(join(fixture.workspace, "huge.bin"), 25 * 1024 * 1024 + 1);
-		const huge = await fixture.http(url("huge.bin"));
+		const huge = await http(fixture.server.port, url("huge.bin"));
 		assert.equal(huge.status, 413);
 		assert.equal(huge.body, "File too large");
 		await rm(join(fixture.workspace, "huge.bin"));
-		assert.equal((await fixture.http(url(".git/config"))).status, 404);
-		assert.equal((await fixture.http(url("outside/settings.json"))).status, 404);
+		assert.equal((await http(fixture.server.port, url(".git/config"))).status, 404);
+		assert.equal((await http(fixture.server.port, url("private/settings.json"))).status, 404);
 		const transfer = fixture
 			.browser()
 			.hold(WorkspaceTransfer, { session: session.id, conversation: 1 }, BACKGROUND_CONTEXT);
@@ -228,7 +222,7 @@ describe("workspace plugin (fake provider, temporary git repository)", () => {
 		const response = await upload("large.txt", payload, "src");
 		assert.equal(response.status, 200, response.body);
 		assert.deepEqual(await readFile(join(fixture.workspace, "src/large.txt")), payload);
-		const streamed = await fixture.http(url("src/large.txt"));
+		const streamed = await http(fixture.server.port, url("src/large.txt"));
 		assert.equal(streamed.status, 200);
 		assert.equal(streamed.body, payload.toString("utf8"));
 		const capped = await workspace.query({ kind: "file", path: "src/large.txt" }, BACKGROUND_CONTEXT);
@@ -243,7 +237,7 @@ describe("workspace plugin (fake provider, temporary git repository)", () => {
 		);
 		assert.equal((await upload("empty.txt", "", "src")).status, 200);
 		assert.equal((await readFile(join(fixture.workspace, "src/empty.txt"))).length, 0);
-		assert.equal((await upload("bad.txt", "x", "outside")).status, 400);
+		assert.equal((await upload("bad.txt", "x", "private")).status, 400);
 		assert.equal((await upload("../bad.txt", "x")).status, 400);
 		assert.equal((await upload("bad.txt", "x", "", {})).status, 403);
 		assert.equal((await upload("oversized.txt", Buffer.alloc(25 * 1024 * 1024 + 1))).status, 400);

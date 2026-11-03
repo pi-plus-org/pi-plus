@@ -1,17 +1,8 @@
 import { AgentDoc, type ConversationId, ROOT_CONVERSATION_ID } from "@earendil-works/pi-durable";
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-import {
-	canSend,
-	defineFacet,
-	followNative,
-	forbidden,
-	type Location,
-	type Subscribable,
-	sameLocation,
-	signalOf,
-} from "@p2/app/v1";
+import { canSend, defineFacet, forbidden, type Location, type Subscribable, sameLocation, signalOf } from "@p2/app/v1";
 import { durableContext } from "@p2/app/v1/node";
-import { conversationEnvironment, harnessOf, workerOf } from "@p2/app/v1/worker";
+import { conversationEnvironment, harnessOf, isLocalEnvironment, workerOf } from "@p2/app/v1/worker";
 import { LocationMoveDoc } from "../locations/contract.worker.ts";
 import { Workspace, WorkspaceBackend, WorkspaceTransfer, WorkspaceWrites } from "./contract.ts";
 import { Workspace as EnvironmentWorkspace } from "./environment.ts";
@@ -20,17 +11,26 @@ import { workspacePath, workspaceSearchText } from "./protocol.ts";
 export default defineFacet((host) => {
 	host.serve(WorkspaceWrites, (_params, self) => {
 		const harness = harnessOf(self);
+		const worker = workerOf(self);
 		const writerResource = self.open(
 			async () => {
 				// One workspace per environment: the session's where it is, or a subagent's own location. A move brings new
-				// environments (`at` resolves at each write), so new workspaces. Weak: environments a move closed go with
-				// their workspaces.
-				const workspaces = new WeakMap<ExecutionEnv, EnvironmentWorkspace>();
-				const workspaceAt = async (location: Location) => {
+				// environments (`at` resolves at each write), so new workspaces; p2's private data directory is denied on
+				// this machine only. Weak: environments a move closed go with their workspaces.
+				const workspaces = new WeakMap<ExecutionEnv, Promise<EnvironmentWorkspace>>();
+				const workspaceAt = async (location: Location, signal: AbortSignal) => {
 					const at = await harness().environments.at(location);
 					let workspace = workspaces.get(at);
 					if (!workspace) {
-						workspace = new EnvironmentWorkspace(at);
+						workspace = (async () => {
+							const privatePath = isLocalEnvironment(at)
+								? await at.canonicalPath(worker().init.dataDir, durableContext(signal))
+								: undefined;
+							const denied =
+								privatePath === undefined ? [] : privatePath.ok ? [privatePath.value] : [worker().init.dataDir];
+							return new EnvironmentWorkspace(at, denied);
+						})();
+						workspace.catch(() => workspaces.delete(at));
 						workspaces.set(at, workspace);
 					}
 					return workspace;
@@ -50,7 +50,7 @@ export default defineFacet((host) => {
 				await previous;
 				try {
 					signalOf(ctx).throwIfAborted();
-					await (await writer.workspaceAt(location)).write(upload, durableContext(ctx));
+					await (await writer.workspaceAt(location, signalOf(ctx))).write(upload, durableContext(ctx));
 					return null;
 				} finally {
 					release();
@@ -62,6 +62,15 @@ export default defineFacet((host) => {
 		const harness = harnessOf(self);
 		const worker = workerOf(self);
 		const writes = self.get(WorkspaceWrites, {});
+		const changes = self.writable(0);
+		self.open(
+			async () => {
+				const liveness = worker().liveness;
+				liveness.add("viewers", 1);
+				return liveness;
+			},
+			(liveness) => liveness.add("viewers", -1),
+		);
 		/** The viewed conversation's workspace where it works now, and the watch reporting its changes to `listeners`. */
 		const openWorkspace = async (context: ReturnType<typeof durableContext>, notify: () => void) => {
 			const durable = harness().durable;
@@ -70,9 +79,21 @@ export default defineFacet((host) => {
 			// Where the viewed conversation works: a subagent may have its own location (e.g. a git worktree, on another
 			// machine than the session now).
 			const { location, env } = await conversationEnvironment(harness().environments, handle.id, context);
+			// p2's private data directory is denied on this machine, decided from the environment (not the location, which
+			// lags behind it during a move).
+			const privatePath = isLocalEnvironment(env)
+				? await env.canonicalPath(worker().init.dataDir, context)
+				: undefined;
 			const root = await env.canonicalPath(env.cwd, context);
 			if (!root.ok) throw new Error("Working directory unavailable");
-			const workspace = new EnvironmentWorkspace(env);
+			const denied =
+				privatePath === undefined ? undefined : privatePath.ok ? privatePath.value : worker().init.dataDir;
+			if (denied && (root.value === denied || root.value.startsWith(`${denied}/`)))
+				throw new Error("Workspace is private");
+			const privateRelative = denied?.startsWith(`${root.value.replace(/\/+$/, "")}/`)
+				? denied.slice(root.value.replace(/\/+$/, "").length + 1)
+				: undefined;
+			const workspace = new EnvironmentWorkspace(env, denied ? [denied] : []);
 			// The workspace answers before its watch is up: walking a large tree (a home folder) takes many seconds. A
 			// failed watch leaves the panel without live updates; once one is up, viewers read again (a change made before
 			// it would be missed otherwise).
@@ -87,7 +108,7 @@ export default defineFacet((host) => {
 					return undefined;
 				},
 			);
-			return { workspace, location, watch };
+			return { workspace, location, watch, privateRelative };
 		};
 		type Opened = Awaited<ReturnType<typeof openWorkspace>>;
 		const workspaceResource = self.open(
@@ -103,13 +124,10 @@ export default defineFacet((host) => {
 					},
 				};
 				let pending: ReturnType<typeof setTimeout> | undefined;
-				// Counts the workspace's changes (at most one per 100 ms): viewers read again at each.
-				let version = 0;
 				const notify = (): void => {
 					if (pending) return;
 					pending = setTimeout(() => {
 						pending = undefined;
-						version++;
 						for (const fn of listeners) fn(null);
 					}, 100);
 				};
@@ -207,9 +225,6 @@ export default defineFacet((host) => {
 				return {
 					events,
 					current,
-					get version() {
-						return version;
-					},
 					close: async () => {
 						stop();
 						closing.abort();
@@ -220,18 +235,19 @@ export default defineFacet((host) => {
 			},
 			(value) => value.close(),
 		);
+		// Closed before the workspace (reverse order), so no change arrives after the writable ends.
+		self.open(
+			async () => workspaceResource.value.events.subscribe(() => changes.set(changes.value + 1)),
+			(stop) => stop(),
+		);
 		return {
-			changes: followNative(
-				self,
-				(changed) => workspaceResource.value.events.subscribe(changed),
-				() => workspaceResource.value.version,
-			),
+			changes: self.derive([changes], ([value]) => value),
 			query: (query, ctx) =>
 				worker().liveness.call(async () => {
 					if ("path" in query && workspacePath(query.path) === undefined)
 						throw new Error("Invalid workspace path");
 					if (query.kind === "search" && !workspaceSearchText(query.text)) throw new Error("Invalid search text");
-					const { workspace, location } = await workspaceResource.value.current();
+					const { workspace, location, privateRelative } = await workspaceResource.value.current();
 					if (query.kind === "place") {
 						const move = await harness().durable.snapshot(
 							LocationMoveDoc,
@@ -244,6 +260,20 @@ export default defineFacet((host) => {
 							...(move?.pending ? { pending: move.pending } : {}),
 							...(move?.failed ? { failed: move.failed } : {}),
 						};
+					}
+					if (
+						privateRelative &&
+						"path" in query &&
+						(query.path === privateRelative || query.path.startsWith(`${privateRelative}/`))
+					)
+						throw new Error("Path is private");
+					if (
+						privateRelative &&
+						query.kind === "search" &&
+						(!query.path || privateRelative.startsWith(`${query.path}/`))
+					) {
+						const relative = query.path ? privateRelative.slice(query.path.length + 1) : privateRelative;
+						query = { ...query, exclude: [query.exclude, `./${relative}/`].filter(Boolean).join(",") };
 					}
 					return workspace.query(query, durableContext(ctx));
 				}),

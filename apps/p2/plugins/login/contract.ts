@@ -48,8 +48,7 @@ const OwnerSchema = obj({ owner: str({ minLength: 1 }) });
  * dismisses it, and only its leaving ends it.
  */
 export const LoginService = local("p2.login-service", {
-	/** 3: no `abandon` (the service follows who holds `ProviderLogin`). */
-	version: 3,
+	version: 2,
 	params: {},
 	members: {
 		login: union([LoginStateSchema, nul()]),
@@ -74,6 +73,8 @@ export const LoginService = local("p2.login-service", {
 		),
 		cancel: method(obj({ ...propertiesOf(OwnerSchema), ...propertiesOf(AttemptSchema) })),
 		dismiss: method(obj({ ...propertiesOf(OwnerSchema), ...propertiesOf(AttemptSchema) })),
+		/** Its owner left (no hold of its Providers sheet remains): cancels that owner's unfinished login only. */
+		abandon: method(OwnerSchema),
 		logout: method(ProviderIdSchema),
 		refresh: method(ProviderIdSchema, obj({ models: num() })),
 	},

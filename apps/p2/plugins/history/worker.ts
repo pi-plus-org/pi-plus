@@ -9,11 +9,8 @@ export default defineFacet((host) => {
 	contribute(host, "p2.history-tools", (self) => {
 		const worker = workerOf(self);
 		const extension = createHistoryExtension(
-			(query, context) =>
-				worker().root(
-					async (ctx) => expectVariant(await ctx.get(SearchFeed, {}), "worker").history(query, ctx),
-					context,
-				),
+			(query) =>
+				worker().root(async (ctx) => expectVariant(await ctx.get(SearchFeed, {}), "worker").history(query, ctx)),
 			(conversation) => `${worker().init.values.session.id}#${conversation}`,
 		);
 		self.contribute(Extensions, { [extension.name]: extension });

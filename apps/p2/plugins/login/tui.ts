@@ -422,11 +422,10 @@ async function logout(ctx: TuiContext, name: string | undefined): Promise<void> 
 			ref.release();
 			return;
 		}
-		// Shown at once; a refused sign-out says so after it.
-		ctx.notify(`Logged out of ${lineText(provider.name)}`);
 		void ref
 			.logout({ providerId: provider.id }, BACKGROUND_CONTEXT)
-			.catch((error: unknown) => ctx.fail(error))
+			.then(() => ctx.notify(`Logged out of ${lineText(provider.name)}`))
+			.catch((error: unknown) => ctx.notify(error instanceof Error ? error.message : String(error), "error"))
 			.finally(() => ref.release());
 	};
 	if (!list.length) {

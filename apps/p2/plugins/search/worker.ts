@@ -1,10 +1,8 @@
-// Feeds the top-level conversations' (the main conversation and its `/tree` branches) and subagents' messages into the
-// server index with per-conversation acknowledged catch-up.
+// Feeds root and subagent messages into the server index with per-conversation acknowledged catch-up.
 import { setTimeout as sleep } from "node:timers/promises";
 import {
 	AssistantEntry,
 	type Conversation,
-	type ConversationId,
 	type Cursor,
 	type EntryId,
 	type EntryRecord,
@@ -12,19 +10,19 @@ import {
 } from "@earendil-works/pi-durable";
 import { bool } from "@earendil-works/pi-schema";
 import {
-	agentMessage,
 	type Ctx,
 	defineFacet,
 	forbidden,
 	isChordError,
 	local,
-	messageData,
-	peerMessage,
+	messageOf,
 	SHELL_ENTRY,
 	signalOf,
 	until,
 } from "@p2/app/v1";
-import { CommitSignal, harnessOf, topLevelRecords } from "@p2/app/v1/worker";
+import { durableContext } from "@p2/app/v1/node";
+import { CommitSignal, harnessOf } from "@p2/app/v1/worker";
+import { CONVERSATION_PREFIX } from "../conversations/contract.ts";
 import { Subagents } from "../subagents/contract.worker.ts";
 import { type IndexedMessage, IndexScan, SearchFeed } from "./contract.ts";
 
@@ -38,8 +36,8 @@ const Indexer = local("p2.search-indexer", {
 const PAGE = 200;
 
 /**
- * What an input or answer said: a person's, a peer session's or a subagent's input by its data (what they typed, not a mention's
- * digest), a tool's input and an answer by their text.
+ * What an input or answer said: a person's input by its data (what they typed, not a mention's digest), a tool's
+ * input by its text without the peer sender block, an answer by its text.
  */
 function indexedMessage(entry: EntryRecord): IndexedMessage | undefined {
 	const role = entry.model?.[0]?.role;
@@ -50,20 +48,19 @@ function indexedMessage(entry: EntryRecord): IndexedMessage | undefined {
 	if (entry.kind === SHELL_ENTRY) return undefined;
 	if (role === "assistant" && !AssistantEntry.is(entry)) return undefined;
 	const messages = entry.model?.filter((message) => message.role === role) ?? [];
-	const typed =
-		role === "user"
-			? (messageData(entry.data)?.text ??
-				peerMessage(entry.kind, entry.data)?.text ??
-				agentMessage(entry.kind, entry.data)?.text)
-			: undefined;
+	const person =
+		role === "user" ? messageOf(entry.data, entry.kind === "pi.user" ? messages[0]?.content : undefined) : undefined;
 	const text =
-		typed ??
+		person?.text ??
 		messages
-			.map((message) =>
-				typeof message.content === "string"
-					? message.content
-					: message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n"),
-			)
+			.map((message) => {
+				if (typeof message.content === "string") return message.content;
+				const first = message.content[0];
+				const header = role === "user" && first?.type === "text" && first.text.startsWith(CONVERSATION_PREFIX);
+				return (header ? message.content.slice(1) : message.content)
+					.flatMap((part) => (part.type === "text" ? [part.text] : []))
+					.join("\n");
+			})
 			.join("\n");
 	if (!text.trim()) return undefined;
 	return {
@@ -88,11 +85,17 @@ async function catchUp(
 	through: number,
 	ctx: Ctx,
 ): Promise<number> {
-	const upper = (await root.entries({}, 1, undefined, ctx)).items[0]?.id;
+	const context = durableContext(ctx);
+	const upper = (await root.entries({}, 1, undefined, context)).items[0]?.id;
 	if (upper === undefined || upper <= through) return through;
 	let cursor: Cursor | undefined;
 	do {
-		const page = await root.entries({ minEntryId: (through + 1) as EntryId, maxEntryId: upper }, PAGE, cursor, ctx);
+		const page = await root.entries(
+			{ minEntryId: (through + 1) as EntryId, maxEntryId: upper },
+			PAGE,
+			cursor,
+			context,
+		);
 		cursor = page.next;
 		const messages = page.items.map(indexedMessage).filter((message) => message !== undefined);
 		await feed.index({ conversation: root.id, messages, through: cursor === undefined ? upper : through }, ctx);
@@ -130,18 +133,17 @@ export default defineFacet((host) => {
 			while (!signalOf(ctx).aborted) {
 				const seen = signal.version;
 				try {
-					const registry = await durable.snapshot(Subagents, ROOT_CONVERSATION_ID, ctx);
-					// A branch's history starts after its fork point: what it inherits is indexed with the conversation
-					// storing it.
-					const starts = new Map<number, number>(
-						(await topLevelRecords(durable, ctx)).map((record) => [record.id, record.parent?.at ?? 0]),
-					);
-					for (const agent of Object.values(registry?.agents ?? {})) starts.set(agent.conversationId, 0);
-					for (const [id, start] of starts) {
-						const conversation = await durable.conversation(id as ConversationId, ctx);
+					const context = durableContext(ctx);
+					const registry = await durable.snapshot(Subagents, ROOT_CONVERSATION_ID, context);
+					const ids = new Set([
+						ROOT_CONVERSATION_ID,
+						...Object.values(registry?.agents ?? {}).map((agent) => agent.conversationId),
+					]);
+					for (const id of ids) {
+						const conversation = await durable.conversation(id, context);
 						if (!conversation) continue;
 						const through = await feed.cursor({ conversation: id }, ctx);
-						await catchUp(conversation, feed, Math.max(through, start), ctx);
+						await catchUp(conversation, feed, through, ctx);
 					}
 					scanned.set(true);
 				} catch (error) {

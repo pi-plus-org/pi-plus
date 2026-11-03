@@ -83,23 +83,25 @@ const ConversationConfigureSchema = obj({
 
 const RestoredSchema = arr(obj({ author: AuthorSchema, text: str() }));
 
-/** A user shell command (`!cmd`/`!!cmd`) while it runs and until its `p2.shell` entry is placed. */
-export const LiveShellSchema = obj({
-	id: str(),
-	command: str(),
-	author: AuthorSchema,
-	includeInContext: bool(),
-	/** The tail of its output (src/runtime/shell.ts limits). */
-	output: str(),
-	truncated: bool(),
-	running: bool(),
-	exitCode: opt(num()),
-	cancelled: bool(),
-	error: opt(str()),
-});
-export type LiveShell = Static<typeof LiveShellSchema>;
-/** The conversation's user shell command; null when none. */
-export const ShellStateSchema = union([LiveShellSchema, nul()]);
+/**
+ * The conversation's user shell command (`!cmd`/`!!cmd`) while it runs and until its `p2.shell` entry is placed:
+ * the tail of its output (src/runtime/shell.ts limits). Null when none.
+ */
+export const ShellStateSchema = union([
+	obj({
+		id: str(),
+		command: str(),
+		author: AuthorSchema,
+		includeInContext: bool(),
+		output: str(),
+		truncated: bool(),
+		running: bool(),
+		exitCode: opt(num()),
+		cancelled: bool(),
+		error: opt(str()),
+	}),
+	nul(),
+]);
 export type ShellState = Static<typeof ShellStateSchema>;
 /** pi's text when a second command is started while one runs (interactive-mode `isBashRunning`). */
 export const SHELL_BUSY = "A bash command is already running. Press Esc to cancel it first.";
@@ -107,7 +109,7 @@ export const ShellSchema = obj({
 	command: str({ minLength: 1, maxLength: 100_000 }),
 	/** `!` (true): the output joins the agent's context; `!!` (false): display only. */
 	includeInContext: bool(),
-	/** Client-chosen, the command's `shellId` (`liveShell.id`); a retried call with the same ID runs once (per author). */
+	/** Client-chosen; a retried call with the same ID runs once (scoped to the author). */
 	requestId: str({ minLength: 1, maxLength: 200 }),
 });
 
@@ -144,7 +146,7 @@ export const DequeueOwnResultSchema = obj({
 /**
  * An input as `Conversation.submit` takes it: the text the model reads, who wrote it, and its resolved attachments.
  * It is placed as its own entry: `entry`, or by default a `p2.input` entry whose data is the author, the text and the
- * attachments (see src/runtime/input.ts). The model message also starts with the author's sender block.
+ * attachments (see src/runtime/input.ts). The model message also starts with the author's speaker block.
  */
 export const SubmitSchema = obj({
 	...propertiesOf(SendSchema),
@@ -163,8 +165,7 @@ export type Submit = Static<typeof SubmitSchema>;
  * watch, and the operations that need an author, which callers pass explicitly.
  */
 export const Conversation = local("p2.conversation", {
-	/** 2: user shell commands moved to `ShellCommands` (chat/shell.ts). */
-	version: 2,
+	version: 1,
 	params: { conversation: param.int() },
 	members: {
 		/** The view's window, as every viewer holds it. */
@@ -201,6 +202,12 @@ export const Conversation = local("p2.conversation", {
 		abortCompaction: method(undefined, obj({ aborted: int({ minimum: 0 }) })),
 		/** Withdraws `authorId`'s queued inputs (by the server-stamped author) in submission order. */
 		dequeueOwn: method(obj({ authorId: str() }), obj({ restored: RestoredSchema, skipped: int({ minimum: 0 }) })),
+		/** The running (or just finished, not yet placed) user shell command. */
+		shell: ShellStateSchema,
+		/** Runs a user shell command on the conversation's environment; one at a time per conversation. */
+		runShell: method(obj({ ...propertiesOf(ShellSchema), author: AuthorSchema }), obj({ shellId: str() })),
+		/** Cancels the running command `shellId`; false when it is not the running one. */
+		abortShell: method(obj({ shellId: str() }), obj({ aborted: bool() })),
 	},
 });
 
@@ -299,18 +306,3 @@ export type EntryDisplay = {
  */
 export const TranscriptEntries =
 	keyedRegistry<(data: unknown) => EntryDisplay | undefined>("p2.chat-transcript-entries");
-
-/**
- * A subagent's conversation as a command target's id, `<session>/<conversation>` (the chat page's "conversation"
- * target; other plugins' commands act on it too).
- */
-export const conversationTargetId = (session: string, conversation: number): string => `${session}/${conversation}`;
-
-/** Parses a "conversation" target's id (`conversationTargetId`); it comes back from the menu's locator, so it is checked. */
-export function conversationOf(id: string): { readonly session: string; readonly conversation: number } | undefined {
-	const slash = id.lastIndexOf("/");
-	const conversation = Number(id.slice(slash + 1));
-	return slash > 0 && Number.isInteger(conversation) && conversation > 0
-		? { session: id.slice(0, slash), conversation }
-		: undefined;
-}

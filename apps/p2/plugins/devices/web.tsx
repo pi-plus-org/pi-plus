@@ -1,10 +1,11 @@
-import { BACKGROUND_CONTEXT, contribute, defineFacet, type Held } from "@p2/app/v1";
+import { BACKGROUND_CONTEXT, contribute, defineFacet } from "@p2/app/v1";
 import {
 	CopyButton,
 	closeLayers,
 	forgetOwner,
-	SettingsSections,
+	openLayer,
 	Sheet,
+	Slots,
 	useObject,
 	useOwner,
 	useReadable,
@@ -13,7 +14,8 @@ import {
 import { useEffect, useState } from "react";
 import { Devices } from "./contract.ts";
 
-function DevicesSheet({ service }: { service: Held<typeof Devices> | undefined }) {
+function DevicesSheet() {
+	const service = useObject(Devices, {});
 	const canMint = useReadable(service?.canMint);
 	const [token, setToken] = useState<string>();
 	const [error, setError] = useState<string>();
@@ -56,9 +58,7 @@ function DevicesSheet({ service }: { service: Held<typeof Devices> | undefined }
 	return (
 		<Sheet title="Devices" onClose={closeLayers}>
 			<div className="stack">
-				<p className="small">
-					This token grants full owner access. Give it only to your own device, not to collaborators.
-				</p>
+				<p>This token grants full owner access. Give it only to your own device, not to collaborators.</p>
 				<p className="muted small">
 					Open Pi's domain on the other device, paste this token into the sign-in page, and tap Sign in. It expires
 					after ten minutes and works once.
@@ -79,7 +79,7 @@ function DevicesSheet({ service }: { service: Held<typeof Devices> | undefined }
 						<textarea
 							id="owner-token"
 							className="input mono"
-							rows={2}
+							rows={3}
 							readOnly
 							value={token}
 							onFocus={(event) => event.target.select()}
@@ -104,9 +104,8 @@ function DevicesSheet({ service }: { service: Held<typeof Devices> | undefined }
 					{confirmAll ? (
 						<>
 							<p className="muted small">
-								This signs out every device and every browser on the host, including this one, and invalidates
-								outstanding owner links. TUIs on the host sign in again by themselves. Already-running agent
-								work is not stopped.
+								This signs out every associated device, including this one, and invalidates outstanding owner
+								links. Already-running agent work is not stopped.
 							</p>
 							<button
 								type="button"
@@ -140,21 +139,25 @@ function DevicesSheet({ service }: { service: Held<typeof Devices> | undefined }
 		</Sheet>
 	);
 }
-/**
- * The Devices sheet while it is open (the owner): a page of Settings. Mounted from the page's start, it holds the
- * owner's `Devices` (a few bytes) all along: the page opens without a round trip for it.
- */
-function DevicesSheetSlot() {
+function DevicesButton() {
 	const sheet = useSheet("devices");
-	const owner = useOwner();
-	const service = useObject(Devices, owner ? {} : undefined);
-	return owner && sheet ? <DevicesSheet service={service} /> : null;
+	if (!useOwner()) return null;
+	return (
+		<>
+			<button
+				type="button"
+				className="foot-button"
+				title="Sign in another device"
+				onClick={() => openLayer({ kind: "sheet", name: "devices" }, { fromDrawer: true })}
+			>
+				Devices
+			</button>
+			{sheet && <DevicesSheet />}
+		</>
+	);
 }
-
 export default defineFacet((host) => {
 	contribute(host, "p2.web-devices", (self) => {
-		self.contribute(SettingsSections, {
-			devices: { label: "Devices", title: "Sign in another device", order: 50, Sheet: DevicesSheetSlot },
-		});
+		self.contribute(Slots, { "sidebar-foot:devices": DevicesButton });
 	});
 });

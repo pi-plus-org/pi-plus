@@ -30,11 +30,7 @@
 
 ## Chord v2 Code Style
 
-<<<<<<< HEAD
 Binding for Chord v2 (`packages/chord/src/`) and its tests, when writing and when reviewing. The model is pi-durable's source.
-=======
-Binding for Chord v2 (`packages/chord/src/`, except Chord v1 in `src/old/`) and its tests, when writing and when reviewing. The model is pi-durable's source.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 - Files: one concept per file, named after it; no one-helper files, no grab-bag files. First line: a comment saying what the file is for. Order: imports, exported types, then the public entry point first and its helpers below it in the order they are used; constants right above their first user. A blank line between top-level declarations. Split files by concept, never by size: one concept may take a long file (up to about 1,000 lines is fine); a second concept in a file is the reason to split.
 - Functions: every export has a one-line doc comment saying what it does or guarantees. Inline comments explain a non-obvious why (cost, race, decided rule), never what the next line does. Short functions with one job (about 40 lines needs a reason; one `switch` over a tagged union is fine). No boolean flag parameters that switch behaviour: two functions or a tagged value. Never write the same lines twice. Context last: required args, then `context`/`ctx` (always required, as in Durable; optional only on error-reporting paths), then optional args.
@@ -49,10 +45,7 @@ Binding for Chord v2 (`packages/chord/src/`, except Chord v1 in `src/old/`) and 
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.
-<<<<<<< HEAD
 - `apps/p2` is outside the root check and the root tests. After p2 changes also run `cd apps/p2 && npm run check`; p2's suite is `cd apps/p2 && npm test` (TUI tests need Node 26, browser tests need `CHROMIUM_BIN`).
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - Run `npm run build` whenever something needs built output (`dist/`): tests or benchmarks that import built packages, Durable's workerd suite. The full suites of Chord and Durable need it: Chord's tests that start Node processes or bundle with esbuild load workspace packages from `dist/` (the rest run from source by its vitest config), and Durable imports pi-ai's `utils/*`, which have no source export. Never use it to type check or lint: that is `npm run check`, the preferred check.
 - Never run `npm test` unless requested by the user.
 - Never run the full vitest suite directly: it includes e2e tests that activate when endpoint/auth env vars are present. For all non-e2e tests, run `./test.sh` from the repo root. It runs `packages/*` only. Otherwise run specific tests from the package root:
@@ -118,14 +111,6 @@ When posting issue/PR comments:
 When closing issues via commit:
 
 - Include `fixes #<number>` or `closes #<number>` in the message so merging auto-closes the issue. For multiple issues, repeat the keyword per issue (`closes #1, closes #2`); a shared keyword (`closes #1, #2`) only closes the first.
-
-## Writing p2 plugin code
-
-Before writing or reviewing plugin code in `apps/p2` (server and worker facets, contracts, stores), read [apps/p2/docs/plugin-practices.md](apps/p2/docs/plugin-practices.md) in full and follow it.
-
-## Building p2's web UI
-
-For building or changing p2's web UI (`apps/p2`), load and follow [.pi/skills/p2-ui.md](.pi/skills/p2-ui.md).
 
 ## Testing pi Interactive Mode with tmux
 

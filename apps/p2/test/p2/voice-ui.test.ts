@@ -26,7 +26,6 @@ describe("voice mode in the browser", { skip: !browserTests }, () => {
 			"--use-fake-device-for-media-stream",
 			"--autoplay-policy=no-user-gesture-required",
 		]);
-		await browser.signIn(fixture.owner);
 	});
 	after(async () => {
 		await browser?.close();

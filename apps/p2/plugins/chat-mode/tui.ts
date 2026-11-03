@@ -2,13 +2,12 @@
 // and note (the shared `TranscriptEntries` display), a composer chip shows the mode (the owner toggles it with
 // `/chat-mode`), and while it is on `/reply` picks the message the next send answers and `@pi` completes first.
 
-import type { Held, HeldIn } from "@p2/app/v1";
+import type { Held } from "@p2/app/v1";
 import { BACKGROUND_CONTEXT, contribute, defineFacet, liveIn, statusOf } from "@p2/app/v1";
 import type { TuiContext } from "@p2/app/v1/tui";
 import {
 	chatSurface,
 	ListOverlay,
-	type OptimisticAdd,
 	type TuiCommand,
 	TuiCommands,
 	type TuiRuntime,
@@ -27,12 +26,8 @@ export class ChatModeChip implements TuiSurface {
 	readonly runtime: TuiRuntime;
 	private scope: TuiScope | undefined;
 	private identity: string | undefined;
-	private mode: Held<typeof ChatMode> | undefined;
-	/** The switch the owner flipped while its call is in flight (`/chat-mode`). */
-	/** The switch as shown (the owner's flip while its call is in flight) and how to flip it. */
-	private shownEnabled: () => boolean = () => false;
-	private switching: OptimisticAdd<boolean> | undefined;
-	private enabledState = false;
+	private mode: () => Held<typeof ChatMode> | undefined = () => undefined;
+	enabled = false;
 	/** The agent's name in this conversation (what people mention). */
 	name = DEFAULT_AGENT_NAME;
 	private waiting = 0;
@@ -45,19 +40,16 @@ export class ChatModeChip implements TuiSurface {
 			this.identity = runtime.identity;
 			this.scope?.dispose();
 			this.scope = undefined;
-			this.mode = undefined;
-			this.switching = undefined;
-			this.shownEnabled = () => false;
-			this.enabledState = false;
+			this.mode = () => undefined;
+			this.enabled = false;
 			this.waiting = 0;
 			this.name = DEFAULT_AGENT_NAME;
 			const session = runtime.session;
 			if (!session) return;
 			this.scope = new TuiScope(runtime);
-			[this.shownEnabled, this.switching] = this.scope.optimistic(() => this.enabledState);
 			this.mode = this.scope.watch(ChatMode, { session, conversation: runtime.conversation }, (ref, follow) => {
 				follow(ref.enabled, (enabled) => {
-					this.enabledState = enabled ?? false;
+					this.enabled = enabled ?? false;
 				});
 				follow(ref.waiting, (waiting) => {
 					this.waiting = waiting ?? 0;
@@ -71,30 +63,14 @@ export class ChatModeChip implements TuiSurface {
 		this.stop = () => runtime.listeners.delete(changed);
 		changed();
 	}
-	/** Whether chat mode is on, as shown: the owner's switch while its call is in flight, else the state. */
-	get enabled(): boolean {
-		return this.shownEnabled();
-	}
 	/** The owner's live reference (to switch the mode). */
-	owner(): HeldIn<typeof ChatMode, "owner"> | undefined {
-		return liveIn(this.mode, "owner");
-	}
-	/** Flips the mode: the chip shows it at once; a refused call flips it back and says why. */
-	toggle(): void {
-		const owner = this.owner();
-		if (!owner || !this.switching) {
-			this.runtime.notify("Chat mode is not available here", "warning");
-			return;
-		}
-		const enabled = !this.enabled;
-		this.runtime.perform(
-			this.switching(enabled, owner.set({ enabled }, BACKGROUND_CONTEXT)).then(() =>
-				this.runtime.notify(enabled ? `Chat mode on: ${hint(this.name)}` : "Chat mode off"),
-			),
-		);
+	owner(): Held<typeof ChatMode> | undefined {
+		const ref = this.mode();
+		return liveIn(ref, "owner");
 	}
 	private live(): boolean {
-		return this.mode !== undefined && statusOf(this.mode) === "live";
+		const ref = this.mode();
+		return ref !== undefined && statusOf(ref) === "live";
 	}
 	/** Replies belong to chat mode (the web's `setCanReply`). */
 	private syncReplies(): void {
@@ -158,10 +134,17 @@ export const CHAT_MODE_COMMANDS: Record<string, TuiCommand> = {
 		category: "Chat",
 		when: "chat && owner && !overlay",
 		slash: { name: "chat-mode" },
-		run: (ctx) => {
+		run: async (ctx) => {
 			const chip = chipOf(ctx);
-			if (chip) chip.toggle();
-			else ctx.notify("Chat mode is not available here", "warning");
+			const owner = chip?.owner();
+			if (!chip || owner?.variant !== "owner") {
+				ctx.notify("Chat mode is not available here", "warning");
+				return;
+			}
+			// The chip follows the state as it arrives; the notice says what was asked for.
+			const enabled = !chip.enabled;
+			await owner.set({ enabled }, BACKGROUND_CONTEXT);
+			ctx.notify(enabled ? `Chat mode on: ${hint(chip.name)}` : "Chat mode off");
 		},
 	},
 	"p2.chatMode.reply": {

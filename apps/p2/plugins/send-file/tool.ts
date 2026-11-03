@@ -1,22 +1,11 @@
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { obj, opt, str } from "@earendil-works/pi-schema";
-import type { Context, DownloadInfo } from "@p2/app/v1";
-import { DownloadError } from "@p2/app/v1/node";
+import { DownloadError, Downloads } from "@p2/app/v1/node";
 
 const READ_CHUNK = 1024 * 1024;
 
-/**
- * Saves a snapshot of `name` (`size` bytes, read in order by `next` until it gives none) into the session's files, as
- * offered by conversation `conversation` (what reads a turn's offered files, e.g. Discord's reply, finds it by that).
- */
-export type SaveSnapshot = (
-	snapshot: { readonly name: string; readonly size: number; readonly conversation: number },
-	next: () => Promise<Uint8Array>,
-	context: Context,
-) => Promise<DownloadInfo>;
-
-/** The `send_file` tool, saving through `save` (the session's files; a declaration-only template saves nothing). */
-export function createSendFileExtension(save: SaveSnapshot) {
+export function createSendFileExtension(dataDirectory: string, sessionId: string) {
+	const downloads = new Downloads(dataDirectory);
 	return defineExtension({
 		name: "p2-downloads",
 		tools: [
@@ -47,15 +36,16 @@ export function createSendFileExtension(save: SaveSnapshot) {
 						const info = await reader.info(context);
 						if (!info.ok) throw new DownloadError(400, "Could not open source file");
 						let offset = 0;
-						const saved = await save(
-							{ name: args.name ?? info.value.name, size: info.value.size, conversation: api.conversationId },
+						const saved = await downloads.saveFrom(
+							sessionId,
+							args.name ?? info.value.name,
+							info.value.size,
 							async () => {
 								const bytes = await reader.read(offset, READ_CHUNK, context);
 								if (!bytes.ok) throw new DownloadError(400, bytes.error.message);
 								offset += bytes.value.length;
 								return bytes.value;
 							},
-							context,
 						);
 						return {
 							output: [{ type: "text" as const, text: `Download ready: ${saved.name} (${saved.size} bytes).` }],

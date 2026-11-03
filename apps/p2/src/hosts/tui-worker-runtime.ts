@@ -2,7 +2,6 @@
 import type { Link, PluginFacet } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
-	type Component,
 	type ProgramStatus,
 	setCapabilityOverrides,
 	setKittyProtocolActive,
@@ -22,7 +21,7 @@ import { restoreRuntime, snapshotRuntime } from "../tui/snapshot.ts";
 import { parseTerminalState } from "../tui/theme/theme.ts";
 
 type Bridge = {
-	input: { columns: number; rows: number; origin?: unknown; mouse?: unknown; role?: unknown };
+	input: { columns: number; rows: number; origin?: unknown; mouse?: unknown };
 	send(value: unknown): void;
 	onMessage(handler: (message: Record<string, unknown>) => unknown): void;
 };
@@ -78,25 +77,8 @@ class BridgeTerminal implements Terminal {
 }
 
 /**
- * pi-tui's alternate screen, except that a click inside the layout keeps keyboard focus on the runtime. pi-tui focuses
- * the clicked component (an editor click answers `focus: true`); the runtime is the layout's focus owner (commands
- * first, then the active screen), so a focused editor would bypass Escape, Ctrl+C, Ctrl+D, Ctrl+T and every other
- * command, and keep getting keys after the screen changed. Clicks that pi-tui maps to an overlay keep that overlay.
- */
-class RuntimeAltScreen extends TuiAltScreen {
-	focusOwner: Component | undefined;
-	protected override resolveMouseFocusTarget(component: Component): Component {
-		const target = super.resolveMouseFocusTarget(component);
-		return target === component ? (this.focusOwner ?? target) : target;
-	}
-}
-
-/**
  * The host's parent link, relayed by the launcher: its messages travel as `link` bridge messages to the launcher's
- * socket and back. Until `activate` (the launcher's first activation) what is sent waits. Chord closing it (its
- * heartbeat found the socket silent, a protocol error) posts `linkClosed`: the launcher terminates that socket, and
- * its reconnect brings a new link. Without it, a connection that died without a close (a laptop that slept while the
- * relay dropped it) kept the launcher's socket "open" and the TUI stuck on "Connecting conversation…".
+ * socket and back. Until `activate` (the launcher's first activation) what is sent waits.
  */
 class BridgeLink implements Link {
 	closed = false;
@@ -125,12 +107,6 @@ class BridgeLink implements Link {
 	}
 	close(): void {
 		if (this.closed) return;
-		if (this.active) this.sendBridge({ kind: "linkClosed" });
-		this.drop();
-	}
-	/** The launcher's socket closed: ends the link without telling the launcher, whose next socket may be open already. */
-	drop(): void {
-		if (this.closed) return;
 		this.closed = true;
 		const listener = this.closeListener;
 		this.listener = undefined;
@@ -156,7 +132,7 @@ export async function setupTui(bridge: Bridge, facets: readonly PluginFacet<P2Pr
 	// launcher policy turns it off. Only the clipboard write differs: pi-tui's OSC 52 would be filtered, so its
 	// `copySelection` hook asks the launcher, which accepts only right after it saw the release itself.
 	let requestCopy: (text: string) => Promise<boolean | string> = async () => "Copy unavailable";
-	const tui = new RuntimeAltScreen(terminal, true, undefined, {
+	const tui = new TuiAltScreen(terminal, true, undefined, {
 		mouse: bridge.input.mouse === true,
 		wheelScrollLines: "auto",
 		copySelection: (text) => requestCopy(text),
@@ -185,8 +161,6 @@ export async function setupTui(bridge: Bridge, facets: readonly PluginFacet<P2Pr
 	host.connect(link, linkOptions, BACKGROUND_CONTEXT);
 	const loaded = await host.load([...facets, { name: "@p2/tui-core", facet: tuiCoreFacet }], BACKGROUND_CONTEXT);
 	runtime.origin = typeof bridge.input.origin === "string" ? bridge.input.origin.slice(0, 200) : undefined;
-	// The launcher's admission (a hint from outside the sandbox): owner views hold at once; `Access` confirms it.
-	if (bridge.input.role === "owner" || bridge.input.role === "guest") runtime.role = bridge.input.role;
 	await runtime.start();
 	// A facet left out at load (its setup threw) is shown, not silently missing.
 	for (const { plugin, error } of loaded.failed)
@@ -194,7 +168,6 @@ export async function setupTui(bridge: Bridge, facets: readonly PluginFacet<P2Pr
 	// Fullscreen layout (P0c): the runtime's root is the layout; the runtime itself stays the focused input target.
 	tui.setLayoutRoot(runtime.root);
 	tui.setFocus(runtime);
-	tui.focusOwner = runtime;
 	runtime.onExit = () => bridge.send({ kind: "exit" });
 	runtime.onReload = () => bridge.send({ kind: "reload" });
 	// Launcher C requests: answered by the launcher after its own consent UI (section 3.3).
@@ -237,27 +210,7 @@ export async function setupTui(bridge: Bridge, facets: readonly PluginFacet<P2Pr
 		reported = { target, suspend, busy };
 	};
 	runtime.listeners.add(report);
-	// Who this TUI is: held once (Chord holds it again on every new link), the role and a guest's grant follow it.
-	const access = host.hold(Access, {}, BACKGROUND_CONTEXT);
-	follow(access.state, (state) => {
-		if (state.kind !== "live") return;
-		const role = access.variant === "owner" ? "owner" : "guest";
-		if (role === runtime.role) return;
-		runtime.role = role;
-		runtime.changed();
-	});
-	void whenLive(access).then(
-		() => {
-			if (access.variant === "guest")
-				follow(access.grant, (grant) => {
-					runtime.grant = grant
-						? { name: grant.name, sessions: grant.sessions ?? { [grant.session]: grant.mode } }
-						: undefined;
-					if (grant) runtime.navigate("chat", grant.session);
-				});
-		},
-		(error: unknown) => runtime.fail(error),
-	);
+	let access: ReturnType<typeof host.hold<typeof Access>> | undefined;
 	bridge.onMessage(async (message) => {
 		if (message.kind === "snapshot") return snapshotRuntime(runtime);
 		if (message.kind === "activate") {
@@ -275,12 +228,29 @@ export async function setupTui(bridge: Bridge, facets: readonly PluginFacet<P2Pr
 					host.connect(link, linkOptions, BACKGROUND_CONTEXT);
 					link.activate();
 				}
+				// Held for the connection: the role and a guest's grant follow it (released when the link drops).
+				access?.release();
+				const held = host.hold(Access, {}, BACKGROUND_CONTEXT);
+				access = held;
+				void whenLive(held)
+					.then(() => {
+						runtime.role = held.variant === "owner" ? "owner" : "guest";
+						runtime.changed();
+						if (held.variant === "guest")
+							follow(held.grant, (grant) => {
+								runtime.grant = grant
+									? { name: grant.name, sessions: grant.sessions ?? { [grant.session]: grant.mode } }
+									: undefined;
+								if (grant) runtime.navigate("chat", grant.session);
+							});
+					})
+					.catch((error: unknown) => runtime.fail(error));
 				void host
 					.root(async (ctx) => (await ctx.get(TuiPreferences, {})).read(ctx), BACKGROUND_CONTEXT)
 					// Server defaults sit below the guest's local preferences (section 4.2).
 					.then((server) => runtime.appearance.update({ server }))
 					.catch((error: unknown) => runtime.fail(error));
-			} else link.drop();
+			} else link.close();
 			runtime.changed();
 		} else if (message.kind === "preferences")
 			runtime.appearance.update({ local: parseLocalPreferences(message.preferences) });

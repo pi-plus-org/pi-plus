@@ -79,8 +79,15 @@ function openShare(ctx: TuiContext): void {
 		)
 			return undefined;
 		await service.link({ mode, ...(remote ? { remoteConfirmed: true } : {}) }, BACKGROUND_CONTEXT);
-		// The answer follows its state: the new link is in `links` when the call resolves.
-		return service.links.value.find((link) => link.mode === mode)?.url;
+		// The new link arrives as state.
+		return new Promise<string | undefined>((resolve) => {
+			const stop = follow(service.links, (value) => {
+				const found = value?.find((link) => link.mode === mode)?.url;
+				if (found === undefined) return;
+				queueMicrotask(() => stop());
+				resolve(found);
+			});
+		});
 	};
 	const copy = async (mode: ShareMode) => {
 		status = "";

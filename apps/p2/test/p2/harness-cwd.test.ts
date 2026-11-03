@@ -14,15 +14,14 @@ import {
 	defineDoc,
 	ROOT_CONVERSATION_ID,
 } from "@earendil-works/pi-durable";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { BACKGROUND_CONTEXT, whenLive } from "@p2/app/v1";
 import { createP2Models } from "../../plugins/models/models.ts";
 import { Subagents as Registry } from "../../plugins/subagents/contract.worker.ts";
 import { ownLocation, placeSubagents, spawnEnvironments } from "../../plugins/subagents/tools.ts";
 import { createHost, defineFacet, Session } from "../../src/runtime/chord.ts";
 import { durableContext } from "../../src/runtime/durable.ts";
-import { openHostStore, sessionDirectory } from "../../src/runtime/host-dirs.ts";
 import { HOST } from "../../src/runtime/principals.ts";
-import { openSessionStorage } from "../../src/runtime/session-store.ts";
 import {
 	ConversationLocations,
 	type ConversationPlacement,
@@ -63,9 +62,9 @@ const RegistryV1 = defineDoc<{
  * stored by version 1 (without the environment).
  */
 async function seed(dataDir: string, own: string) {
-	const session = await openSessionStorage(dataDir, "s1", context);
+	mkdirSync(join(dataDir, "sessions"), { recursive: true });
 	const durable = await DurableHarness.open(
-		session.storage,
+		await openNodeSqliteStorage(join(dataDir, "sessions", "s1.sqlite")),
 		{ models: createP2Models(true), registry: createRegistry() },
 		context,
 	);
@@ -93,7 +92,6 @@ async function seed(dataDir: string, own: string) {
 		return { root: root.id, ...ids };
 	} finally {
 		await durable.close(context);
-		await session.close();
 	}
 }
 
@@ -120,11 +118,9 @@ const followers = (opened: string[], recorded: unknown) =>
 
 /** A session host with the worker's core over `dataDir`, its Harness open (`HarnessHost` held). */
 async function start(dataDir: string, project: string, facets: { followers?: ReturnType<typeof followers> }) {
-	const store = await openHostStore(sessionDirectory(dataDir, "s1"), { outbox: false }, BACKGROUND_CONTEXT);
 	const host = createHost({
 		address: Session({ id: "s1" }),
 		principal: HOST,
-		store,
 		onError: (error) => console.error(error),
 	});
 	const init: WorkerInit = {
@@ -135,7 +131,7 @@ async function start(dataDir: string, project: string, facets: { followers?: Ret
 		values: { session: { id: "s1", cwd: project, env: null, model: MODEL, thinkingLevel: "off" } },
 	};
 	const location = new SessionLocation({ cwd: project, env: null });
-	const core = workerCore(init, new Liveness(), location, store, (fn) => host.root(fn, BACKGROUND_CONTEXT), undefined);
+	const core = workerCore(init, new Liveness(), location, (fn) => host.root(fn, BACKGROUND_CONTEXT));
 	await host.load(
 		[
 			{ name: "@p2/core", facet: core },
@@ -150,7 +146,7 @@ async function start(dataDir: string, project: string, facets: { followers?: Ret
 	const harness = { durable: parts.durable, environments: parts.environments, release: () => holder.release() };
 	const cwd = async (id: ConversationId) =>
 		(await (await parts.durable.conversation(id, context))?.agent(context))?.cwd;
-	return { host, store, harness, cwd };
+	return { host, harness, cwd };
 }
 
 test("the Harness moves the session's cwd followers before it is live", async (t) => {
@@ -163,7 +159,7 @@ test("the Harness moves the session's cwd followers before it is live", async (t
 	const ids = await seed(join(directory, "data"), own);
 	const opened: string[] = [];
 	const recorded = { [String(ids.recorded)]: { cwd: own, env: "laptop" } };
-	const { host, store, harness, cwd } = await start(join(directory, "data"), project, {
+	const { host, harness, cwd } = await start(join(directory, "data"), project, {
 		followers: followers(opened, recorded),
 	});
 	try {
@@ -186,7 +182,6 @@ test("the Harness moves the session's cwd followers before it is live", async (t
 	} finally {
 		harness.release();
 		await host.close(BACKGROUND_CONTEXT);
-		await store.close(BACKGROUND_CONTEXT);
 	}
 });
 
@@ -196,13 +191,12 @@ test("without a followers provider the Harness still opens and moves only the ro
 	const project = join(directory, "project");
 	mkdirSync(project);
 	const ids = await seed(join(directory, "data"), join(directory, "own"));
-	const { host, store, harness, cwd } = await start(join(directory, "data"), project, {});
+	const { host, harness, cwd } = await start(join(directory, "data"), project, {});
 	try {
 		assert.equal(await cwd(ids.root), project);
 		assert.equal(await cwd(ids.follow), "/elsewhere/follow");
 	} finally {
 		harness.release();
 		await host.close(BACKGROUND_CONTEXT);
-		await store.close(BACKGROUND_CONTEXT);
 	}
 });

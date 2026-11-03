@@ -4,14 +4,12 @@ import {
 	type Dispatch,
 	type ReactNode,
 	type SetStateAction,
-	useCallback,
 	useContext,
 	useEffect,
 	useRef,
 	useState,
 } from "react";
-import { errorText, useRoute } from "../runtime/web.tsx";
-import { ComposerFocus, conversationKey } from "./composer-focus.ts";
+import { useRoute } from "../runtime/web.tsx";
 export type PickedFile = { key: string; file: File; preview?: string; uploaded?: string; session?: string };
 /** The message the next send answers: an entry of the current conversation, and whose it is (for display only). */
 export type ReplyTarget = { entryId: number; name: string };
@@ -20,12 +18,15 @@ type State = {
 	setDraft: Dispatch<SetStateAction<string>>;
 	files: PickedFile[];
 	setFiles: Dispatch<SetStateAction<PickedFile[]>>;
+	steer: boolean;
+	setSteer: Dispatch<SetStateAction<boolean>>;
+	sending: boolean;
+	setSending: Dispatch<SetStateAction<boolean>>;
 	error: string | undefined;
 	setError: Dispatch<SetStateAction<string | undefined>>;
-	/** Shows a failed call's error in the app's toast (an optimistic guess rolled back, an action refused). */
-	fail: (error: unknown) => void;
 	stopped: { sessionId: string; conversationId: number } | undefined;
 	setStopped: Dispatch<SetStateAction<{ sessionId: string; conversationId: number } | undefined>>;
+	submission: { current: { key: string; id: string } | undefined };
 	viewer: string;
 	addFiles: (files: File[]) => void;
 	replyTo: ReplyTarget | undefined;
@@ -36,31 +37,22 @@ type State = {
 	/** The agent's name to mention here (chat-mode's setting, "Pi" by default), offered as `@name` with replies. */
 	mentionName: string;
 	setMentionName: Dispatch<SetStateAction<string>>;
-	/** Focuses the composer now, for an action in the conversation shown (a reply, restored text, dropped files). */
-	focus: ComposerFocus["focus"];
-	/** Focuses an opened conversation's composer when it shows, unless a touch opened it (`ComposerFocus`). */
-	focusWhenOpen: ComposerFocus["focusWhenOpen"];
-	/** The composer's textarea, as its callback ref. */
-	registerTextarea: ComposerFocus["register"];
-	/** The chat's dock tells which screen it shows, after the commit that put its composer in place. */
-	screenShown: ComposerFocus["shown"];
 };
 const Context = createContext<State | undefined>(undefined);
 export function ComposerState({ children }: { children: ReactNode }) {
 	const route = useRoute();
 	const [draft, setDraft] = useState("");
 	const [files, setFiles] = useState<PickedFile[]>([]);
+	const [steer, setSteer] = useState(true);
+	const [sending, setSending] = useState(false);
 	const [error, setError] = useState<string>();
-	const fail = useCallback((failure: unknown) => setError(errorText(failure)), []);
 	const [stopped, setStopped] = useState<State["stopped"]>();
+	const submission = useRef<{ key: string; id: string } | undefined>(undefined);
 	const viewer = useRef(crypto.randomUUID());
 	const [replyTo, setReplyTo] = useState<ReplyTarget>();
 	const [canReply, setCanReply] = useState(false);
 	const [mentionName, setMentionName] = useState("Pi");
-	const [composerFocus] = useState(() => new ComposerFocus());
-	// Whether the person's last press was a touch, for the opens that focus a composer.
-	useEffect(() => composerFocus.listen(), [composerFocus]);
-	const key = conversationKey(route);
+	const key = route.session ? `${route.session}:${route.conversation}` : "new";
 	// A reply target is an entry of one conversation: switching conversations drops it.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the conversation changes.
 	useEffect(() => setReplyTo(undefined), [key]);
@@ -104,11 +96,15 @@ export function ComposerState({ children }: { children: ReactNode }) {
 				setDraft,
 				files,
 				setFiles,
+				steer,
+				setSteer,
+				sending,
+				setSending,
 				error,
 				setError,
-				fail,
 				stopped,
 				setStopped,
+				submission,
 				viewer: viewer.current,
 				addFiles,
 				replyTo,
@@ -117,10 +113,6 @@ export function ComposerState({ children }: { children: ReactNode }) {
 				setCanReply,
 				mentionName,
 				setMentionName,
-				focus: composerFocus.focus,
-				focusWhenOpen: composerFocus.focusWhenOpen,
-				registerTextarea: composerFocus.register,
-				screenShown: composerFocus.shown,
 			}}
 		>
 			{children}

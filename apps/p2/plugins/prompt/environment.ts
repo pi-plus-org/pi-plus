@@ -3,7 +3,6 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { BACKGROUND_CONTEXT } from "@p2/app/v1";
 import { Observer } from "@p2/app/v1/node";
-import { isLocalEnvironment } from "@p2/app/v1/worker";
 import { agentsCandidates, type LoadedPrompt, loadPromptResources, type PromptFiles } from "./context-files.ts";
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -18,7 +17,6 @@ const SKILL_EXCLUDES = { hidden: true, names: ["node_modules"] };
 export function envFiles(env: ExecutionEnv, paths: PlatformPath): PromptFiles {
 	return {
 		paths,
-		local: isLocalEnvironment(env),
 		async readText(path) {
 			const result = await env.readTextFile(path, context);
 			if (result.ok) return result.value;
@@ -50,8 +48,6 @@ export type PromptSource = {
 	skillsRoot: () => Promise<string>;
 	/** The global prompt templates directory: `<data>/prompts` locally, `~/.pi/p2/prompts` remotely. */
 	promptsRoot?: () => Promise<string>;
-	/** The plugins' skills directories (on this machine only: `PluginSkills`), read when watching starts. */
-	pluginSkills?: () => readonly string[];
 	/** A remote env's name, for messages. */
 	remote?: string;
 	/** How often to load while the environment cannot be watched. */
@@ -82,11 +78,6 @@ export function promptObserver(source: PromptSource): Observer {
 						// Prompt templates: `.md` files directly in these directories.
 						{ path: await promptsRoot() },
 						{ path: paths.join(cwd, ".pi", "prompts") },
-						...(source.pluginSkills?.() ?? []).map((path) => ({
-							path,
-							recursive: true,
-							exclude: SKILL_EXCLUDES,
-						})),
 					];
 				},
 			},
@@ -103,7 +94,6 @@ export function promptObserver(source: PromptSource): Observer {
 							envFiles(env, await source.paths()),
 							await source.skillsRoot(),
 							await promptsRoot(),
-							source.pluginSkills?.() ?? [],
 						))(),
 					new Promise<never>((_resolve, reject) => {
 						timer = setTimeout(() => reject(new Error("Loading timed out")), LOAD_TIMEOUT_MS);

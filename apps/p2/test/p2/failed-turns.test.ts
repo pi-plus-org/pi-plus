@@ -194,7 +194,6 @@ test(
 		let browser: Browser | undefined;
 		try {
 			browser = await Browser.start();
-			await browser.signIn(fixture.owner);
 			await browser.metrics(390, 844);
 			await browser.open(`http://127.0.0.1:${fixture.server.port}`);
 			await browser.wait("document.querySelector('.app')");
@@ -215,9 +214,8 @@ test(
 				await browser.evaluate<string>("document.querySelector('.notice').textContent"),
 				/The response hit the model's length limit/,
 			);
-			// A finished response with nothing in it shows nothing: no answer, no notice.
 			await show(viewOf("stop"));
-			await browser.wait("!document.querySelector('.assistant') && !document.querySelector('.notice')");
+			await browser.wait("document.querySelector('.assistant') && !document.querySelector('.notice')");
 			const message = empty.entries[0]?.model?.[0];
 			assert(message?.role === "assistant");
 			await show({
@@ -233,7 +231,7 @@ test(
 					},
 				},
 			});
-			await browser.wait("document.querySelector('[data-testid=activity][data-state=working]')");
+			await browser.wait("document.querySelector('.working')");
 			assert.equal(await browser.evaluate("document.querySelector('.notice')!==null"), false);
 			await show(viewOf("error"));
 			await browser.wait(
@@ -257,10 +255,7 @@ test(
 				"document.querySelector('.notice.error')?.textContent.includes('The model could not answer this input. 400 prompt is too long')",
 			);
 			assert.equal(await browser.evaluate("document.querySelector('.messages script')!==null"), false);
-			assert.equal(
-				await browser.evaluate("document.querySelector('[data-testid=activity][data-state=working]')!==null"),
-				false,
-			);
+			assert.equal(await browser.evaluate("document.querySelector('.working')!==null"), false);
 			// Manual/background failures have no assistant or settlement entry, but must remain visible while idle.
 			const compaction = compactionView("manual", "bad request <script>unsafe</script>");
 			await show(compaction);
@@ -269,10 +264,7 @@ test(
 			);
 			assert.equal(await browser.evaluate("document.querySelectorAll('.notice.error').length"), 1);
 			assert.equal(await browser.evaluate("document.querySelector('.messages script')!==null"), false);
-			assert.equal(
-				await browser.evaluate("document.querySelector('[data-testid=activity][data-state=working]')!==null"),
-				false,
-			);
+			assert.equal(await browser.evaluate("document.querySelector('.working')!==null"), false);
 			assert.equal(
 				await browser.evaluate("document.querySelector('.notice.error').getBoundingClientRect().height>0"),
 				true,

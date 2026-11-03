@@ -1,11 +1,9 @@
-import type { Contract, Held, ParamsOf } from "@earendil-works/chord";
+import { type Contract, type Held, isChordError, type ParamsOf } from "@earendil-works/chord";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { TuiScope as ChordTuiScope, type OptimisticAdd } from "@earendil-works/chord/tui";
 import type { NativeWatchable, Watchable } from "@earendil-works/chord/watch";
 import {
 	type Component,
 	type Focusable,
-	HStack,
 	type KeybindingsManager,
 	type OverlayHandle,
 	type OverlayOptions,
@@ -14,17 +12,15 @@ import {
 	VStack,
 } from "@earendil-works/pi-tui";
 import { BuiltInFooter, BuiltInHeader, type Notice, StatusLines } from "../tui/components/chrome.ts";
-import { type PanelContent, PanelFrame } from "../tui/components/panel.ts";
 import type { TranscriptAnchor } from "../tui/components/transcript.ts";
 import { formatKeyText, lineText } from "../tui/render-context.ts";
 import { ThemeRef } from "../tui/theme/ref.ts";
 import { BUILTIN_THEMES, resolveTheme, SYSTEM_THEME_NAME, type Theme } from "../tui/theme/theme.ts";
 import { defineFacet, type FacetHost, type Host, keyedRegistry } from "./chord.ts";
-import type { P2Principal } from "./principals.ts";
 import { follow, UI_LINGER } from "./refs.ts";
 import { TuiAppearance } from "./tui-appearance.ts";
 import { type TuiCommand, TuiCommandDispatcher, TuiCommands, TuiSlashSources } from "./tui-commands.ts";
-import type { TuiContext, TuiGrantResult, TuiOverlayHandle, TuiPanelHandle, TuiRole } from "./tui-context.ts";
+import type { TuiContext, TuiGrantResult, TuiOverlayHandle, TuiRole } from "./tui-context.ts";
 
 export interface TuiSurface extends Component {
 	dispose(): void;
@@ -62,74 +58,88 @@ export function tuiFacet(
 	});
 }
 
-export type { OptimisticAdd } from "@earendil-works/chord/tui";
+/** Ends that asking again cannot fix: a TuiScope stops re-holding after them. */
+const permanent = (error: unknown): boolean =>
+	isChordError(error) &&
+	(error.code === "forbidden" || error.code === "invalid" || error.code === "contract_mismatch");
 
 /** What `TuiScope.watch`'s bind follows: a member of the live reference (a state member, a derive). */
 export type TuiFollow = <T>(source: Watchable<T> | NativeWatchable<T>, fn: (value: T) => void) => void;
 
 /**
  * Component-owned references: each is held until the scope is disposed (then released after its type's linger), its
- * members followed from its first live binding. Chord rebinds a held reference by itself (a dropped link, a restarted
- * worker, a reload), so the scope only reports what it cannot fix: a broken failure or an end.
+ * members followed from its first live binding; an ended one is held again after a backoff unless the end is a refusal.
  */
 export class TuiScope {
 	private stops: (() => void)[] = [];
 	readonly runtime: TuiRuntime;
-	/** Chord's scope, for its optimistic readers: they redraw the runtime and stop with this scope. */
-	readonly #optimistic: ChordTuiScope<P2Principal>;
 	constructor(runtime: TuiRuntime) {
 		this.runtime = runtime;
-		this.#optimistic = new ChordTuiScope(runtime.host, () => runtime.changed());
 	}
-	watch<C extends Contract>(type: C, params: ParamsOf<C>, bind: (ref: Held<C>, follow: TuiFollow) => void): Held<C> {
-		// Synchronous: the scope renders loading from the reference's state.
-		const ref = this.runtime.host.hold(type, params, BACKGROUND_CONTEXT);
-		let bound = false;
+	watch<C extends Contract>(
+		type: C,
+		params: ParamsOf<C>,
+		bind: (ref: Held<C>, follow: TuiFollow) => void,
+	): () => Held<C> {
+		let ref!: Held<C>;
+		let disposed = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		/** Backoff for ends that are not refusals: 0.5 s doubling to 30 s, reset when live. */
+		let delay = 500;
+		/** Each distinct failure is reported once per watch, not once per attempt. */
+		const reported = new Set<string>();
 		const stops: (() => void)[] = [];
-		stops.push(
-			follow(ref.state, (state) => {
-				this.runtime.changed();
-				if (state.kind === "live" && !bound) {
-					bound = true;
-					bind(ref, (source, fn) => {
-						stops.push(
-							follow(source, (value) => {
-								fn(value);
-								this.runtime.changed();
-							}),
-						);
-					});
-				} else if (state.kind === "failed" && state.cause.kind === "broken") this.runtime.fail(state.cause.error);
-				else if (state.kind === "ended") this.runtime.fail(state.error);
-			}),
-		);
+		const report = (error: Error): void => {
+			if (reported.has(error.message)) return;
+			reported.add(error.message);
+			this.runtime.fail(error);
+		};
+		const acquire = (): void => {
+			for (const stop of stops.splice(0)) stop();
+			if (ref) UI_LINGER.release(ref, type.name);
+			// Synchronous: the scope renders loading from the reference's state.
+			const current = this.runtime.host.hold(type, params, BACKGROUND_CONTEXT);
+			ref = current;
+			let bound = false;
+			stops.push(
+				follow(current.state, (state) => {
+					if (disposed || current !== ref) return;
+					this.runtime.changed();
+					if (state.kind === "live") {
+						delay = 500;
+						if (bound) return;
+						bound = true;
+						bind(current, (source, fn) => {
+							stops.push(
+								follow(source, (value) => {
+									fn(value);
+									this.runtime.changed();
+								}),
+							);
+						});
+					} else if (state.kind === "failed" && state.cause.kind === "broken") report(state.cause.error);
+					else if (state.kind === "ended") {
+						report(state.error);
+						if (permanent(state.error)) return;
+						timer = setTimeout(acquire, delay);
+						delay = Math.min(30_000, delay * 2);
+					}
+				}),
+			);
+		};
+		acquire();
 		this.stops.push(() => {
+			disposed = true;
+			clearTimeout(timer);
 			for (const stop of stops) stop();
 			UI_LINGER.release(ref, type.name);
 		});
-		return ref;
-	}
-	/**
-	 * Optimistic UI in the terminal (docs/optimistic-ui.md): Chord's `TuiScope.optimistic`, React's `useOptimistic`, on
-	 * this scope (redrawing the runtime). `add(action, call)` returns the call: its failure is the caller's to show
-	 * (`runtime.perform`), and its action goes as a settled one's does.
-	 */
-	optimistic<T>(read: () => T): readonly [read: () => T, add: OptimisticAdd<T>, pending: () => boolean];
-	optimistic<T, A>(
-		read: () => T,
-		reduce: (current: T, action: A) => T,
-	): readonly [read: () => T, add: OptimisticAdd<A>, pending: () => boolean];
-	optimistic<T, A>(read: () => T, reduce?: (current: T, action: A) => T) {
-		return reduce ? this.#optimistic.optimistic(read, reduce) : this.#optimistic.optimistic(read);
+		return () => ref;
 	}
 	dispose(): void {
 		for (const stop of this.stops.splice(0)) stop();
-		this.#optimistic.dispose();
 	}
 }
-
-/** Below this many columns the side panel is hidden: the chat would be too narrow next to it. */
-const PANEL_MIN_COLUMNS = 100;
 
 /** Host UI state stays outside replaceable facets: selection, drafts and scroll position survive reload. */
 export class TuiRuntime implements Component, Focusable {
@@ -141,26 +151,15 @@ export class TuiRuntime implements Component, Focusable {
 	set focused(value: boolean) {
 		this.isFocused = value;
 		const focus = this.surfaces?.get(this.screen)?.focus;
-		if (focus) focus.focused = value && !this.panelFocused;
-	}
-	/** While the panel has the focus, pi-tui's viewport keys come here (to scroll it) instead of the transcript. */
-	get capturesViewportInput(): boolean {
-		return this.panelFocused;
+		if (focus) focus.focused = value;
 	}
 	/** This TUI's own name (`tui:<uuid>`): the viewer it counts as in session metrics. */
 	readonly name = `tui:${crypto.randomUUID()}`;
 	session: string | undefined;
 	conversation = 1;
-	/** Each session's main conversation (1, or its current `/tree` branch), as the sessions plugin last saw its row. */
-	readonly mains = new Map<string, number>();
 	screen: "sessions" | "chat" | "models" = "sessions";
 	connected = false;
 	showThinking = false;
-	/**
-	 * The `hideThinkingBlock` setting (unset = hidden) that `showThinking` last followed. The toggle command overrides
-	 * it until the setting itself changes; a reload snapshot carries both, so a reload keeps the toggle.
-	 */
-	thinkingSetting = true;
 	expandedTools = false;
 	/** The server origin (from the launcher), shown in the header. */
 	origin: string | undefined;
@@ -185,8 +184,6 @@ export class TuiRuntime implements Component, Focusable {
 	private stopCommands: (() => void) | undefined;
 	private changing = false;
 	private overlays: { id: string; handle: OverlayHandle; close(): void }[] = [];
-	private panel: PanelFrame | undefined;
-	private panelFocused = false;
 	onExit: () => void = () => {};
 	onReload: () => void = () => {};
 	/** The launcher bridge for C actions (set by the worker runtime); denied without one (tests, bare hosts). */
@@ -221,11 +218,6 @@ export class TuiRuntime implements Component, Focusable {
 		});
 		this.appearance = new TuiAppearance((appearance) => {
 			this.commands.setUserBindings(appearance.keybindings, appearance.keyPlatform);
-			const hide = appearance.settings.hideThinkingBlock ?? true;
-			if (hide !== this.thinkingSetting) {
-				this.thinkingSetting = hide;
-				this.showThinking = !hide;
-			}
 			this.tui.invalidate();
 			this.changed();
 			this.tui.requestRender(true);
@@ -328,11 +320,7 @@ export class TuiRuntime implements Component, Focusable {
 				return runtime.role;
 			},
 			get identity() {
-				return {
-					session: runtime.session,
-					conversation: runtime.conversation,
-					main: runtime.mainOf(runtime.session),
-				};
+				return { session: runtime.session, conversation: runtime.conversation };
 			},
 			navigate: (screen, session, conversation) =>
 				runtime.navigate(screen as TuiRuntime["screen"], session ?? runtime.session, conversation),
@@ -376,24 +364,7 @@ export class TuiRuntime implements Component, Focusable {
 			},
 			surface: (name) => runtime.surfaces.get(name),
 			notify: (message, kind) => runtime.notify(message, kind),
-			fail: (error) => runtime.fail(error),
-			perform: (action) => runtime.perform(action),
-			scope: () => new TuiScope(runtime),
 			overlay: (id, component, options) => runtime.overlay(id, component, options),
-			panel: {
-				open: (id, content, title) => runtime.openPanel(id, content, title),
-				get fits() {
-					return runtime.panelFits();
-				},
-				get current() {
-					return runtime.panel?.id;
-				},
-				get focused() {
-					return runtime.panelFocused;
-				},
-				focus: (focused) => runtime.focusPanel(focused),
-				close: () => runtime.closePanel(),
-			},
 			exit: () => runtime.onExit(),
 			grant: (action, payload) => runtime.onGrant(action, payload),
 			prefs: {
@@ -437,8 +408,6 @@ export class TuiRuntime implements Component, Focusable {
 		if (this.connected) active.add("connected");
 		const top = this.overlays.findLast((overlay) => overlay.handle.isFocused());
 		if (top) active.add("overlay").add(`overlay:${top.id}`);
-		if (this.panelShown()) active.add("panel");
-		if (this.panelFocused) active.add("panelFocused");
 		for (const term of this.surfaces.get(this.screen)?.contexts?.() ?? []) active.add(term);
 		return active;
 	}
@@ -489,73 +458,6 @@ export class TuiRuntime implements Component, Focusable {
 	closeOverlays(): void {
 		for (const overlay of [...this.overlays].reverse()) overlay.close();
 	}
-	/** Shows `content` in the side panel, replacing (and disposing) what it showed. */
-	openPanel(id: string, content: PanelContent, title: () => string): TuiPanelHandle {
-		this.closePanel();
-		const frame = new PanelFrame(this.ctx, id, content, title);
-		this.panel = frame;
-		this.changed();
-		const runtime = this;
-		return {
-			id,
-			close: () => {
-				if (this.panel === frame) this.closePanel();
-			},
-			get closed() {
-				return runtime.panel !== frame;
-			},
-		};
-	}
-	closePanel(): void {
-		const frame = this.panel;
-		if (!frame) return;
-		this.panel = undefined;
-		this.focusPanel(false);
-		frame.content.dispose?.();
-		this.changed();
-	}
-	/** Moves the focus into the panel (`true`) or back to the screen; a hidden or closed panel never takes it. */
-	focusPanel(focused: boolean): void {
-		const next = focused && this.panelShown();
-		if (next === this.panelFocused) return;
-		this.panelFocused = next;
-		if (this.panel) this.panel.focused = next;
-		this.focused = this.isFocused;
-		this.changed();
-	}
-	/** Whether the panel is open and the terminal wide enough to show it. */
-	private panelShown(): boolean {
-		return this.panel !== undefined && this.panelFits();
-	}
-	private panelFits(): boolean {
-		return this.tui.terminal.columns >= PANEL_MIN_COLUMNS;
-	}
-	/** Keys for the focused panel: back to the screen, scrolling; false for keys it does not use. */
-	private panelInput(data: string, scroll: PanelFrame["scroll"]): boolean {
-		const page = Math.max(1, scroll.viewportHeight - 1);
-		const half = Math.max(1, Math.floor(scroll.viewportHeight / 2));
-		const steps: [string, number][] = [
-			["tui.altScreen.pageUp", -page],
-			["tui.altScreen.pageDown", page],
-			["tui.select.pageUp", -page],
-			["tui.select.pageDown", page],
-			["tui.altScreen.halfPageUp", -half],
-			["tui.altScreen.halfPageDown", half],
-			["tui.altScreen.lineUp", -1],
-			["tui.altScreen.lineDown", 1],
-			["tui.select.up", -1],
-			["tui.select.down", 1],
-		];
-		if (this.commands.matches(data, "tui.select.cancel")) this.focusPanel(false);
-		else if (this.commands.matches(data, "tui.altScreen.top")) scroll.scrollToStart();
-		else if (this.commands.matches(data, "tui.altScreen.bottom")) scroll.scrollToEnd();
-		else {
-			const step = steps.find(([id]) => this.commands.matches(data, id));
-			if (!step) return false;
-			scroll.scrollBy(step[1]);
-		}
-		return true;
-	}
 	/** Follows the slot, command and slash registries (once the host published them). */
 	async start(): Promise<void> {
 		const [sources, commands, slots] = await Promise.all([
@@ -565,9 +467,8 @@ export class TuiRuntime implements Component, Focusable {
 		]);
 		const stopSources = follow(sources, (table) => this.commands.setSources(table));
 		const stopCommands = follow(commands, (table) => {
-			// A facet reload replaces command values: overlays and the panel opened by old values close (section 7.1).
+			// A facet reload replaces command values: overlays opened by old values close (section 7.1).
 			this.closeOverlays();
-			this.closePanel();
 			this.commands.setCommands(table);
 			this.changed();
 		});
@@ -602,25 +503,18 @@ export class TuiRuntime implements Component, Focusable {
 		const surface = this.surfaces.get(this.screen);
 		const layout = surface?.layout?.();
 		const footer = this.surfaces.get("footer") ?? this.builtInFooter;
-		const parts = [surface, layout?.body, layout?.dock, layout?.header, footer, this.header, this.panel];
+		const parts = [surface, layout?.body, layout?.dock, layout?.header, footer, this.header];
 		for (const [name, other] of this.surfaces)
-			if (other.focus) other.focus.focused = name === this.screen && this.focused && !this.panelFocused;
+			if (other.focus) other.focus.focused = name === this.screen && this.focused;
 		if (parts.length === this.rootParts.length && parts.every((part, index) => part === this.rootParts[index]))
 			return;
 		this.rootParts = parts;
 		this.root.clear();
-		const body = layout
-			? layout.body
-			: new VStack([
-					{ component: this.header, basis: "auto", shrink: 1, minSize: 0 },
-					{ component: surface ?? this.placeholder, basis: 0, grow: 1, shrink: 1, minSize: 1 },
-				]);
-		this.root.addChild(this.panel ? this.besidePanel(body, this.panel) : body, {
-			basis: 0,
-			grow: 1,
-			shrink: 1,
-			minSize: 1,
-		});
+		if (layout) this.root.addChild(layout.body, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
+		else {
+			this.root.addChild(this.header, { basis: "auto", shrink: 1, minSize: 0 });
+			this.root.addChild(surface ?? this.placeholder, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
+		}
 		const dock = new VStack([
 			{ component: this.statusLines, shrink: 1, minSize: 0 },
 			...(layout?.dock ? [{ component: layout.dock, shrink: 1, minSize: 3 }] : []),
@@ -629,44 +523,17 @@ export class TuiRuntime implements Component, Focusable {
 		this.root.addChild(dock, { basis: "auto", grow: 0, shrink: 1, minSize: 1 });
 		this.tui.invalidate();
 	}
-	/** The screen's body with the panel on its right (about 40% of the width); the panel hides on narrow terminals. */
-	private besidePanel(body: Component, panel: PanelFrame): Component {
-		return new HStack(
-			[
-				{ component: body, basis: 0, grow: 3, shrink: 1, minSize: 40 },
-				{
-					component: panel.root,
-					basis: 0,
-					grow: 2,
-					shrink: 1,
-					minSize: 40,
-					visible: (viewport) => viewport.width >= PANEL_MIN_COLUMNS,
-				},
-			],
-			{ gap: 1 },
-		);
-	}
 	fail(error: unknown): void {
 		this.notify(error instanceof Error ? error.message : String(error), "error");
 	}
 	perform(action: Promise<unknown>): void {
 		void action.catch((error: unknown) => this.fail(error));
 	}
-	/** The main conversation of `session` (1 until its row is known). */
-	mainOf(session: string | undefined): number {
-		return (session === undefined ? undefined : this.mains.get(session)) ?? 1;
-	}
-	/**
-	 * Shows a screen; a session or conversation change switches the viewed identity (overlays close). Another session
-	 * opens at its main conversation.
-	 */
+	/** Shows a screen; a session or conversation change switches the viewed identity (overlays close). */
 	navigate(screen: TuiRuntime["screen"], session = this.session, conversation?: number): void {
-		const next = conversation ?? (session === this.session ? this.conversation : this.mainOf(session));
+		const next = conversation ?? (session === this.session ? this.conversation : 1);
 		const changed = session !== this.session || next !== this.conversation;
-		if (changed) {
-			this.closeOverlays();
-			this.closePanel();
-		}
+		if (changed) this.closeOverlays();
 		this.session = session;
 		this.conversation = next;
 		this.screen = screen;
@@ -675,12 +542,7 @@ export class TuiRuntime implements Component, Focusable {
 	}
 	handleInput(data: string): void {
 		// Section 6.2: the alt screen (stage 2) already ran; commands by context (stage 4), then the screen (stage 5).
-		// A focused panel takes its keys first and never passes the rest to the screen (typing stays out of the editor).
-		const panel = this.panelFocused && this.panelShown() ? this.panel : undefined;
-		if (this.panelFocused && !panel) this.focusPanel(false);
-		if (panel) {
-			if (this.panelInput(data, panel.scroll) || this.commands.dispatch(data)) this.changed();
-		} else if (this.commands.dispatch(data)) this.changed();
+		if (this.commands.dispatch(data)) this.changed();
 		else this.surfaces.get(this.screen)?.handleInput?.(data);
 		this.tui.requestRender();
 	}
@@ -741,7 +603,6 @@ export class TuiRuntime implements Component, Focusable {
 	}
 	dispose(): void {
 		this.closeOverlays();
-		this.closePanel();
 		this.stopCommands?.();
 		this.stopRegistry?.();
 		for (const surface of this.surfaces.values()) surface.dispose();
