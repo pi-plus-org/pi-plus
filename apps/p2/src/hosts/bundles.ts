@@ -124,7 +124,8 @@ const browser = {
 	...common,
 	platform: "browser",
 	target: "es2022",
-	loader: { ".wasm": "file" },
+	// Fonts (Elanor's, from its packages' CSS) are files of the bundle, named by their content.
+	loader: { ".wasm": "file", ".woff2": "file" },
 	define: { "process.env.NODE_ENV": '"production"' },
 } as const satisfies BuildOptions;
 
@@ -178,6 +179,7 @@ const TYPES: Readonly<Record<string, string>> = {
 	".css": "text/css; charset=utf-8",
 	".map": "application/json",
 	".wasm": "application/wasm",
+	".woff2": "font/woff2",
 };
 
 /**
