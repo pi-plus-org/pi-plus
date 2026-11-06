@@ -23,8 +23,7 @@ export async function openSessionStorage(
 	id: string,
 	context: Context,
 ): Promise<{ readonly store: Store; readonly storage: StoreStorage; close(): Promise<void> }> {
-	// The stored outbox setting stays: turning an outbox off would drop commits the backup does not hold yet.
-	const store = await openHostStore(sessionDirectory(dataDir, id), {}, context);
+	const store = await openHostStore(sessionDirectory(dataDir, id), { outbox: false }, context);
 	try {
 		const storage = await durableStorage(store, context);
 		return {

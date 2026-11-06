@@ -1,10 +1,6 @@
 // Tests of chunked uploads on their own (slice 13 §4): the cap of uploads under way, a slot freed by expiry or by the
 // object's end, the files of ended uploads removed. Their use through `Files` (pipelined appends, finish waiting for
-<<<<<<< HEAD
 // writes, caps) is in `files.test.ts`. Each upload carries its owner's data, found and given back.
-=======
-// writes, caps) is in `files.test.ts`.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,20 +11,13 @@ import { tempDir } from "./support.ts";
 describe("uploads under way", () => {
 	it("refuses a begin past the cap busy; an expired upload frees its slot and its file (recheck N1)", async () => {
 		const run = join(await tempDir(), "run");
-<<<<<<< HEAD
 		const uploads = new Uploads<string>(run, 1);
 		const first = await uploads.begin("a");
 		await expect(uploads.begin("b")).rejects.toMatchObject({ code: "unavailable", reason: "busy" });
-=======
-		const uploads = new Uploads(run, 1);
-		const first = await uploads.begin("a", "x");
-		await expect(uploads.begin("b", "x")).rejects.toMatchObject({ code: "unavailable", reason: "busy" });
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		await uploads.expire(60_000);
 		expect(await uploads.uploaded(first)).toBe(0);
 		await uploads.expire(0);
 		await expect(uploads.uploaded(first)).rejects.toMatchObject({ code: "invalid" });
-<<<<<<< HEAD
 		const second = await uploads.begin("b");
 		expect(await readdir(run)).toEqual([second]);
 		await uploads.close();
@@ -52,13 +41,6 @@ describe("uploads under way", () => {
 		await uploads.cancel(dropped);
 		expect(uploads.find((data) => data.key === "k3")).toBeUndefined();
 		expect(await readdir(run)).toEqual(["done"]);
-=======
-		const second = await uploads.begin("b", "x");
-		expect(await readdir(run)).toEqual([second]);
-		await uploads.close();
-		expect(await readdir(run)).toEqual([]);
-		expect(await uploads.begin("c", "x")).toEqual(expect.any(String));
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		await uploads.close();
 	});
 });

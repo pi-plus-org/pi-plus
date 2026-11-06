@@ -65,10 +65,7 @@ export type SpaceSummary = {
 	readonly newest: FileInfo[];
 };
 
-/**
- * What a write stores besides its bytes: where, its type, who wrote it, its producer's reference, its key, `meta`, and
- * for an import the time the file was made elsewhere (`created`, ms since the epoch; the write's time otherwise).
- */
+/** What a write stores besides its bytes: where, its type, who wrote it, its producer's reference, its key, `meta`. */
 export type FileWrite = {
 	readonly space: string;
 	readonly path: string;
@@ -76,7 +73,6 @@ export type FileWrite = {
 	readonly source: string;
 	readonly ref?: string;
 	readonly key?: string;
-	readonly created?: number;
 	readonly meta?: JsonValue;
 };
 
@@ -329,7 +325,7 @@ export class FilesIndex {
 			source: write.source,
 			ref: write.ref ?? "",
 			key: write.key ?? "",
-			created: write.created ?? Date.now(),
+			created: Date.now(),
 			...(write.meta === undefined || write.meta === null ? {} : { meta: write.meta }),
 		};
 		const info = infoOf(row);
@@ -346,7 +342,7 @@ export class FilesIndex {
 			summary.files += previous === undefined ? 1 : 0;
 			summary.versions += 1;
 			summary.bytes += blob.size;
-			summary.newest = [info, ...newest].sort(newestFirst).slice(0, NEWEST);
+			summary.newest = [info, ...newest].slice(0, NEWEST);
 		}, context);
 		return info;
 	}
@@ -621,11 +617,6 @@ function infoOf(row: Omit<FileRow, "folder" | "latest" | "blob">): FileInfo {
 		// A json(unknown()) cell: JSON as it was written.
 		...(row.meta === undefined ? {} : { meta: row.meta as JsonValue }),
 	};
-}
-
-/** The order of a summary's newest versions, as `by_created` gives them: `created`, then id, descending. */
-function newestFirst(a: FileInfo, b: FileInfo): number {
-	return b.created - a.created || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 }
 
 /** A page of stored versions as the index gives them. */
