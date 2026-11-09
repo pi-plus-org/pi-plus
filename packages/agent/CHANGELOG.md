@@ -1,10 +1,16 @@
 # Changelog
 
+## [1.5.1] - 2026-11-09
+
+### Added
+
+- Added `disableContinuation` forwarding in `streamProxy()` so proxied requests can opt out of server-side continuation state such as Anthropic message threads ([#11545](https://github.com/earendil-works/pi/pull/11545))
+
 ## [1.5.0] - 2026-11-02
 
 ### Breaking Changes
 
-- `AgentTool` takes any JSON Schema object as `parameters` (`AgentTool<TParameters extends object>`) and types `params` and `prepareArguments` through `@earendil-works/pi-schema` (`AgentToolParams<TParameters>`): pi-schema's builders give their static type, other schemas (TypeBox included) give `unknown`, `AgentTool<any>` stays `any`. `outputSchema` is any JSON Schema object. `typebox` is no longer a dependency. Migration: build parameters with pi-schema (`obj({ path: str() })` instead of `Type.Object({ path: Type.String() })`), or keep TypeBox schemas and narrow `params` yourself.
+- `AgentTool` takes any JSON Schema object as `parameters` (`AgentTool<TParameters extends object>`) and types `params` and `prepareArguments` through `@earendil-works/pi-schema` (`AgentToolParams<TParameters>`): pi-schema's builders give their static type, TypeBox schemas give TypeBox's static type for the common kinds (String, Number, Integer, Boolean, Null, Literal, Array, Object with optional and readonly properties, Union, Record, Unsafe, Unknown, Any; other kinds such as Enum, Tuple and Intersect give `unknown`), other schemas give `unknown`, `AgentTool<any>` stays `any`. `outputSchema` is any JSON Schema object. `typebox` is no longer a dependency. Migration: build parameters with pi-schema (`obj({ path: str() })` instead of `Type.Object({ path: Type.String() })`), or keep TypeBox schemas (narrow `params` yourself only where they use other kinds).
 
 ### Fixed
 
