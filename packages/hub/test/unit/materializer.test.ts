@@ -571,6 +571,61 @@ describe("materializeProfile", () => {
 		expect(fs.existsSync(path.join(link, "--proj--", "only-copy.jsonl"))).toBe(true);
 	});
 
+	it("shares mcp.json and mcp-auth.json from the source agent dir", () => {
+		// MCP state must not be per-profile: /mcp and `pi mcp` would otherwise
+		// show different servers depending on which profile launched.
+		fs.writeFileSync(path.join(agentDir, "mcp.json"), JSON.stringify({ mcpServers: { demo: { command: "demo" } } }));
+		fs.writeFileSync(path.join(agentDir, "mcp-auth.json"), "{}");
+		const dir = mat.materializeProfile("work", baseProfile);
+		for (const name of ["mcp.json", "mcp-auth.json"]) {
+			expect(fs.existsSync(path.join(dir, name))).toBe(true);
+			// Symlink or hardlink (realpath only canonicalizes symlinks, so assert
+			// the sharing property): edits through the profile path land in the
+			// shared source file.
+			fs.writeFileSync(path.join(dir, name), `{"writtenThrough":"${name}"}`);
+			expect(fs.readFileSync(path.join(agentDir, name), "utf-8")).toBe(`{"writtenThrough":"${name}"}`);
+		}
+	});
+
+	it("falls back to a hardlink when file symlinks are not permitted", () => {
+		// Windows without developer mode: file symlinks throw EPERM. A hardlink
+		// needs no privileges (same volume) and must keep edits shared.
+		fs.writeFileSync(path.join(agentDir, "mcp.json"), "{}");
+		const symlinkSpy = vi.spyOn(fs, "symlinkSync").mockImplementation(() => {
+			throw new Error("EPERM: operation not permitted, symlink");
+		});
+		try {
+			const dir = mat.materializeProfile("work", baseProfile);
+			const link = path.join(dir, "mcp.json");
+			expect(fs.lstatSync(link).isSymbolicLink()).toBe(false);
+			expect(fs.statSync(link).ino).toBe(fs.statSync(path.join(agentDir, "mcp.json")).ino);
+			fs.writeFileSync(link, JSON.stringify({ mcpServers: { demo: { command: "demo" } } }));
+			expect(JSON.parse(fs.readFileSync(path.join(agentDir, "mcp.json"), "utf-8")).mcpServers.demo.command).toBe(
+				"demo",
+			);
+		} finally {
+			symlinkSpy.mockRestore();
+		}
+	});
+
+	it("adopts a profile-only mcp.json into the source instead of deleting it", () => {
+		// First MCP server added while running under a profile on a fresh machine:
+		// the source mcp.json did not exist at materialization time, so the config
+		// lives only under the profile. Re-materializing must move it into the
+		// source and link, not delete it.
+		const dir = path.join(tmpDir, "pi-hub", "profiles", "work");
+		fs.mkdirSync(dir, { recursive: true });
+		const profileMcp = { mcpServers: { demo: { command: "demo" } } };
+		fs.writeFileSync(path.join(dir, "mcp.json"), JSON.stringify(profileMcp));
+
+		mat.materializeProfile("work", baseProfile);
+		expect(JSON.parse(fs.readFileSync(path.join(agentDir, "mcp.json"), "utf-8"))).toEqual(profileMcp);
+		// The profile path must now resolve to the shared file: edits through it
+		// land in the source (a plain divergent copy would fail this).
+		fs.writeFileSync(path.join(dir, "mcp.json"), '{"shared":true}');
+		expect(fs.readFileSync(path.join(agentDir, "mcp.json"), "utf-8")).toBe('{"shared":true}');
+	});
+
 	it("is idempotent", () => {
 		mat.materializeProfile("work", baseProfile);
 		const dir = mat.materializeProfile("work", baseProfile);

@@ -13,8 +13,12 @@ import {
 
 // Directories/files shared from the source agent dir into every profile dir.
 // Dirs are symlinked so user edits (extensions, skills, sessions) stay live.
+// Files are shared the same way; mcp.json/mcp-auth.json are shared so every
+// profile sees the same MCP servers and OAuth credentials (a profile-local
+// copy would make /mcp and `pi mcp` show different servers depending on which
+// profile launched).
 const SHARED_DIR_LINKS = ["extensions", "skills", "npm", "sessions"];
-const SHARED_FILE_LINKS = ["AGENTS.md", "models-store.json"];
+const SHARED_FILE_LINKS = ["AGENTS.md", "models-store.json", "mcp.json", "mcp-auth.json"];
 
 // Per-profile record of the `packages` array last written into the profile's
 // settings.json. Three-way merge anchor for the pre-layering era, when pi
@@ -240,7 +244,22 @@ export function writeModelsFile(dir: string, profile: Profile): void {
 function removeStaleLink(linkPath: string, target: string): void {
 	try {
 		const stat = fs.lstatSync(linkPath);
-		if (stat.isSymbolicLink() || stat.isFile()) {
+		if (stat.isSymbolicLink()) {
+			fs.rmSync(linkPath, { force: true });
+		} else if (stat.isFile()) {
+			if (!fs.existsSync(target)) {
+				// Profile-only content with no shared source: written while no link
+				// existed (fresh machine, source not yet created). Here the profile
+				// copy IS the canonical content — move it into place instead of
+				// deleting it (mirrors the dir adoption below), so e.g. an mcp.json
+				// first created under a profile is preserved and shared.
+				logger.info(`refreshSharedLinks: adopting profile-only file into source: ${linkPath} -> ${target}`);
+				fs.mkdirSync(path.dirname(target), { recursive: true });
+				fs.renameSync(linkPath, target);
+				return;
+			}
+			// Stale copy fallback from a previous run (symlink/hardlink failed):
+			// the canonical content lives in the source we're about to link.
 			fs.rmSync(linkPath, { force: true });
 		} else if (stat.isDirectory()) {
 			if (!fs.existsSync(target)) {
@@ -281,6 +300,19 @@ function linkOrCopy(target: string, linkPath: string, isDir: boolean): void {
 		fs.symlinkSync(target, linkPath, isDir ? "junction" : "file");
 	} catch (err) {
 		if (!fs.existsSync(target)) return;
+		if (!isDir) {
+			// Windows file symlinks need privileges most users lack. A hardlink
+			// needs none (same volume — profile dirs always live under PI_DIR
+			// alongside the source) and still keeps edits live: upstream pi writes
+			// these files in place, so writes through one path land in the shared
+			// inode.
+			try {
+				fs.linkSync(target, linkPath);
+				return;
+			} catch {
+				// fall through to the copy fallback
+			}
+		}
 		logger.warn(`Symlink failed for ${target}, falling back to copy`, err);
 		if (isDir) {
 			fs.cpSync(target, linkPath, { recursive: true });
