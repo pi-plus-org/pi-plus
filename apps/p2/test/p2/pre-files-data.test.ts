@@ -2,13 +2,15 @@
 // fake provider: sessions with history, a subagent, artifacts with versions, uploads attached to messages, a download
 // snapshot, a fork, a clone, an archived session, the server's store) is migrated (`npm run migrate-data`) and opens on
 // this p2: the data report reads the same, every conversation's newest entry shows through `Chat`, artifacts of every
-// version, downloads and attachments resolve, the copies' too, and new versions, forks and uploads work on top. The
+// version, downloads and attachments resolve, the copies' too, each migrated file keeps its time, and new versions,
+// forks and uploads work on top. The
 // fixture is never written: the test works on a copy.
 
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { BACKGROUND_CONTEXT } from "@p2/app/v1";
 import { ArtifactList } from "../../plugins/artifacts/contract.ts";
@@ -20,7 +22,7 @@ import { type DataReport, dataReport } from "../../scripts/data-report.ts";
 import { migrateData } from "../../scripts/migrate-data.ts";
 import { verifySessions } from "../../scripts/verify-sessions.ts";
 import { startServer } from "../../src/hosts/server.ts";
-import { clientHost, holdIn, http, until } from "./helpers.ts";
+import { clientHost, holdIn, http, localOwner, until } from "./helpers.ts";
 
 const fixture = new URL("../fixtures/pre-files-data/", import.meta.url);
 const expected = JSON.parse(readFileSync(new URL("report.json", fixture), "utf8")) as DataReport;
@@ -38,6 +40,15 @@ test(
 		const dataDir = join(root, "data");
 		cpSync(new URL("data/", fixture), dataDir, { recursive: true });
 		assert.deepEqual(dataReport(dataDir), expected);
+		// Times the old files were made (their modification times, the only ones the old layout kept), apart from now.
+		const downloads = join(dataDir, "downloads", ids.alpha);
+		const made: Record<string, readonly [string, number]> = {
+			demo1: [join(dataDir, "artifacts", ids.alpha, "demo", "1", "version.json"), 1_700_000_000_000],
+			demo2: [join(dataDir, "artifacts", ids.alpha, "demo", "2", "version.json"), 1_700_000_100_000],
+			upload: [join(dataDir, "uploads", ids.alpha, `${ids.text}-notes.txt`), 1_700_000_200_000],
+			download: [join(downloads, readdirSync(downloads)[0]!, "metadata.json"), 1_700_000_300_000],
+		};
+		for (const [path, time] of Object.values(made)) utimesSync(path, new Date(time), new Date(time));
 
 		const summary = await migrateData({ dataDir, dryRun: false });
 		assert.deepEqual(summary.sessions.failed, []);
@@ -52,17 +63,37 @@ test(
 			assert.ok(existsSync(join(dataDir, "pre-files-backup", "sessions", `${id}.sqlite`)));
 		}
 		assert.deepEqual(dataReport(dataDir), expected);
+		// Each migrated file keeps its time.
+		const db = new DatabaseSync(join(dataDir, "sessions", ids.alpha, "store.sqlite"), { readOnly: true });
+		const created = (where: string, ...values: (string | number)[]) =>
+			(
+				db.prepare(`SELECT created FROM "chord.app.files:files" WHERE ${where}`).get(...values) as {
+					created: number;
+				}
+			).created;
+		const versionOf = "space = 'artifacts' AND path = 'demo' AND version = ?";
+		assert.equal(created(versionOf, 1), made.demo1![1]);
+		assert.equal(created(versionOf, 2), made.demo2![1]);
+		assert.equal(created("key = ?", ids.text), made.upload![1]);
+		assert.equal(
+			created("key = ?", readdirSync(join(dataDir, "pre-files-backup", "downloads", ids.alpha))[0]!),
+			made.download![1],
+		);
+		db.close();
 
 		const server = await startServer({ dataDir, port: 0, fake: true, web: false });
 		try {
 			const url = `http://127.0.0.1:${server.port}`;
-			assert.deepEqual(await verifySessions(url, expected), []);
-			const owner = clientHost(server.port);
+			assert.deepEqual(await verifySessions(url, expected, dataDir), []);
+			const local = await localOwner(server);
+			const headers = { Cookie: local.cookie };
+			const owner = clientHost(local);
 			t.after(() => owner.close(BACKGROUND_CONTEXT));
 			const artifact = (session: string, name: string, version: number) =>
 				http(
 					server.port,
 					`/artifact?${new URLSearchParams({ session, name, version: String(version) })}&download=1`,
+					{ headers },
 				);
 
 			// Every version of every artifact, in the session and its copies.
@@ -88,6 +119,7 @@ test(
 			const sent = await http(
 				server.port,
 				`/download?${new URLSearchParams({ session: ids.alpha, id: download! })}`,
+				{ headers },
 			);
 			assert.equal(sent.status, 200);
 			assert.equal(sent.body, "before\n");

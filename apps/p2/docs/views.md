@@ -47,6 +47,12 @@ arranges the panes as they like. Their selections and annotations reach the agen
 - **Library**: `save` keeps a view (kind, path, HTML, state) in `<data>/views/<name>.json`. `load` or the Views sheet
   opens it in any session. The owner's library: the sheet is the owner's; the tool serves whoever's turn it is (p2 has
   no per-turn authority).
+  holds the selections and annotations no message carried yet. Other plugins add their own blocks through
+  `MessageContexts` (`contract.ts`, keyed by plugin, given the message being sent; e.g. the artifacts plugin's new
+  page errors, the scope prompt's scope staged for that message), each carried once
+  and noted on the message. The model sees the blocks, but the transcript shows only the person's text, with a note
+  (entry kind `p2.view-input`, `TranscriptEntries`). The composer's chip shows what will go along; its × drops it. In
+  chat mode, the chat-mode router takes the message first, so no context goes along.
 
 ## Who owns what
 

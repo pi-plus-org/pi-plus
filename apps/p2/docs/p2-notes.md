@@ -569,6 +569,38 @@ startup fencing, the list marker, owner notice, worker-filtered Show logs and re
 Footer actions wrap so the additional Logs button cannot overflow the
 translated phone drawer and intercept chat taps.
 
+**Telemetry** (Chord §29; off unless settings.json's `telemetry` is `true`, read once at the server's start; no
+sampling: Chord offers none; recording everything cost the phone 1.8M spans, 1 GB and a third of a core in 15 h, so it
+is opt-in since 2026-11-13). Off, the server opens no store and its ingest objects refuse everyone (a page loaded while it
+was on fails `forbidden` at once and stops sending, never waits unbound), `WorkerInit.telemetry` is
+false (the worker's host has no recorder and sends nothing), no page is marked, every host uses Chord's NOOP adapter,
+and `Traces` answers `unavailable` "telemetry is off (settings.json telemetry)" (the pane and the tools show it;
+`telemetry-off.test.ts`). On: the server records to `<data>/telemetry.sqlite`
+(`openTelemetry`, `src/runtime/host-dirs.ts`; Chord's SQLite store, 7 days, a queue of 10,000 spans, a flush every
+second; its own private file, never in a backup), its only writer. Each session worker records in memory (its host's
+spans and metrics, and Durable's `pi.durable.*` and pi-ai's `pi.ai.*`: the Harness gets the same adapter) and sends
+to the server's `WorkerTelemetry` every second and when it closes (`src/hosts/worker.ts`), stamped `chord.host:
+session|<id>`. Owners' pages record too (`#root` `data-p2-telemetry`, set by `web.ts` for owners; `startPage({
+telemetry: true })`) and send to `PageTelemetry` every 3 s and when hidden; the server admits owners only
+(`telemetryIngestFacet({ admit })`: a guest could open page after page, each with its own budget). Carriers join a
+page's call, the server's relay and the worker's method into one trace; React's holds are roots of the page's own
+traces. What a span records about its principal is `principalAttributes` (`src/runtime/principals.ts`):
+`p2.principal` (`owner:<access>`, `guest`, `worker`, `server`, `host`) and a guest's id or a worker's session,
+never a name or an email. Read with `node --import ./src/source.ts scripts/traces.ts [--name] [--attr k=v]
+[--errors] [--since <minutes>] [--limit]` (read-only, safe while the server runs), or in the page and by the agent
+(`plugins/telemetry`): `Traces` (server) reads the store (`ServerParts.telemetry`) with bounds (50 traces a page,
+2000 spans a trace, 1000 metric rows, 8 attribute filters); variant `owner` for owners, `agent` for a session's worker,
+refused at every call while that session is shared (any link, guest or person: viewers read what the agent finds) or
+locked; anyone else `forbidden`. The Traces view kind (a pane: search by the first span's name, attributes, errors and
+a window; traces newest first, more by cursor; one trace as a span tree on its timeline with attributes, events and
+links that open their trace; list or trace on narrow panes, side by side from 620px), also a Settings section (a trace
+a layer of the sheet) and the command "Show traces" (owners). The agent's code-mode tools, namespace `telemetry`
+(`telemetry_find_traces`, `telemetry_get_trace`: `renderTrace` text and the spans, `telemetry_find_metrics`;
+`locked: "never"`; deferred: the code-mode section names the namespace only, `describeNamespace("telemetry")` gives
+the declarations, so they take no place from the tools the agent uses all the time). Test: `telemetry-traces.test.ts`. Cost: Chord's (§30): a span per
+call, hold, method, relay and activation; nothing is measured or walked for it. The TUI records nothing. Test:
+`telemetry.test.ts`.
+
 ## Decisions
 
 - **Where p2 differs from Pi Mobile on purpose** (from the parity audit before Pi Mobile was retired):
@@ -1172,6 +1204,52 @@ translated phone drawer and intercept chat taps.
   navigate to roots (restoring archives); guests get plain labels. `test/p2/conversations.test.ts` covers list/send/
   answer, peer replies from the owner's turns, restart deduplication, concurrent cross-sends, busy answers, follow-ups,
   invalid destinations, reload, guest/forged attribution, child tool exclusion and inaccessible public ingress.
+  answer, peer replies, restart deduplication, concurrent cross-sends, busy answers, follow-ups,
+  invalid destinations, reload, guest turns, child tool exclusion and inaccessible public ingress.
+- **Familiar** (`plugins/familiar`): one long-running session above the others that keeps track of them and starts,
+  steers, stops, archives and restores them. The server's `FamiliarStore` holds which session it is (persisted; the
+  ID is chosen before the row is made, so a crash makes the same one); the owner's `Familiar.open` makes it on first
+  use (home directory, default model, title "Ask Pi", its name for the owner) or restores it when archived, one open at a time. Workers learn
+  whether they are it from their start data (`WorkerInitValues` key `familiar`). In its worker, the main conversation's
+  `pi.agent` gets `modelTools` (conversations, codemode, history_search/read/handoff, sidebar_rollups) and `tools` (those plus `agent`,
+  `bash` and `read`, so scripts and one-shot agents can look at the file system) at each start; its extension adds the
+  `familiar` prompt section (role, notes in the code mode store key `familiar.notes`, finding folders).
+  **Compaction by cost** (`cold.ts`): while its prompt cache is warm a turn reads the context at about a tenth of the
+  input price and a summary (never cached) costs it all at full price, so only the regular cutoff applies; once cold
+  the next turn rewrites the cache at full price anyway, so it compacts first. Cold: the last answer's time plus the
+  model's cache lifetime (`getPromptCacheTtlMs`, `cacheRetention`) plus the 30 minutes the cache warmer refreshes while
+  idle (`cacheWarming: "idle"`, the default); at once for a model without a prompt cache. It compacts when the last
+  answer after the context's head reported at least 150k tokens, or the regular cutoff (window − `reserveTokens`) when
+  lower, compaction is enabled, and the conversation is idle: from a timer set after each answer (only while the
+  worker runs; an idle worker stops after 5 minutes without viewers or warming) and at each start, else in an
+  `InputGate` before the next input is admitted, which waits for the summary. Web: home (the `home` slot: `/` replaces
+  itself with its session, made on first use; while the owner has it archived, with the new-session screen) and the
+  `drawer-brand` slot, the Pi logo at the start of the owner's sidebar header (a button titled "Ask Pi" that opens it,
+  restoring it when archived; the session's working spinner or unread dot on its corner); the sessions plugin's `DrawerRowsContext` (`plugins/sessions/contract.web.tsx`) gives it the
+  rows, `SessionDot` and `listApart`, which leaves its session out of the rollups. The TUI lists it as an ordinary session. Tests:
+  `familiar.test.ts`, `ui-familiar.test.ts`, the conversations actions in `conversations.test.ts`.
+- **Scope prompt** (`plugins/scope-prompt`, experiment; owner only, web only): an overlay (`overlay:` slots, the
+  `SlotList` at the end of `AppLayout`) that leaves the page as it is until pointing mode is on (`mode.ts`): a double tap
+  of the bare primary modifier (Cmd on macOS, Ctrl elsewhere: each press released within 300 ms, the second within
+  450 ms of the first, no other key, click or focus loss between, so Cmd+V sent by a dictation tool never counts), the
+  binding `p2.scope-prompt.toggle` (Cmd+.), the command menu's "Prompt anywhere", or its button (`Toggle.tsx`: in the
+  sidebar's header before the collapse button, the `sidebar-header:` slots; in the top bars of the chat and the list
+  pages while the sidebar is not shown docked, the `topbar-start:` slots), which also switches it off. Holding the modifier does nothing,
+  so Cmd+click still opens links in new tabs. While on, a pill says so, frames take no pointer events (they count as
+  their pane), the thing under the mouse is outlined with its chain of labels, and a click (touch too) is taken before
+  the page sees it and opens a small composer there, whose steps widen the scope (a touch: its tap outlines what it is
+  on, a second tap on that opens the composer; a drag scrolls as always); Escape, Stop, leaving the window or
+  the pick end the mode. `scopes.ts` reads the chain from attributes the page already renders: `.drawer`,
+  `.sidebar-section` and `.sidebar-group` `[data-key]`, `[data-session]` (session rows), `[data-view-pane]` with
+  `data-view-kind/-item/-title` (Workbench), `[data-path]` (a file of the changes view), `.diff-line`, `[data-entry]`
+  (transcript entries). Where it goes (`message.ts`; the composer's "To" switches): a target in the open session's
+  page (its chat, a view) goes to the open conversation as the person's message, as the composer sends it: the page
+  stages the `<scope>` block on the session (`ScopeStage`, worker facet, by `requestId`, dropped after a minute) and
+  the views' send router carries it with that message (`MessageContexts`, which now get the routed input), so the
+  transcript shows the text with the note "with scope Chat › Message". Anything else (the sidebar) goes to the
+  Familiar: opened as its logo does, the text queued on its main conversation followed by the block with the page's
+  session, conversation and title or list, which its prompt section explains. Not yet: frames' insides (an html
+  artifact is its pane). Test: `ui-scope-prompt.test.ts`.
 - **Subagents** (`plugins/subagents`): owns its protocol-independent Durable extension (persistent
   anchor conversations and exactly-once background reporter tasks, model/thinking/tool validation). The worker
   facet (an object of lifetime "host") contributes it to `Extensions` and catches up child metadata after relevant commits, retrying
