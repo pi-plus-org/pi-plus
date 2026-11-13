@@ -5,8 +5,10 @@ import * as logger from "./logger.ts";
 import {
 	type AgentSettingsData,
 	type AuthData,
+	type CustomModel,
 	isProfileScopedSettingsKey,
 	type ModelsFileData,
+	modelId,
 	PROFILE_SETTINGS_KEYS,
 	type Profile,
 } from "./types.ts";
@@ -46,7 +48,7 @@ function readSourceSettings(): AgentSettingsData {
 export function resolveEffectiveProvider(profile: Profile, settings: AgentSettingsData): string | undefined {
 	if (profile.provider) return profile.provider;
 	const models = profile.models || (profile.model ? [profile.model] : []);
-	const first = models[0];
+	const first = models[0] ? modelId(models[0]) : undefined;
 	if (first?.includes("/")) return first.split("/")[0];
 	return settings.defaultProvider;
 }
@@ -190,13 +192,14 @@ function applyProfileOverrides(settings: AgentSettingsData, profile: Profile): v
 	}
 
 	const models = profile.models || (profile.model ? [profile.model] : []);
+	const modelIds = models.map(modelId);
 	// `model` is the profile's declared default; `models[0]` is the hub-managed
 	// mirror (setProfileDefaultModel keeps them in sync). A host editing the
 	// list directly can leave the two inconsistent — trust the declared
 	// default when it's one of the models, rather than silently promoting a
 	// list head that may not even resolve (which drops the session onto the
 	// provider's built-in model). Otherwise position 1 still wins.
-	const defaultModel = profile.model && models.includes(profile.model) ? profile.model : models[0];
+	const defaultModel = profile.model && modelIds.includes(profile.model) ? profile.model : modelIds[0];
 	if (profile.provider) settings.defaultProvider = profile.provider;
 	if (defaultModel) settings.defaultModel = defaultModel;
 	if (profile.thinking) settings.defaultThinkingLevel = profile.thinking;
@@ -210,33 +213,41 @@ function applyProfileOverrides(settings: AgentSettingsData, profile: Profile): v
 	// by an earlier multi-model profile) silently replace this profile's
 	// default. A profile with no declared models writes nothing.
 	if (profile.settings?.enabledModels === undefined) {
-		if (models.length > 0) settings.enabledModels = [...models];
+		if (models.length > 0) settings.enabledModels = [...modelIds];
 		else delete settings.enabledModels;
 	}
 }
 
 /**
- * Write <dir>/models.json overriding the profile provider's baseUrl.
- * pi reads this even for built-in providers and reloads it live — the only way
- * to redirect providers (e.g. kimi-coding) that have no *_BASE_URL env var.
- * Deleted when the profile has no url.
+ * Write <dir>/models.json with the profile's provider overrides: the baseUrl
+ * redirect and any custom model definitions (models not in pi's built-in
+ * catalog). pi reads this even for built-in providers and reloads it live —
+ * the only way to redirect providers (e.g. kimi-coding) that have no
+ * *_BASE_URL env var. Custom models need the same file: written verbatim into
+ * `providers.<provider>.models`, pi applies its defaults (contextWindow 128000,
+ * maxTokens 16384) and inherits the API dialect from the provider. Deleted
+ * when the profile has neither a url nor custom models.
  */
 export function writeModelsFile(dir: string, profile: Profile): void {
 	const file = path.join(dir, "models.json");
-	if (!profile.url) {
+	const customModels = (profile.models || []).filter((m): m is CustomModel => typeof m !== "string");
+	const entry: { baseUrl?: string; models?: CustomModel[] } = {};
+	if (profile.url) entry.baseUrl = profile.url;
+	if (customModels.length > 0) entry.models = customModels;
+	if (Object.keys(entry).length === 0) {
 		fs.rmSync(file, { force: true });
 		return;
 	}
 	const provider = resolveEffectiveProvider(profile, readSourceSettings());
 	if (!provider) {
 		console.error(
-			"Warning: profile has a url but no provider could be determined " +
+			"Warning: profile has a url or custom models but no provider could be determined " +
 				"(no -p flag, no provider/model id, no defaultProvider in agent settings). " +
-				"models.json baseUrl override was not written.",
+				"models.json was not written.",
 		);
 		return;
 	}
-	const data: ModelsFileData = { providers: { [provider]: { baseUrl: profile.url } } };
+	const data: ModelsFileData = { providers: { [provider]: entry } };
 	writeJson(file, data);
 	logger.debug(`writeModelsFile: wrote ${file}`);
 }

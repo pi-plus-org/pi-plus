@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import { ensureProfilesFile, PROFILES_FILE, readJson, writeJson } from "./config.ts";
 import * as logger from "./logger.ts";
-import type { Profile, ProfilesData } from "./types.ts";
-import { THINKING_LEVELS } from "./types.ts";
+import type { ModelEntry, Profile, ProfilesData, UnknownModelChecker } from "./types.ts";
+import { modelId, THINKING_LEVELS } from "./types.ts";
 
 // Legacy value of `profiles.json`'s `default` key meaning "no profile, run
 // plain pi". The built-in default has been removed (an absent key means the
@@ -19,9 +19,9 @@ export function maskToken(token: string): string {
 export function formatModels(p: Profile): string {
 	const models = p.models || (p.model ? [p.model] : []);
 	if (models.length === 0) return "(unset)";
-	const joined = models.join(", ");
+	const joined = models.map(modelId).join(", ");
 	if (joined.length > 28) {
-		return `${models[0]}, +${models.length - 1} more`;
+		return `${modelId(models[0])}, +${models.length - 1} more`;
 	}
 	return joined;
 }
@@ -153,24 +153,83 @@ export function renameProfile(oldName: string, newName: string): void {
 }
 
 /** Model-list update semantics shared by the update command: a single existing
- *  model moves to position 1 ("select"), a single new model is unshifted, and
- *  multiple models replace the list. */
-export function mergeModelsUpdate(current: string[], provided: string[]): { models: string[]; messages: string[] } {
+ *  model moves to position 1 ("select", keeping custom model definitions
+ *  intact), a single new model is unshifted, and multiple models replace the
+ *  list. */
+export function mergeModelsUpdate(
+	current: ModelEntry[],
+	provided: ModelEntry[],
+): { models: ModelEntry[]; messages: string[] } {
 	const messages: string[] = [];
 	if (provided.length === 1) {
-		const modelToSet = provided[0];
-		const existingIndex = current.indexOf(modelToSet);
+		const id = modelId(provided[0]);
+		const existingIndex = current.findIndex((m) => modelId(m) === id);
 		if (existingIndex !== -1) {
-			current.splice(existingIndex, 1);
-			current.unshift(modelToSet);
-			messages.push(`Selected existing model '${modelToSet}' (position ${existingIndex + 1} -> 1).`);
+			const [entry] = current.splice(existingIndex, 1);
+			current.unshift(entry);
+			messages.push(`Selected existing model '${id}' (position ${existingIndex + 1} -> 1).`);
 		} else {
-			current.unshift(modelToSet);
-			messages.push(`Added and selected new model '${modelToSet}'.`);
+			current.unshift(provided[0]);
+			messages.push(`Added and selected new model '${id}'.`);
 		}
 		return { models: current, messages };
 	}
 	return { models: provided, messages };
+}
+
+/** Parse a -m value: a plain model id, or a JSON object custom model definition. */
+export function parseModelValue(raw: string): ModelEntry {
+	if (!raw.startsWith("{")) return raw;
+	let value: unknown;
+	try {
+		value = JSON.parse(raw);
+	} catch (err) {
+		throw new Error(`--model value is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+	}
+	if (
+		!value ||
+		typeof value !== "object" ||
+		Array.isArray(value) ||
+		typeof (value as { id?: unknown }).id !== "string" ||
+		!(value as { id: string }).id
+	) {
+		throw new Error('--model JSON must be an object with a non-empty string "id".');
+	}
+	return value as ModelEntry;
+}
+
+/** Parse all -m values, throwing on invalid input. */
+export function parseModelValues(raws: string[]): ModelEntry[] {
+	return raws.map(parseModelValue);
+}
+
+/** Classify plain model ids the injected checker does not know and convert
+ *  them in place to custom model definitions, so they materialize into the
+ *  profile's models.json. Returns the converted ids. Synchronous (empty
+ *  array) when no checker is injected or there are no plain ids — command
+ *  validation keeps throwing synchronously in that case; a promise only when
+ *  the injected checker actually runs. Object entries are explicit custom
+ *  definitions and untouched. */
+export function classifyUnknownModels(
+	models: ModelEntry[],
+	findUnknown?: UnknownModelChecker,
+): string[] | Promise<string[]> {
+	if (!findUnknown) return [];
+	const plain = models.filter((m): m is string => typeof m === "string");
+	if (plain.length === 0) return [];
+	return findUnknown(plain).then((unknown) => {
+		const unknownSet = new Set(unknown);
+		if (unknownSet.size === 0) return [];
+		const converted: string[] = [];
+		for (let i = 0; i < models.length; i++) {
+			const entry = models[i];
+			if (typeof entry === "string" && unknownSet.has(entry)) {
+				models[i] = { id: entry };
+				converted.push(entry);
+			}
+		}
+		return converted;
+	});
 }
 
 /** Select a profile's default model: `profile.model` (mirrored at list
@@ -189,12 +248,12 @@ export function setProfileDefaultModel(name: string, model: string): string {
 		throw new Error(`Profile '${name}' not found.`);
 	}
 	const current = profile.models || (profile.model ? [profile.model] : []);
-	if (!current.includes(trimmed) && current.length >= 3) {
+	if (!current.some((m) => modelId(m) === trimmed) && current.length >= 3) {
 		throw new Error("Error: A profile can have at most 3 models.");
 	}
 	const merged = mergeModelsUpdate([...current], [trimmed]);
 	profile.models = merged.models;
-	profile.model = merged.models[0];
+	profile.model = modelId(merged.models[0]);
 	updateProfile(name, profile);
 	logger.debug(`setProfileDefaultModel: '${name}' -> '${trimmed}'`);
 	return merged.messages[0] ?? `Set default model '${trimmed}'.`;
@@ -216,7 +275,7 @@ export function addProfileModel(name: string, model: string): string {
 		throw new Error(`Profile '${name}' not found.`);
 	}
 	const current = profile.models || (profile.model ? [profile.model] : []);
-	if (current.includes(trimmed)) {
+	if (current.some((m) => modelId(m) === trimmed)) {
 		throw new Error(`Model '${trimmed}' is already in profile '${name}'.`);
 	}
 	if (current.length >= 3) {
@@ -247,16 +306,16 @@ export function removeProfileModel(name: string, model: string): string {
 		throw new Error(`Profile '${name}' not found.`);
 	}
 	const current = profile.models || (profile.model ? [profile.model] : []);
-	if (!current.includes(trimmed)) {
+	if (!current.some((m) => modelId(m) === trimmed)) {
 		return `Model '${trimmed}' is not in profile '${name}'.`;
 	}
-	const remaining = current.filter((m) => m !== trimmed);
+	const remaining = current.filter((m) => modelId(m) !== trimmed);
 	if (remaining.length === 0) {
 		delete profile.models;
 		delete profile.model;
 	} else {
 		profile.models = remaining;
-		profile.model = remaining[0];
+		profile.model = modelId(remaining[0]);
 	}
 	updateProfile(name, profile);
 	logger.debug(`removeProfileModel: '${name}' -= '${trimmed}'`);

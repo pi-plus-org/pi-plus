@@ -5,20 +5,22 @@ import {
 	addProfile,
 	applySetOption,
 	applyUnsetOption,
+	classifyUnknownModels,
 	clearDefaultProfile,
 	formatModels,
 	getDefaultProfileName,
 	loadProfiles,
 	maskToken,
 	mergeModelsUpdate,
+	parseModelValues,
 	removeProfile,
 	renameProfile,
 	setDefaultProfile,
 	updateProfile,
 	validateThinking,
 } from "./profiles.ts";
-import type { Profile } from "./types.ts";
-import { PI_PROVIDERS } from "./types.ts";
+import type { Profile, UnknownModelChecker } from "./types.ts";
+import { modelId, PI_PROVIDERS } from "./types.ts";
 
 /** Top-level subcommands owned by the hub package. */
 export const HUB_SUBCOMMANDS: ReadonlySet<string> = new Set(["profile", "use", "unuse"]);
@@ -38,6 +40,15 @@ export interface HubCommandOptions {
 	 * cancelled.
 	 */
 	login?: (context: { profileDir: string; provider: string }) => Promise<HubLoginResult>;
+
+	/**
+	 * Classifies plain model ids against the host's pi model catalog: returns
+	 * the subset the catalog does not know. `profile add`/`update` convert
+	 * those ids into custom model definitions so they materialize into the
+	 * profile's models.json; without this hook unknown ids are stored as plain
+	 * ids (and fail at pi run time, same as before).
+	 */
+	unknownModelChecker?: UnknownModelChecker;
 }
 
 /** Outcome of a caller-injected provider login. */
@@ -189,6 +200,18 @@ function resolveSignIn(
 	return { provider, login };
 }
 
+/** Note printed when a plain model id is not in the host's pi catalog: the
+ *  profile keeps working because the definition lands in models.json, but the
+ *  user should know the id was not recognized. */
+function reportConvertedModels(converted: string[]): void {
+	if (converted.length === 0) return;
+	const list = converted.map((id) => `'${id}'`).join(", ");
+	console.log(
+		`Note: ${list} not found in pi's built-in model catalog — stored as custom model definitions ` +
+			"(materialized into the profile's models.json).",
+	);
+}
+
 function cmdProfileAdd(parsed: SubcommandArgv, options: HubCommandOptions): void | Promise<void> {
 	const name = parsed.positionals[0];
 	if (!name) {
@@ -203,43 +226,57 @@ function cmdProfileAdd(parsed: SubcommandArgv, options: HubCommandOptions): void
 
 	const profile: Profile = {};
 	if (models) {
-		profile.models = models;
-		profile.model = models[0];
+		const entries = parseModelValues(models);
+		profile.models = entries;
+		profile.model = modelId(entries[0]);
 	}
 	applyProfileOptions(profile, parsed);
 	warnMissingProvider(profile);
 	// Validated up front, before the profile is saved below.
 	const signIn = resolveSignIn(parsed, profile, options);
 
-	// Materialize right away so the profile dir exists and tracks the source
-	// settings from the moment the profile is created.
-	let profileDir: string | undefined;
-	try {
-		profileDir = materializeProfile(name, profile);
-	} catch (err) {
-		logger.debug(`profile add: initial materialize failed: ${err}`);
-	}
+	const finish = (converted: string[]): void | Promise<void> => {
+		reportConvertedModels(converted);
+		if (converted.length > 0 && profile.models) profile.model = modelId(profile.models[0]);
 
-	addProfile(name, profile);
-	console.log(`Profile '${name}' saved.`);
+		// Materialize right away so the profile dir exists and tracks the source
+		// settings from the moment the profile is created.
+		let profileDir: string | undefined;
+		try {
+			profileDir = materializeProfile(name, profile);
+		} catch (err) {
+			logger.debug(`profile add: initial materialize failed: ${err}`);
+		}
 
-	// `--sign-in` asks for the provider's interactive login explicitly, even
-	// when the profile also carries a token — signing in overwrites it (see
-	// runProviderLogin). A profile that only selects a provider carries no
-	// credential: treat the add as "log this profile into that provider" and
-	// run the same flow (OAuth login page / API-key setup), persisting the
-	// credential into the profile's agent dir. Without an injected login the
-	// provider-only profile is stored as before.
-	const provider = profile.provider;
-	const providerOnly = provider !== undefined && Object.keys(profile).length === 1;
-	if (signIn) {
-		console.log(`Signing in to '${signIn.provider}' for profile '${name}'...`);
-		return runProviderLogin(name, signIn.provider, profile, profileDir ?? profileDirFor(name), signIn.login);
-	}
-	if (providerOnly && options.login && profileDir) {
-		console.log(`No token given — invoking the '${provider}' login for profile '${name}'...`);
-		return runProviderLogin(name, provider, profile, profileDir, options.login);
-	}
+		addProfile(name, profile);
+		console.log(`Profile '${name}' saved.`);
+
+		// `--sign-in` asks for the provider's interactive login explicitly, even
+		// when the profile also carries a token — signing in overwrites it (see
+		// runProviderLogin). A profile that only selects a provider carries no
+		// credential: treat the add as "log this profile into that provider" and
+		// run the same flow (OAuth login page / API-key setup), persisting the
+		// credential into the profile's agent dir. Without an injected login the
+		// provider-only profile is stored as before.
+		const provider = profile.provider;
+		const providerOnly = provider !== undefined && Object.keys(profile).length === 1;
+		if (signIn) {
+			console.log(`Signing in to '${signIn.provider}' for profile '${name}'...`);
+			return runProviderLogin(name, signIn.provider, profile, profileDir ?? profileDirFor(name), signIn.login);
+		}
+		if (providerOnly && options.login && profileDir) {
+			console.log(`No token given — invoking the '${provider}' login for profile '${name}'...`);
+			return runProviderLogin(name, provider, profile, profileDir, options.login);
+		}
+	};
+
+	// A plain id pi's catalog does not know becomes a custom model definition
+	// ({ id }) so it materializes into models.json — otherwise pi would fail to
+	// resolve it at run time. Synchronous when no checker is injected, so the
+	// validation throws above stay synchronous.
+	const converted = classifyUnknownModels(profile.models ?? [], options.unknownModelChecker);
+	if (Array.isArray(converted)) return finish(converted);
+	return converted.then(finish);
 }
 
 /**
@@ -294,7 +331,7 @@ function cmdProfileUpdate(parsed: SubcommandArgv, options: HubCommandOptions): v
 	if (modelsToDelete) {
 		const toRemove = new Set(modelsToDelete);
 		const currentModels = p.models || (p.model ? [p.model] : []);
-		const newModels = currentModels.filter((m) => !toRemove.has(m));
+		const newModels = currentModels.filter((m) => !toRemove.has(modelId(m)));
 		const removedCount = currentModels.length - newModels.length;
 
 		if (removedCount === 0) {
@@ -305,16 +342,19 @@ function cmdProfileUpdate(parsed: SubcommandArgv, options: HubCommandOptions): v
 			console.log(`Removed all models from profile '${name}'.`);
 		} else {
 			p.models = newModels;
-			p.model = newModels[0];
+			p.model = modelId(newModels[0]);
 			console.log(`Removed ${removedCount} model(s) from profile '${name}'.`);
 		}
 	}
 
 	if (providedModels) {
 		const currentModels = p.models || (p.model ? [p.model] : []);
-		const merged = mergeModelsUpdate(currentModels, providedModels);
+		// mergeModelsUpdate matches by id, so re-selecting an existing model by
+		// its plain id keeps a stored custom definition instead of downgrading
+		// it to a bare string.
+		const merged = mergeModelsUpdate(currentModels, parseModelValues(providedModels));
 		p.models = merged.models;
-		p.model = merged.models[0];
+		p.model = modelId(merged.models[0]);
 		for (const message of merged.messages) {
 			console.log(message);
 		}
@@ -329,22 +369,44 @@ function cmdProfileUpdate(parsed: SubcommandArgv, options: HubCommandOptions): v
 	warnMissingProvider(p);
 	// Validated up front so an invalid sign-in request never saves the edits.
 	const signIn = resolveSignIn(parsed, p, options);
-	updateProfile(name, p);
-	console.log(`Profile '${name}' updated.`);
 
-	if (signIn) {
-		// Refresh the profile dir before the login so the credential lands in a
-		// dir that tracks the just-saved profile, and sign-in overwrites the
-		// profile token (see runProviderLogin).
-		let profileDir: string | undefined;
-		try {
-			profileDir = materializeProfile(name, p);
-		} catch (err) {
-			logger.debug(`profile update: materialize failed: ${err}`);
+	const finish = (converted: string[]): void | Promise<void> => {
+		reportConvertedModels(converted);
+		if (converted.length > 0 && finalModels.length > 0) p.model = modelId(finalModels[0]);
+
+		updateProfile(name, p);
+		console.log(`Profile '${name}' updated.`);
+
+		if (converted.length > 0 || modelsToDelete) {
+			// Custom model definitions changed what models.json must contain (a
+			// conversion added one, a delete may have removed the last one);
+			// refresh the profile dir so it matches the just-saved profile.
+			try {
+				materializeProfile(name, p);
+			} catch (err) {
+				logger.debug(`profile update: materialize after model change failed: ${err}`);
+			}
 		}
-		console.log(`Signing in to '${signIn.provider}' for profile '${name}'...`);
-		return runProviderLogin(name, signIn.provider, p, profileDir ?? profileDirFor(name), signIn.login);
-	}
+
+		if (signIn) {
+			// Refresh the profile dir before the login so the credential lands in a
+			// dir that tracks the just-saved profile, and sign-in overwrites the
+			// profile token (see runProviderLogin).
+			let profileDir: string | undefined;
+			try {
+				profileDir = materializeProfile(name, p);
+			} catch (err) {
+				logger.debug(`profile update: materialize failed: ${err}`);
+			}
+			console.log(`Signing in to '${signIn.provider}' for profile '${name}'...`);
+			return runProviderLogin(name, signIn.provider, p, profileDir ?? profileDirFor(name), signIn.login);
+		}
+	};
+
+	// Synchronous when no checker is injected (see cmdProfileAdd).
+	const converted = classifyUnknownModels(finalModels, options.unknownModelChecker);
+	if (Array.isArray(converted)) return finish(converted);
+	return converted.then(finish);
 }
 
 function cmdProfileList(): void {
@@ -405,7 +467,15 @@ function cmdProfileView(parsed: SubcommandArgv): void {
 	if (p.models && p.models.length > 0) {
 		console.log(`Models:`);
 		for (const m of p.models) {
-			console.log(`  - ${m}`);
+			if (typeof m === "string") {
+				console.log(`  - ${m}`);
+			} else {
+				const extra = Object.keys(m)
+					.filter((k) => k !== "id")
+					.map((k) => `${k}=${JSON.stringify(m[k])}`)
+					.join(" ");
+				console.log(`  - ${m.id} (custom)${extra ? ` ${extra}` : ""}`);
+			}
 		}
 	}
 	console.log(`Thinking: ${p.thinking || "(default)"}`);

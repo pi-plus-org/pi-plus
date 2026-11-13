@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelEntry } from "../../src/types.ts";
 
 let tmpDir: string;
 let profiles: typeof import("../../src/profiles.ts");
@@ -304,5 +305,80 @@ describe("removeProfileModel", () => {
 	it("throws for an unknown profile or empty model", () => {
 		expect(() => profiles.removeProfileModel("ghost", "m1")).toThrow("not found");
 		expect(() => profiles.removeProfileModel("ghost", "   ")).toThrow("required");
+	});
+});
+
+describe("custom model entries", () => {
+	beforeEach(async () => {
+		setup();
+		await load();
+	});
+	afterEach(teardown);
+
+	it("parseModelValue passes plain ids through", () => {
+		expect(profiles.parseModelValue("kimi-for-coding")).toBe("kimi-for-coding");
+	});
+
+	it("parseModelValue accepts a JSON object with an id", () => {
+		const entry = profiles.parseModelValue('{"id":"my-model","contextWindow":32000}');
+		expect(entry).toEqual({ id: "my-model", contextWindow: 32000 });
+	});
+
+	it("parseModelValue rejects malformed JSON", () => {
+		expect(() => profiles.parseModelValue("{invalid")).toThrow("not valid JSON");
+	});
+
+	it("parseModelValue rejects JSON without a non-empty string id", () => {
+		expect(() => profiles.parseModelValue('{"name":"x"}')).toThrow("non-empty string");
+		expect(() => profiles.parseModelValue('{"id":""}')).toThrow("non-empty string");
+		expect(() => profiles.parseModelValue('{"id":42}')).toThrow("non-empty string");
+	});
+
+	it("classifyUnknownModels returns [] synchronously when no checker is injected", () => {
+		const models: ModelEntry[] = ["a", "b"];
+		const result = profiles.classifyUnknownModels(models);
+		expect(result).toEqual([]);
+		expect(Array.isArray(result)).toBe(true);
+		expect(models).toEqual(["a", "b"]);
+	});
+
+	it("classifyUnknownModels converts only the ids the checker reports", async () => {
+		const models: ModelEntry[] = ["known-a", "unknown-b", { id: "explicit-c" }];
+		const checker = async (ids: string[]) => ids.filter((id) => id.startsWith("unknown-"));
+		const result = profiles.classifyUnknownModels(models, checker);
+		expect(Array.isArray(result)).toBe(false);
+		const converted = await result;
+		expect(converted).toEqual(["unknown-b"]);
+		expect(models).toEqual(["known-a", { id: "unknown-b" }, { id: "explicit-c" }]);
+	});
+
+	it("mergeModelsUpdate selecting by plain id keeps a stored custom definition", () => {
+		const custom = { id: "my-model", contextWindow: 32000 };
+		const merged = profiles.mergeModelsUpdate([{ id: "a" }, custom], ["my-model"]);
+		expect(merged.models).toEqual([custom, { id: "a" }]);
+	});
+
+	it("removeProfileModel matches custom definitions by id", () => {
+		profiles.addProfile("work", { models: [{ id: "my-model", contextWindow: 32000 }, "a"], model: "my-model" });
+		profiles.removeProfileModel("work", "my-model");
+		const p = profiles.loadProfiles().profiles.work;
+		expect(p.models).toEqual(["a"]);
+		expect(p.model).toBe("a");
+	});
+
+	it("removeProfileModel removes the last remaining custom definition", () => {
+		profiles.addProfile("work", { models: [{ id: "my-model" }], model: "my-model" });
+		profiles.removeProfileModel("work", "my-model");
+		const p = profiles.loadProfiles().profiles.work;
+		expect(p.models).toBeUndefined();
+		expect(p.model).toBeUndefined();
+	});
+
+	it("setProfileDefaultModel selects a custom definition by plain id without downgrading it", () => {
+		profiles.addProfile("work", { models: [{ id: "my-model", contextWindow: 32000 }, "a"], model: "a" });
+		profiles.setProfileDefaultModel("work", "my-model");
+		const p = profiles.loadProfiles().profiles.work;
+		expect(p.models).toEqual([{ id: "my-model", contextWindow: 32000 }, "a"]);
+		expect(p.model).toBe("my-model");
 	});
 });

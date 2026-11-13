@@ -12,7 +12,7 @@
  * (commands.ts/launch.ts) is not part of this surface.
  */
 
-export type { AgentSettingsData, Profile, ProfilesData } from "@earendil-works/pi-hub";
+export type { AgentSettingsData, CustomModel, ModelEntry, Profile, ProfilesData } from "@earendil-works/pi-hub";
 export {
 	AGENT_DIR,
 	addProfile,
@@ -22,6 +22,7 @@ export {
 	getDefaultProfileName,
 	loadProfiles,
 	materializeProfile,
+	modelId,
 	profileDirFor,
 	refreshSharedLinks,
 	removeProfile,

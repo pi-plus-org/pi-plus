@@ -24,10 +24,43 @@ export function isProfileScopedSettingsKey(key: string): boolean {
 	return PROFILE_SETTINGS_KEYS.includes(key);
 }
 
+/**
+ * A custom model definition, written verbatim into the profile's models.json as a
+ * `providers.<provider>.models` entry (pi's ModelDefinition). Unknown keys are passed
+ * through, so any field pi accepts (api, baseUrl, headers, compat, cost, …) can be used.
+ * Models not in pi's built-in catalog are still acceptable: pi applies defaults
+ * (contextWindow 128000, maxTokens 16384, reasoning false) and the provider supplies
+ * the API dialect.
+ */
+export interface CustomModel {
+	id: string;
+	name?: string;
+	api?: string;
+	baseUrl?: string;
+	reasoning?: boolean;
+	contextWindow?: number;
+	maxTokens?: number;
+	[key: string]: unknown;
+}
+
+/** Model list entry: a catalog model id, or a custom model definition. */
+export type ModelEntry = string | CustomModel;
+
+/** The model id of a model list entry. */
+export function modelId(entry: ModelEntry): string {
+	return typeof entry === "string" ? entry : entry.id;
+}
+
+/**
+ * Dependency a host injects so hub can classify plain model ids: returns the
+ * subset of the given ids that the host's pi catalog does not know.
+ */
+export type UnknownModelChecker = (modelIds: string[]) => Promise<string[]>;
+
 export interface Profile {
 	provider?: string;
 	model?: string;
-	models?: string[];
+	models?: ModelEntry[];
 	thinking?: string;
 	token?: string;
 	url?: string;

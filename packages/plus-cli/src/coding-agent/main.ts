@@ -46,6 +46,7 @@ import {
 import { dispatchCompletion } from "../completion/index.ts";
 import { registerChanges, registerFancyDiff, registerPlainTools, registerTabTitle } from "../extensions/index.ts";
 import { parseArgs } from "./cli/args.ts";
+import { createHubUnknownModelChecker } from "./hub-model-checker.ts";
 import { registerBanner } from "./ui/banner.ts";
 // Side-effect import: installs the interactive TUI's rolling auto-fold
 // prototype patches (addMessageToChat folds previous turns on a new user
@@ -95,6 +96,10 @@ export async function main(args: string[], options?: MainOptions) {
 					// auth.json and hub clears the field.
 					return credential.type === "api_key" && credential.key ? { token: credential.key } : {};
 				},
+				// Classifies -m ids against pi's built-in catalog so unknown ids are
+				// stored as custom model definitions (materialized into models.json)
+				// instead of failing at pi run time.
+				unknownModelChecker: createHubUnknownModelChecker(),
 			});
 			return;
 		}

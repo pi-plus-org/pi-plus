@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Profiles support custom models: `profile add`/`update` `-m` accepts model ids outside pi's built-in catalog. When a plain id is not in the catalog (checked by an injected `UnknownModelChecker`, wired in the pi-plus CLI against pi's `pi-ai` provider catalog), the id is stored as a custom model definition (`{"id": ...}` object in `Profile.models`) and materialized into the profile's `models.json` under `providers.<provider>.models[]`, so pi resolves the model instead of failing with a misleading auth error. `-m` also accepts a JSON object verbatim for full control over the pi ModelDefinition fields (`contextWindow`, `maxTokens`, `api`, `baseUrl`, ...). Model list operations (re-select, default, delete, view) match entries by id, so re-selecting a custom model by its plain id never downgrades the stored definition. `update --delete-model` re-materializes so a stale `models.json` cannot resurrect a removed custom model. The `CustomModel`/`ModelEntry` types and `modelId()` helper are part of the package surface, and `pi-plus-sdk` re-exports them.
+
 ### Fixed
 
 - Nested launches under a materialized profile (a child pi process inheriting `PI_CODING_AGENT_DIR=<profile dir>`, e.g. a sub-agent subprocess) no longer break the profile: `refreshSharedLinks` is a no-op when the source agent dir equals the profile dir, so `removeStaleLink` can't delete the profile's real shared content (e.g. the `sessions` symlink) out from under the parent process.

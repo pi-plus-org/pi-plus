@@ -629,10 +629,24 @@ export declare function createPlusAgentSessionRuntime(
  * declared inline because pi-hub is not a dependency of this package — keep
  * them in sync with packages/hub/src/types.ts.
  */
+export interface CustomModel {
+	id: string;
+	name?: string;
+	api?: string;
+	baseUrl?: string;
+	reasoning?: boolean;
+	contextWindow?: number;
+	maxTokens?: number;
+	[key: string]: unknown;
+}
+
+/** Model list entry: a catalog model id, or a custom model definition. */
+export type ModelEntry = string | CustomModel;
+
 export interface Profile {
 	provider?: string;
 	model?: string;
-	models?: string[];
+	models?: ModelEntry[];
 	thinking?: string;
 	token?: string;
 	url?: string;
@@ -655,6 +669,10 @@ export interface AgentSettingsData {
 }
 
 export declare const THINKING_LEVELS: string[];
+
+/** The model id of a model list entry (a plain catalog id, or a custom
+ *  definition's `id`). */
+export declare function modelId(entry: ModelEntry): string;
 
 /** Source agent dir (PI_CODING_AGENT_DIR or ~/.pi/agent): profiles without an applied profile. */
 export declare const AGENT_DIR: string;

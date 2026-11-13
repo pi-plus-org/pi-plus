@@ -422,6 +422,145 @@ describe("dispatchHubCommand", () => {
 		expect(() => hub.dispatchHubCommand(["completion", "zsh"])).toThrow("unknown hub command");
 		expect(() => hub.dispatchHubCommand(["nope"])).toThrow("unknown hub command");
 	});
+
+	describe("custom models (unknownModelChecker)", () => {
+		// Fake pi catalog: everything except "catalog-model" is unknown.
+		const checker = async (ids: string[]): Promise<string[]> => ids.filter((id) => id !== "catalog-model");
+
+		function profileDir(name: string): string {
+			return path.join(process.env.PI_HUB_DIR as string, "profiles", name);
+		}
+
+		it("profile add converts an unknown plain id into a custom definition and materializes it", async () => {
+			const { stdout } = await capture(() =>
+				hub.dispatchHubCommand(["profile", "add", "custom", "-m", "my-model", "-p", "kimi-coding"], {
+					unknownModelChecker: checker,
+				}),
+			);
+			const p = hub.loadProfiles().profiles.custom;
+			expect(p.model).toBe("my-model");
+			expect(p.models).toEqual([{ id: "my-model" }]);
+			expect(stdout.join("\n")).toContain("not found in pi's built-in model catalog");
+			expect(JSON.parse(fs.readFileSync(path.join(profileDir("custom"), "models.json"), "utf-8"))).toEqual({
+				providers: { "kimi-coding": { models: [{ id: "my-model" }] } },
+			});
+		});
+
+		it("profile add keeps a known id as a plain string", async () => {
+			await capture(() =>
+				hub.dispatchHubCommand(["profile", "add", "known", "-m", "catalog-model", "-p", "kimi-coding"], {
+					unknownModelChecker: checker,
+				}),
+			);
+			expect(hub.loadProfiles().profiles.known.models).toEqual(["catalog-model"]);
+			expect(fs.existsSync(path.join(profileDir("known"), "models.json"))).toBe(false);
+		});
+
+		it("profile add accepts a JSON custom model definition verbatim", async () => {
+			await capture(() =>
+				hub.dispatchHubCommand(
+					[
+						"profile",
+						"add",
+						"json",
+						"-m",
+						'{"id":"my-model","contextWindow":32000,"maxTokens":4096}',
+						"-p",
+						"kimi-coding",
+					],
+					{ unknownModelChecker: checker },
+				),
+			);
+			const p = hub.loadProfiles().profiles.json;
+			expect(p.models).toEqual([{ id: "my-model", contextWindow: 32000, maxTokens: 4096 }]);
+			expect(p.model).toBe("my-model");
+		});
+
+		it("profile add rejects a malformed JSON model value and saves nothing", () => {
+			expect(() =>
+				hub.dispatchHubCommand(["profile", "add", "bad", "-m", "{invalid", "-p", "kimi-coding"], {
+					unknownModelChecker: checker,
+				}),
+			).toThrow("not valid JSON");
+			expect(hub.loadProfiles().profiles.bad).toBeUndefined();
+		});
+
+		it("profile add rejects a JSON model value without an id and saves nothing", () => {
+			expect(() =>
+				hub.dispatchHubCommand(["profile", "add", "bad", "-m", '{"name":"x"}', "-p", "kimi-coding"], {
+					unknownModelChecker: checker,
+				}),
+			).toThrow('non-empty string "id"');
+			expect(hub.loadProfiles().profiles.bad).toBeUndefined();
+		});
+
+		it("profile update converts a newly added unknown id and re-materializes models.json", async () => {
+			await capture(() =>
+				hub.dispatchHubCommand(["profile", "add", "work", "-m", "catalog-model", "-p", "kimi-coding"], {
+					unknownModelChecker: checker,
+				}),
+			);
+			await capture(() =>
+				hub.dispatchHubCommand(["profile", "update", "work", "-m", "my-model"], { unknownModelChecker: checker }),
+			);
+			const p = hub.loadProfiles().profiles.work;
+			expect(p.models).toEqual([{ id: "my-model" }, "catalog-model"]);
+			expect(JSON.parse(fs.readFileSync(path.join(profileDir("work"), "models.json"), "utf-8"))).toEqual({
+				providers: { "kimi-coding": { models: [{ id: "my-model" }] } },
+			});
+		});
+
+		it("profile update re-selecting by plain id keeps the custom definition", async () => {
+			await capture(() =>
+				hub.dispatchHubCommand(["profile", "add", "work", "-m", "my-model", "-p", "kimi-coding"], {
+					unknownModelChecker: checker,
+				}),
+			);
+			const { stdout } = await capture(() =>
+				hub.dispatchHubCommand(["profile", "update", "work", "-m", "my-model"], { unknownModelChecker: checker }),
+			);
+			const p = hub.loadProfiles().profiles.work;
+			expect(p.models).toEqual([{ id: "my-model" }]);
+			expect(p.model).toBe("my-model");
+			expect(stdout.join("\n")).toContain("Selected existing model 'my-model'");
+		});
+
+		it("profile update --delete-model removes a custom definition and its models.json entry", async () => {
+			await capture(() =>
+				hub.dispatchHubCommand(
+					["profile", "add", "work", "-m", "catalog-model", "-m", "my-model", "-p", "kimi-coding"],
+					{ unknownModelChecker: checker },
+				),
+			);
+			expect(fs.existsSync(path.join(profileDir("work"), "models.json"))).toBe(true);
+			await capture(() =>
+				hub.dispatchHubCommand(["profile", "update", "work", "-d", "my-model"], { unknownModelChecker: checker }),
+			);
+			const p = hub.loadProfiles().profiles.work;
+			expect(p.models).toEqual(["catalog-model"]);
+			expect(p.model).toBe("catalog-model");
+			expect(fs.existsSync(path.join(profileDir("work"), "models.json"))).toBe(false);
+		});
+
+		it("profile view marks custom definitions and lists their extra fields", async () => {
+			await capture(() =>
+				hub.dispatchHubCommand(
+					["profile", "add", "work", "-m", '{"id":"my-model","contextWindow":32000}', "-p", "kimi-coding"],
+					{ unknownModelChecker: checker },
+				),
+			);
+			const { stdout } = await capture(() => hub.dispatchHubCommand(["profile", "view", "work"]));
+			expect(stdout.join("\n")).toContain("- my-model (custom) contextWindow=32000");
+		});
+
+		it("profile add with no checker stores unknown ids as plain strings (unchanged behavior)", async () => {
+			await capture(() =>
+				hub.dispatchHubCommand(["profile", "add", "plain", "-m", "my-model", "-p", "kimi-coding"]),
+			);
+			expect(hub.loadProfiles().profiles.plain.models).toEqual(["my-model"]);
+			expect(fs.existsSync(path.join(profileDir("plain"), "models.json"))).toBe(false);
+		});
+	});
 });
 
 describe("resolveLaunch", () => {

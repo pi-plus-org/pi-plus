@@ -747,3 +747,76 @@ describe("removeProfileDir", () => {
 		expect(() => mat.removeProfileDir("ghost")).not.toThrow();
 	});
 });
+
+describe("writeModelsFile custom models", () => {
+	beforeEach(async () => {
+		setup();
+		await load();
+	});
+	afterEach(teardown);
+
+	it("writes custom model definitions together with the baseUrl override", () => {
+		const dir = mat.materializeProfile("work", {
+			provider: "kimi-coding",
+			token: "t",
+			url: "https://proxy.example.com/coding",
+			models: [{ id: "my-model", contextWindow: 32000 }, "kimi-for-coding"],
+			model: "my-model",
+		});
+		expect(JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf-8"))).toEqual({
+			providers: {
+				"kimi-coding": {
+					baseUrl: "https://proxy.example.com/coding",
+					models: [{ id: "my-model", contextWindow: 32000 }],
+				},
+			},
+		});
+	});
+
+	it("writes custom models without a url override", () => {
+		const dir = mat.materializeProfile("work", {
+			provider: "kimi-coding",
+			token: "t",
+			models: [{ id: "my-model" }],
+			model: "my-model",
+		});
+		expect(JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf-8"))).toEqual({
+			providers: { "kimi-coding": { models: [{ id: "my-model" }] } },
+		});
+	});
+
+	it("removes models.json when the profile ends up with neither url nor custom models", () => {
+		const dir = mat.materializeProfile("work", {
+			provider: "kimi-coding",
+			token: "t",
+			models: [{ id: "my-model" }],
+			model: "my-model",
+		});
+		expect(fs.existsSync(path.join(dir, "models.json"))).toBe(true);
+		mat.writeModelsFile(dir, { provider: "kimi-coding", token: "t" });
+		expect(fs.existsSync(path.join(dir, "models.json"))).toBe(false);
+	});
+
+	it("warns and skips when custom models exist but no provider can be determined", () => {
+		const dir = mat.materializeProfile("work", { models: [{ id: "my-model" }], model: "my-model" });
+		expect(fs.existsSync(path.join(dir, "models.json"))).toBe(false);
+	});
+
+	it("resolves the provider from a custom model's provider/model id prefix", () => {
+		expect(
+			mat.resolveEffectiveProvider({ models: [{ id: "acme/custom-model" }], model: "acme/custom-model" }, {}),
+		).toBe("acme");
+	});
+
+	it("scopes enabledModels to the plain ids of custom models", () => {
+		const dir = mat.materializeProfile("work", {
+			provider: "kimi-coding",
+			token: "t",
+			models: [{ id: "my-model", contextWindow: 32000 }, "kimi-for-coding"],
+			model: "my-model",
+		});
+		const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf-8"));
+		expect(settings.enabledModels).toEqual(["my-model", "kimi-for-coding"]);
+		expect(settings.defaultModel).toBe("my-model");
+	});
+});
