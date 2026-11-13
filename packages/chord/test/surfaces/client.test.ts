@@ -1,23 +1,14 @@
-<<<<<<< HEAD
 // Tests of a client host with its plugins (slice 11 §2, §4, decisions "Slice 11, P4" to "P6", p3 step 0a), over an
 // in-memory link to a server serving the scripts object: the initial scripts loaded with the core facets, a new set
 // applied in place (only changed scripts fetched; a failed one keeps its old facet and is tried again by the next set
 // that has it), the stylesheets loaded before the reload and settled after it, a new base or an outdated server ending
 // the client.
-=======
-// Tests of a client host with its plugins (slice 11 §2, §4, decisions "Slice 11, P4" to "P6"), over an in-memory link
-// to a server serving the scripts object: the initial scripts loaded with the core facets, a new set applied in place
-// (only changed scripts fetched; a failed one keeps its old facet), a new base or an outdated server ending the client.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
 import * as chordNext from "../../src/index.ts";
 import {
-<<<<<<< HEAD
 	type ClientStyles,
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	constant,
 	createHost,
 	defineFacet,
@@ -37,26 +28,17 @@ type TestPrincipal = { readonly kind: "server" } | { readonly kind: "user"; read
 
 const Greeting = local("test.greeting", { version: 1, params: {}, members: { text: str() } });
 
-<<<<<<< HEAD
 /**
  * A registered script of plugin `plugin` (digest `digest`) serving `Greeting` with `text`; `broken` throws instead,
  * and its first `failing` runs throw too.
  */
 function script(plugin: string, digest: string, text: string, failing = 0): RegisteredScript {
 	let fails = failing;
-=======
-/** A registered script of plugin `plugin` (digest `digest`) serving `Greeting` with `text`; `broken` throws instead. */
-function script(plugin: string, digest: string, text: string): RegisteredScript {
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	return {
 		plugin,
 		digest,
 		run: (require, module) => {
-<<<<<<< HEAD
 			if (text === "broken" || fails-- > 0) throw new Error("broken plugin");
-=======
-			if (text === "broken") throw new Error("broken plugin");
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			const chord = require("@test/chord") as typeof chordNext;
 			const facet = chord.defineFacet((host) => host.serve(Greeting, () => ({ text: chord.constant(text) })));
 			Object.assign(module, { exports: { default: facet } });
@@ -64,16 +46,11 @@ function script(plugin: string, digest: string, text: string): RegisteredScript 
 	};
 }
 
-<<<<<<< HEAD
 /** The set of `scripts` under base `base`, each with a stylesheet named after its digest. */
-=======
-/** The set of `scripts` under base `base`. */
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 function setOf(base: string, scripts: readonly RegisteredScript[]): ScriptSet {
 	return {
 		base,
 		combined: "/combined.js",
-<<<<<<< HEAD
 		plugins: scripts.map(({ plugin, digest }) => ({
 			name: plugin,
 			digest,
@@ -105,25 +82,13 @@ async function setup(
 	} = {},
 ) {
 	let failing = more.failing ?? 0;
-=======
-		plugins: scripts.map(({ plugin, digest }) => ({ name: plugin, digest, url: `/${plugin}.${digest}.js` })),
-	};
-}
-
-/** A server serving `WebScripts` with `initial`, and a client started against it with `scripts` available to fetch. */
-async function setup(initial: readonly RegisteredScript[], available: readonly RegisteredScript[] = []) {
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	const server = createHost<TestPrincipal>({
 		address: hostKind("server")(),
 		principal: { kind: "server" },
 		onError: () => {},
 	});
 	await server.load(
-<<<<<<< HEAD
 		[{ name: "chord.web", facet: scriptsFacet<TestPrincipal>("web", { set: setOf("B1", more.shown ?? initial) }) }],
-=======
-		[{ name: "chord.web", facet: scriptsFacet<TestPrincipal>("web", { set: setOf("B1", initial) }) }],
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		context,
 	);
 	const fetched: string[] = [];
@@ -131,10 +96,7 @@ async function setup(initial: readonly RegisteredScript[], available: readonly R
 	const outdated: string[] = [];
 	const sockets: { events: SocketEvents; link: chordNext.Link }[] = [];
 	let serverBase = "B1";
-<<<<<<< HEAD
 	const asked: string[] = [];
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	const client = await startClient<TestPrincipal>({
 		scripts: WebScripts,
 		base: "B1",
@@ -145,31 +107,22 @@ async function setup(initial: readonly RegisteredScript[], available: readonly R
 		],
 		open: (events) => {
 			const [mine, theirs] = memoryLinkPair();
-<<<<<<< HEAD
 			sockets.push({ events, link: mine });
 			if (more.offline === true) return mine;
 			server.accept(theirs, { principal: { kind: "user", id: "u" } }, context);
-=======
-			server.accept(theirs, { principal: { kind: "user", id: "u" } }, context);
-			sockets.push({ events, link: mine });
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			queueMicrotask(() => events.opened());
 			return mine;
 		},
 		fetchScript: async (entry) => {
 			fetched.push(entry.url);
-<<<<<<< HEAD
 			if (failing > 0) {
 				failing--;
 				throw new Error(`${entry.url}: network error`);
 			}
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			const found = available.find(({ plugin, digest }) => plugin === entry.name && digest === entry.digest);
 			if (found === undefined) throw new Error(`no ${entry.url}`);
 			return found;
 		},
-<<<<<<< HEAD
 		serverBase: async () => {
 			asked.push(serverBase);
 			return serverBase;
@@ -188,13 +141,6 @@ async function setup(initial: readonly RegisteredScript[], available: readonly R
 						if (at >= 0) more.manual?.splice(at, 1);
 					};
 				}
-=======
-		serverBase: async () => serverBase,
-		outdated: () => outdated.push("outdated"),
-		environment: {
-			now: () => Date.now(),
-			after: (ms, callback) => {
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 				const timer = setTimeout(callback, ms);
 				return () => clearTimeout(timer);
 			},
@@ -210,10 +156,7 @@ async function setup(initial: readonly RegisteredScript[], available: readonly R
 		errors,
 		outdated,
 		sockets,
-<<<<<<< HEAD
 		asked,
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		setServerBase: (base: string) => {
 			serverBase = base;
 		},
@@ -239,7 +182,6 @@ describe("loading", () => {
 	});
 });
 
-<<<<<<< HEAD
 describe("starting offline", () => {
 	it("starts with its initial scripts while the server does not answer", async () => {
 		const { client, server, sockets } = await setup([script("notes", "d1", "one")], [], { offline: true });
@@ -264,9 +206,6 @@ describe("applying a new set in place", () => {
 		await server.close(context);
 	});
 
-=======
-describe("applying a new set in place", () => {
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	it("fetches only changed scripts, reloads the host, keeps an unchanged plugin's facet", async () => {
 		const a1 = script("@test/a", "d1", "hello");
 		const a2 = script("@test/a", "d2", "hello again");
@@ -293,7 +232,6 @@ describe("applying a new set in place", () => {
 	});
 });
 
-<<<<<<< HEAD
 describe("the script each plugin runs (p3 step 0a)", () => {
 	it("tries a failed plugin's script again when a reconnect's snapshot has it, not taken as applied", async () => {
 		const a1 = script("@test/a", "d1", "hello");
@@ -414,8 +352,6 @@ describe("a failed update (audit F7)", () => {
 	});
 });
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 describe("outdated clients", () => {
 	it("calls outdated for a set with another base", async () => {
 		const { client, server, outdated } = await setup([]);
@@ -436,7 +372,6 @@ describe("outdated clients", () => {
 		await server.close(context);
 	});
 });
-<<<<<<< HEAD
 
 describe("a static client (follow: false)", () => {
 	it("applies no new set and is never outdated by one", async () => {
@@ -465,5 +400,3 @@ describe("a static client (follow: false)", () => {
 		await server.close(context);
 	});
 });
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

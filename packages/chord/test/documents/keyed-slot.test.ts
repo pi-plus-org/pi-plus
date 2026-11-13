@@ -7,18 +7,12 @@ import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
 import { keyed, local, obj, str } from "../../src/contracts/index.ts";
 import { ChordError } from "../../src/data/index.ts";
 import { defineState, type KeyedHandle, type SingletonHandle } from "../../src/documents/index.ts";
-<<<<<<< HEAD
 import type { ChangedDocument, KeyedSlot } from "../../src/documents/keyed-slot.ts";
 import { RETENTION_MS } from "../../src/documents/residency.ts";
 import type { StoreSelf } from "../../src/host/index.ts";
 import { ChordObject } from "../../src/host/object.ts";
 import { createDocument, findDocument, retireDocument } from "../../src/store/engine.ts";
 import type { StagedWrite } from "../../src/store/step.ts";
-=======
-import { RETENTION_MS } from "../../src/documents/residency.ts";
-import type { StoreSelf } from "../../src/host/index.ts";
-import { ChordObject } from "../../src/host/object.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { ChordStore } from "../../src/store/store.ts";
 import type { Watchable, WatchHandle } from "../../src/watch.ts";
 import {

@@ -10,10 +10,7 @@
 // successor's requests are ready, a retry on the new code, or its end by its type's removal, after which its
 // references wait with their last values and follow the next object of the identity.
 
-<<<<<<< HEAD
 import type { TelemetryContext } from "@earendil-works/pi-telemetry";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { awaitWithContext, type Context } from "../context/index.ts";
 import type { Contract, ParamsOf } from "../contracts/index.ts";
 import type { ContractShape } from "../contracts/internal.ts";

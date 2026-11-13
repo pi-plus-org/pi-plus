@@ -1,7 +1,6 @@
 // Relayed holds (§4, §22, R1; decision "Relay flow control per origin"): a hold that arrived on one link (downstream)
 // and that this host neither serves nor parses, held again on its path's link (upstream) with the same id under its
 // downstream origin's number there; messages are forwarded between the two with the origin rewritten and parts
-<<<<<<< HEAD
 // untouched. Forwarding a hold or a call is a `chord.relay` span under the arriving carrier, whose own carrier goes
 // upstream (slice 9).
 
@@ -11,19 +10,11 @@ import type { Caller } from "../host/internal.ts";
 import { errorFromWire, type Message, type OriginMessage, wireError } from "../link/internal.ts";
 import { capped, carrierOf, ended, OpenSpan, parentOf, spanFailed, untraced } from "../telemetry.ts";
 import type { CallWindow } from "./calls.ts";
-=======
-// untouched.
-
-import { ChordError } from "../data/index.ts";
-import type { Caller } from "../host/internal.ts";
-import { type Message, wireError } from "../link/internal.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { actingFor, type HoldRequest } from "./hold.ts";
 import type { HostLink } from "./host-link.ts";
 import type { Path } from "./path.ts";
 import type { ProviderSide } from "./provider.ts";
 
-<<<<<<< HEAD
 /** A `call` message. */
 type CallMessage = Extract<Message, { readonly kind: "call" }>;
 
@@ -112,8 +103,6 @@ export function endAll(calls: readonly RelayedCall[]): void {
 	for (const call of calls) call.end();
 }
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 /**
  * One relayed hold: `id` on its downstream origin, and the same id upstream on its path's current link (none while
  * the path has no link). It keeps its `hold` message to hold again on the next link. Calls, `abort`, `retry` and
@@ -134,7 +123,6 @@ export class RelayedHold {
 	readonly #path: Path;
 	/** The upstream link while the path has one, and the downstream origin's number on it. */
 	#upstream: { readonly link: HostLink; readonly origin: number } | undefined;
-<<<<<<< HEAD
 	/** Its `chord.relay` span until it is first held upstream (or dropped); none when this host records nothing. */
 	#relaying: OpenSpan<"chord.relay"> | undefined;
 	/**
@@ -144,13 +132,10 @@ export class RelayedHold {
 	readonly #trace: TelemetryCarrier | undefined;
 	/** How many times it was held upstream. */
 	#holds = 0;
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 	constructor(id: number, downstream: ProviderSide, request: HoldRequest, caller: Caller, path: Path) {
 		this.id = id;
 		this.#downstream = downstream;
-<<<<<<< HEAD
 		const { params, trace, ...fields } = request;
 		// Params are never deflated: the provider side refused deflated ones.
 		const owned = typeof params === "string" ? params : (params as Uint8Array).slice();
@@ -162,24 +147,15 @@ export class RelayedHold {
 			// Upstream the hold carries the relay's span (a relay that records nothing passes the carrier on as it came).
 			this.#trace = carrierOf(this.#relaying.span) ?? trace;
 		}
-=======
-		const { params } = request;
-		// Params are never deflated: the provider side refused deflated ones.
-		const owned = typeof params === "string" ? params : (params as Uint8Array).slice();
-		this.#request = { ...request, params: owned };
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		this.caller = caller;
 		this.#path = path;
 	}
 
-<<<<<<< HEAD
 	/** Its `chord.relay` span until it is held upstream (a route's resolve links to it); none when not recorded. */
 	get span(): TelemetrySpan | undefined {
 		return this.#relaying?.span;
 	}
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	/** Takes the pending hold's place downstream and holds upstream (now, or when the path has a link). */
 	start(): void {
 		this.#downstream.relayed(this);
@@ -195,7 +171,6 @@ export class RelayedHold {
 	attach(link: HostLink): void {
 		const origin = this.#downstream.relayTo(link);
 		this.#upstream = { link, origin };
-<<<<<<< HEAD
 		const trace = this.#holdTrace(link);
 		link.send({
 			kind: "hold",
@@ -236,9 +211,6 @@ export class RelayedHold {
 			member,
 			"upstream.kind": capped(address.kind),
 		};
-=======
-		link.send({ kind: "hold", origin, hold: this.id, ...this.#request, ...actingFor(link, this.caller) });
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	}
 
 	/** The upstream link dropped: downstream its calls fail and the hold goes loading until the path's next link. */
@@ -250,10 +222,7 @@ export class RelayedHold {
 
 	/** Its path's address cannot be reached for now: downstream it fails `waiting` with `error` until the next link. */
 	unreachable(error: ChordError): void {
-<<<<<<< HEAD
 		this.#relayed("error", error);
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		this.#downstream.send({ kind: "failed", hold: this.id, cause: { kind: "waiting", error: wireError(error) } });
 	}
 
@@ -279,7 +248,6 @@ export class RelayedHold {
 	}
 
 	/**
-<<<<<<< HEAD
 	 * A call from downstream (registered there under its id): it waits in its upstream link's window for this origin
 	 * and is forwarded (`call`) as a slot frees, at once when one is free and nothing waits (a trusted upstream announced
 	 * no window); its reply comes back by the origin. Without an upstream link it is answered `unavailable` at once (it
@@ -318,19 +286,6 @@ export class RelayedHold {
 		const trace = carrierOf(span.span) ?? message.trace;
 		upstream.link.send({ ...forwarded, origin: upstream.origin, ...(trace === undefined ? {} : { trace }) });
 		return span;
-=======
-	 * A call from downstream (registered there under its id), forwarded upstream at once; its reply comes back by the
-	 * origin. Without an upstream link it is answered `unavailable` at once (it crossed the `loading` notice).
-	 */
-	call(message: Extract<Message, { readonly kind: "call" }>): void {
-		const upstream = this.#upstream;
-		if (upstream !== undefined) {
-			upstream.link.send({ ...message, origin: upstream.origin });
-			return;
-		}
-		const error = new ChordError({ code: "unavailable", message: `hold ${this.id}: its upstream link is down` });
-		this.#downstream.reply(message.call, { kind: "error", call: message.call, error: wireError(error) });
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	}
 
 	/** A downstream `abort` of call `id`, forwarded. */
@@ -354,7 +309,6 @@ export class RelayedHold {
 
 	/** No later link holds it (gone, or its downstream origin closed, which `closed` tells the upstream links). */
 	drop(): void {
-<<<<<<< HEAD
 		this.#relayed("aborted");
 		this.#upstream = undefined;
 		this.#path.detach(this);
@@ -393,9 +347,4 @@ export function relayEnded(
 function unmarked(message: CallMessage): CallMessage {
 	const { old: _old, ...rest } = message;
 	return rest;
-=======
-		this.#upstream = undefined;
-		this.#path.detach(this);
-	}
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 }

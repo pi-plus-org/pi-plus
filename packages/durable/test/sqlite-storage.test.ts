@@ -5,11 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Context } from "@earendil-works/chord/context";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { JsonValue } from "@earendil-works/chord/json";
-<<<<<<< HEAD
 import type { SqliteDatabase, SqliteValue } from "@earendil-works/chord/sqlite";
-=======
-import type { SqliteDatabase } from "@earendil-works/chord/sqlite";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { registerStorageConformance } from "@earendil-works/pi-durable/testing";
 import { afterEach, describe, expect, it } from "vitest";
 import { idFromNumber } from "../src/ids.ts";

@@ -48,16 +48,11 @@ export function hostKind<const N extends string, const P extends Params = Record
 		key: addressKey(name, data, values),
 	});
 	Object.defineProperty(make, "kind", { value: name, enumerable: true });
-<<<<<<< HEAD
 	kinds.set(make, { data, fields: fieldsOf(data) });
-=======
-	kinds.set(make, data);
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	// The function and its `kind` are the declared shape; the params type is type-level only.
 	return make as unknown as HostKind<N, P>;
 }
 
-<<<<<<< HEAD
 /** One params field as an address key holds it: its name, its type and, for `oneOf(...)`, its literals. */
 type KeyField = {
 	readonly name: string;
@@ -127,18 +122,11 @@ export function kindOfKey(key: string): string {
 }
 
 function kindData(kind: { readonly kind: string }): KindData {
-=======
-const kinds = new WeakMap<object, ParamsData>();
-
-/** The params of a declared host kind. */
-export function kindParams(kind: { readonly kind: string }): ParamsData {
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	const data = kinds.get(kind);
 	if (data === undefined) throw new Error(`${kind.kind}: not a declared host kind`);
 	return data;
 }
 
-<<<<<<< HEAD
 /** The fields of declared params as keys hold them (`readParams` admitted only these normal forms). */
 function fieldsOf(data: ParamsData): KeyField[] {
 	// `normal` is `[field, normal form]` pairs in identity order.
@@ -172,8 +160,6 @@ function splitKey(key: string): string[] {
 	return parts;
 }
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 /** An address's key: the kind's name and each field value in declared order, joined (`joinKey`). */
 export function addressKey(kind: string, params: ParamsData, values: { readonly [field: string]: unknown }): string {
 	return joinKey([kind, ...params.fields.map((field) => String(values[field]))]);

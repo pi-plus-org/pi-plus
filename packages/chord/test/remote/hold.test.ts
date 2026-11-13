@@ -1,15 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { type Context, BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-<<<<<<< HEAD
 import { bool, evolve, hostKind, int, keyed, local, method, obj, remote, str } from "../../src/contracts/index.ts";
-=======
-import { bool, evolve, hostKind, int, local, method, obj, remote, str } from "../../src/contracts/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { broken, ChordError } from "../../src/data/index.ts";
 import type * as Delta from "../../src/delta/index.ts";
 import { decoder } from "../../src/delta/index.ts";
 import { defineState } from "../../src/documents/index.ts";
-<<<<<<< HEAD
 import {
 	type Ctx,
 	createHost,
@@ -24,13 +19,6 @@ import { ChordObject } from "../../src/host/object.ts";
 import { defineJob } from "../../src/jobs/index.ts";
 import { type Link, memoryLinkPair } from "../../src/link/index.ts";
 import { binaryCodec, jsonPart, type Message } from "../../src/link/internal.ts";
-=======
-import { createHost, defineFacet, type FacetHost, type Host, type Self } from "../../src/host/index.ts";
-import type { ChordHost } from "../../src/host/internal.ts";
-import { ChordObject } from "../../src/host/object.ts";
-import { type Link, memoryLinkPair } from "../../src/link/index.ts";
-import { binaryCodec, jsonPart } from "../../src/link/internal.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { Hold } from "../../src/remote/hold.ts";
 import { constant, type Writable } from "../../src/state/index.ts";
 import {

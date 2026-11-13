@@ -1,6 +1,5 @@
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { describe, expect, it, vi } from "vitest";
-<<<<<<< HEAD
 import {
 	BACKGROUND_CONTEXT as context,
 	createContextKey,
@@ -11,12 +10,6 @@ import { hostKind, int, method, remote, str } from "../../src/contracts/index.ts
 import { createHost, defineFacet, type Held, type Host } from "../../src/host/index.ts";
 import { memoryLinkPair } from "../../src/link/index.ts";
 import { jsonPart } from "../../src/link/internal.ts";
-=======
-import { BACKGROUND_CONTEXT as context, createContextKey, withContextValue } from "../../src/context/index.ts";
-import { hostKind, int, method, remote, str } from "../../src/contracts/index.ts";
-import { createHost, defineFacet, type Host } from "../../src/host/index.ts";
-import { memoryLinkPair } from "../../src/link/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	addNote,
 	bindHold,

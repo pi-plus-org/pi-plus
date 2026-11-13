@@ -23,10 +23,7 @@ import {
 	startClient,
 	TuiScripts,
 	themesFacet,
-<<<<<<< HEAD
 	translationsFacet,
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 } from "../surfaces/index.ts";
 import { BRIDGE, type Bridge } from "./bridge.ts";
 import { SandboxChannel } from "./channel.ts";

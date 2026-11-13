@@ -6,11 +6,7 @@ import type { Context } from "../context/index.ts";
 import { invalid } from "../data/internal.ts";
 import type { JsonValue } from "../json.ts";
 import type { SqliteValue } from "../sqlite/index.ts";
-<<<<<<< HEAD
 import type { Column, ColumnType, HostColumnOf } from "./columns.ts";
-=======
-import type { Column, ColumnType } from "./columns.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { storedText } from "./text.ts";
 
 /** A scalar cell as the store keeps it in rows, writes and operands: a well-formed string, a number or a boolean. */

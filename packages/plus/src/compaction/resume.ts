@@ -27,11 +27,14 @@ export const COMPACTION_RESUME_MESSAGE =
 
 /**
  * Re-engage the model after a compaction that aborted an in-flight run.
- * Fire-and-forget: failures are logged, never thrown, so a failed resume
- * cannot turn an already-successful compaction into an error.
+ * Failures are logged, never thrown, so a failed resume cannot turn an
+ * already-successful compaction into an error. The returned promise settles
+ * when the resume dispatch (and the run it triggers) finishes; callers use it
+ * to keep a "resume pending" signal alive until the re-engaged run is on
+ * track, so a compact() arriving in the dispatch window still protects it.
  */
-export function resumeAfterMidRunCompact(session: AgentSession): void {
-	void (async () => {
+export function resumeAfterMidRunCompact(session: AgentSession): Promise<void> {
+	return (async () => {
 		try {
 			await session.sendCustomMessage(
 				{

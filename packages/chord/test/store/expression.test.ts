@@ -1,10 +1,6 @@
 // Tests of the table expression language: the builders and their compilation into the data vocabulary.
 import { describe, expect, it } from "vitest";
-<<<<<<< HEAD
 import { bool, hostKind, int, nul, num, obj, opt, str } from "../../src/contracts/index.ts";
-=======
-import { bool, int, nul, num, obj, opt, str } from "../../src/contracts/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	add,
 	and,
@@ -28,10 +24,7 @@ import {
 	sub,
 	when,
 } from "../../src/store/expression.ts";
-<<<<<<< HEAD
 import { host } from "../../src/store/host-column.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { json } from "../../src/store/json-column.ts";
 import type { ColumnRefs } from "../../src/store/query.ts";
 import { defineTable } from "../../src/store/table.ts";

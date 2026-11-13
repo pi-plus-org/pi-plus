@@ -1,6 +1,5 @@
 // `TuiScope` (slice 11 §4, decision "Slice 11, P9"; p2's `TuiScope`): a terminal component's Chord resources, the
 // counterpart of the React bindings for terminal UI libraries. It holds references, follows watchables and registries,
-<<<<<<< HEAD
 // calls one `changed` callback (the app's redraw) on every change, subscribes to event members, and releases everything
 // at `dispose`. Its page state
 // is the host's, shared by every scope (React's `usePageState`): a scope opened again after a plugin reload finds it.
@@ -20,18 +19,6 @@ import type { NativeWatchable, Watchable } from "../watch.ts";
 /** Adds an optimistic action shown while `call` is in flight; returns `call` (see `TuiScope.optimistic`). */
 export type OptimisticAdd<A> = <R>(action: A, call: Promise<R>) => Promise<R>;
 
-=======
-// calls one `changed` callback (the app's redraw) on every change, and releases everything at `dispose`. References
-// wait and rebind by themselves (no retry loop, unlike p2's); no terminal library dependency.
-
-import { BACKGROUND_CONTEXT, withAbortSignal } from "../context/index.ts";
-import type { Contract, ParamsOf } from "../contracts/index.ts";
-import type { Principal } from "../data/index.ts";
-import type { Held, Host } from "../host/index.ts";
-import type { Registry } from "../registries/index.ts";
-import type { NativeWatchable, Watchable } from "../watch.ts";
-
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 /** A component's scope: what it holds and follows, until `dispose`. */
 export class TuiScope<P extends Principal = Principal> {
 	readonly #host: Host<P>;
@@ -77,7 +64,6 @@ export class TuiScope<P extends Principal = Principal> {
 		};
 	}
 
-<<<<<<< HEAD
 	/**
 	 * Subscribes `listener` to event member `member` (a reference's, decision "Events: fire-and-forget members") until
 	 * `dispose`. Events call `listener` only, never `changed`: the listener decides what redraws.
@@ -87,8 +73,6 @@ export class TuiScope<P extends Principal = Principal> {
 		member.on(listener, this.#context()).catch(() => {});
 	}
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	/** Registry `R`'s composed value, followed until `dispose`; a reader, `undefined` until it is usable. */
 	registry<C, V>(R: Registry<C, V>): () => V | undefined {
 		let read: () => V | undefined = () => undefined;
@@ -102,7 +86,6 @@ export class TuiScope<P extends Principal = Principal> {
 		return () => read();
 	}
 
-<<<<<<< HEAD
 	/**
 	 * `read` with optimistic values, as React's `useOptimistic`: `add(action, call)` returns `call` and, until every call
 	 * added so settled, the reader shows `reduce(current, action)` applied over `read`'s value for each action in flight,
@@ -185,8 +168,6 @@ export class TuiScope<P extends Principal = Principal> {
 		return t as unknown as Translator<N, M>;
 	}
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	/** Releases every reference and ends every watch; `changed` is not called after it. */
 	dispose(): void {
 		this.#abort.abort();
@@ -198,9 +179,6 @@ export class TuiScope<P extends Principal = Principal> {
 		return withAbortSignal(this.#abort.signal, BACKGROUND_CONTEXT);
 	}
 }
-<<<<<<< HEAD
 
 /** A translator as the function it is: any key, any arguments. */
 type PlainTranslator = ((key: string, ...args: unknown[]) => string) & { render(message: MessageData): string };
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

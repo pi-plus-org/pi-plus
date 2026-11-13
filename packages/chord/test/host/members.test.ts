@@ -1,14 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-<<<<<<< HEAD
 import { type EventSource, event, int, keyed, local, method, obj, remote, str } from "../../src/contracts/index.ts";
 import { defineState } from "../../src/documents/index.ts";
 import { constant } from "../../src/state/index.ts";
 import { linked, loaded, rejection, Server, Session } from "../support.ts";
-=======
-import { int, local, method } from "../../src/contracts/index.ts";
-import { loaded } from "../support.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 describe("the member check (Q14)", () => {
 	it("refuses an inherited property for a member", async () => {
@@ -36,7 +31,6 @@ describe("the member check (Q14)", () => {
 		);
 	});
 });
-<<<<<<< HEAD
 
 describe("host-keyed keyed members", () => {
 	const Meta = defineState("meta", {
@@ -149,5 +143,3 @@ describe('event members (decision "Events: fire-and-forget members")', () => {
 		expect(only.state.value).toEqual({ kind: "live" });
 	});
 });
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

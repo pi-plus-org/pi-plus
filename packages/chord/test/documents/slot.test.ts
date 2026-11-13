@@ -2,11 +2,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-<<<<<<< HEAD
 import { arr, hostKind, int, obj, str } from "../../src/contracts/index.ts";
-=======
-import { arr, int, obj, str } from "../../src/contracts/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { isChordError } from "../../src/data/index.ts";
 import { defineState, type JsonObject, type KeyedHandle, type SingletonHandle } from "../../src/documents/index.ts";
 import type { HostError, StoreSelf } from "../../src/host/index.ts";

@@ -31,6 +31,8 @@ beforeAll(() => {
 		registerTool: (def: ToolDefinition<any, any, any>) => {
 			toolDef = def;
 		},
+		// the renderers are under test; the before_agent_start section handler is a no-op here
+		on: () => {},
 	} as unknown as ExtensionAPI;
 	registerSubagent(api);
 });

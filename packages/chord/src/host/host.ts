@@ -16,10 +16,7 @@ import {
 	type Context,
 	withAbortSignal,
 	withoutAbortSignal,
-<<<<<<< HEAD
 	withTelemetry,
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 } from "../context/index.ts";
 import type { Address, Contract, HostKind, ParamsOf } from "../contracts/index.ts";
 import { contractData, joinKey, type Params } from "../contracts/internal.ts";
@@ -34,10 +31,7 @@ import {
 	principalJson,
 	principalKey,
 } from "../data/internal.ts";
-<<<<<<< HEAD
 import type { TransactionCancelled } from "../documents/internal.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { JsonValue } from "../json.ts";
 import { binaryCodec, type Codec, type Compression, type Link, type PartLimits } from "../link/index.ts";
 import { linkLimits, type WireAddress } from "../link/internal.ts";
@@ -57,7 +51,6 @@ import { Batch, type BatchError } from "../state/internal.ts";
 import type { ArchivePart } from "../store/archive.ts";
 import { exportHostData, type HostDataCounts, type HostImportOptions } from "../store/host-data.ts";
 import type { ChordStore, Store } from "../store/store.ts";
-<<<<<<< HEAD
 import {
 	type ChordMetrics,
 	capped,
@@ -69,8 +62,6 @@ import {
 	parentOf,
 	untraced,
 } from "../telemetry.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Watchable } from "../watch.ts";
 import { Activity, type ActivityCounts } from "./activity.ts";
 import { type Attempt, notLive } from "./attempt.ts";

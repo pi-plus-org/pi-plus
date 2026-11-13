@@ -1,5 +1,4 @@
 // Tests of `startServer` (slice 13 §1, §4, §5): the layout and the start-data object, start and close, a server without
-<<<<<<< HEAD
 // workers (and without `principal.worker`), an owner refused (not strict JSON, the server's principal), two worker
 // kinds, `applyChanges`, a required root failing, a worker entry that does not build, the base marks (a worker base's
 // inputs among them), and export, import and delete per address (documents, tables and files round-trip with the
@@ -73,44 +72,16 @@ describe("starting and closing", () => {
 	it("lays out the data directory, serves AppInfo and the server's plugins, and closes everything", async () => {
 		const { app, dataDir, port } = await testApp({ plugins: { echo: { "server.ts": ECHO_SERVER } } });
 		expect((await readdir(dataDir)).sort()).toEqual(["cache", "logs", "owner-token", "plugins", "server", "workers"]);
-=======
-// workers, two worker kinds, `applyChanges`, a required root failing, and export and import per address (documents,
-// tables and files round-trip; an existing address refused).
-
-import { chmod, mkdir, readdir, stat, symlink, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
-import { hostKind, local, remote, str, unknown } from "../../../src/contracts/index.ts";
-import { addressParam, HostData } from "../../../src/node/app/data.ts";
-import { AppInfo } from "../../../src/node/app/index.ts";
-import { rejection } from "../../support.ts";
-import { send } from "../http/support.ts";
-import { gitRepository, writePlugin } from "../plugins/support.ts";
-import { ECHO_SERVER, NOTES_PLUGIN, Notes, Project, tempDir, testApp, WORKER_ENTRY } from "./support.ts";
-
-const Echo = local("test.echo", { version: 1, params: {}, members: { text: str() } });
-
-describe("starting and closing", () => {
-	it("lays out the data directory, serves AppInfo and the server's plugins, and closes everything", async () => {
-		const { app, dataDir, port } = await testApp({ plugins: { echo: { "server.ts": ECHO_SERVER } } });
-		expect((await readdir(dataDir)).sort()).toEqual(["logs", "owner-token", "plugins", "server", "workers"]);
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		expect((await readdir(join(dataDir, "server"))).filter((name) => !name.startsWith("."))).toEqual(
 			expect.arrayContaining(["cookie-secret", "store.sqlite"]),
 		);
 		const info = await app.host.get(AppInfo, {}, context);
-<<<<<<< HEAD
 		expect([info.dataDir.value, info.name.value, info.version.value, info.owner.value]).toEqual([
 			dataDir,
 			"chord-test",
 			"v1",
 			{ kind: "owner" },
 		]);
-=======
-		expect([info.dataDir.value, info.name.value, info.version.value]).toEqual([dataDir, "chord-test", "v1"]);
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		expect((await app.host.get(Echo, {}, context)).text.value).toBe("echo");
 		expect(app.ownerLink()).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${port}/_chord/owner#[A-Za-z0-9_-]{43}$`));
 		expect(app.workers.size).toBe(0);
@@ -150,23 +121,16 @@ describe("starting and closing", () => {
 			"workers",
 			"plugins",
 			"logs",
-<<<<<<< HEAD
 			"cache",
 			"cache/workers",
 			"cache/node",
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			"server/store.sqlite",
 			"server/cookie-secret",
 			"owner-token",
 		];
-<<<<<<< HEAD
 		expect(await Promise.all(paths.map(mode))).toEqual([
 			0o700, 0o700, 0o700, 0o700, 0o700, 0o700, 0o700, 0o700, 0o600, 0o600, 0o600,
 		]);
-=======
-		expect(await Promise.all(paths.map(mode))).toEqual([0o700, 0o700, 0o700, 0o700, 0o700, 0o600, 0o600, 0o600]);
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		await app.close(context);
 		await chmod(join(dataDir, "server", "store.sqlite"), 0o644);
 		await chmod(join(dataDir, "owner-token"), 0o644);
@@ -206,7 +170,6 @@ describe("starting and closing", () => {
 		// Closed: the data directory's lock is free again (a second start fails only on the same plugin).
 		expect(await rejection(testApp({ root, dataDir }))).toMatchObject({ name: "PluginError" });
 	});
-<<<<<<< HEAD
 
 	it("starts without worker kinds and without `principal.worker`; worker kinds need it (a type error)", async () => {
 		const { app } = await startTestApp<UserPrincipal>({ server: { kind: "server" }, owner: ada }, {});
@@ -228,8 +191,6 @@ describe("starting and closing", () => {
 		const server = await rejection(userOwnerApp({ kind: "server" }));
 		expect(String(server)).toContain("principal.owner must not be the server's principal");
 	});
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 });
 
 describe("workers", () => {
@@ -295,18 +256,14 @@ describe("workers", () => {
 		const result = await app.applyChanges(context);
 		expect(result.stopped).toBeUndefined();
 		expect(result.steps.map(({ name }) => name)).toEqual(["server"]);
-<<<<<<< HEAD
 		// Restarted: the new attempt goes live once the old one ended.
 		await flushed();
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		expect(echo.text.value).toBe("changed");
 		expect(app.plugins.state.value.dirty).toEqual([]);
 		await app.close(context);
 	});
 });
 
-<<<<<<< HEAD
 describe("applying changes one after another", () => {
 	it("starts a later applyChanges after the earlier one rolled out, so the newest build stays deployed", async () => {
 		const { app, root } = await testApp({ plugins: { echo: { "server.ts": ECHO_SERVER } } });
@@ -788,8 +745,6 @@ describe("bases built after the listen", () => {
 	});
 });
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 describe("installs", () => {
 	it("installs a plugin from git into the user's root; applying changes loads it", async () => {
 		const tools = await tempDir();
@@ -964,7 +919,6 @@ describe("export and import per address", () => {
 		);
 		await other.app.close(context);
 	}, 60_000);
-<<<<<<< HEAD
 
 	it("carries the server's records and rows of the address: copied, refused, replaced and deleted with it", async () => {
 		const base = await tempDir();
@@ -1104,6 +1058,3 @@ async function runStart(dir: string, head: readonly string[], body: readonly str
 	);
 	return stdout.trim().split("\n");
 }
-=======
-});
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

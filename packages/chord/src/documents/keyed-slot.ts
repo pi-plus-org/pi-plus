@@ -4,19 +4,12 @@
 // read through `at(key)` or a watch has its own source, which exists while the key is pinned.
 
 import { awaitWithContext, type Context } from "../context/index.ts";
-<<<<<<< HEAD
 import { addressOfKey, keyOfAddress } from "../contracts/internal.ts";
 import { ChordError } from "../data/index.ts";
 import { asChordError, invalid } from "../data/internal.ts";
 import { type Prepared, type Tracker, track } from "../delta/index.ts";
 import { findDocument, loadDocument } from "../store/engine.ts";
 import type { StagedWrite, Step } from "../store/step.ts";
-=======
-import { ChordError } from "../data/index.ts";
-import { asChordError } from "../data/internal.ts";
-import { type Prepared, type Tracker, track } from "../delta/index.ts";
-import type { StagedWrite } from "../store/step.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { compareText, storedText } from "../store/text.ts";
 import type { Watch } from "../watch.ts";
 import { AddressSource } from "./address-source.ts";

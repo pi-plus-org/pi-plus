@@ -1,33 +1,22 @@
 // A client host with its plugins (slice 11 §2, §4, decisions "Slice 11, P4" to "P6"): what a page and a terminal's
 // sandbox both run. A client host (no address) loads the plugin scripts it started with beside the app's core facets,
 // keeps its link to the server with the connection loop, and holds the kind's scripts object: a new set fetches the
-<<<<<<< HEAD
 // changed scripts and reloads the host in place (a failed plugin keeps its old facet; a failed fetch is tried again),
 // a page's new stylesheets loaded before the reload and each plugin left with the one of the code it runs; a new base
 // bundle means this client's code is outdated, which the app answers by starting over (a page reloads). The surface
 // specifics (how a socket opens, how a script is fetched, what is outdated, the stylesheets) are given.
 
 import type { TelemetryContext } from "@earendil-works/pi-telemetry";
-=======
-// changed scripts and reloads the host in place (a failed plugin keeps its old facet); a new base bundle means this
-// client's code is outdated, which the app answers by starting over (a page reloads). The surface specifics (how a
-// socket opens, how a script is fetched, what is outdated) are given.
-
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { BACKGROUND_CONTEXT, type Context, withAbortSignal } from "../context/index.ts";
 import type { Principal } from "../data/index.ts";
 import { createHost, type Host, type HostError, type PluginFacet, type PluginFailure } from "../host/index.ts";
 import type { Link } from "../link/index.ts";
 import { type ConnectionState, keepConnected, type LoopEnvironment, type SocketEvents } from "./connection.ts";
-<<<<<<< HEAD
 import type { MessagesReport } from "./language.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { LoadedFacets, type SetEntry } from "./loaded.ts";
 import { type ClientModules, evaluateRegistered, type RegisteredScript } from "./registered.ts";
 import type { ScriptEntry, ScriptSet, ScriptsContract } from "./scripts.ts";
 
-<<<<<<< HEAD
 /**
  * What a client reports: its host's errors, plugins left out at a load or kept old at a reload, a failed update, a
  * plugin's stylesheet that did not load (`error`) or not within 10 s (`timeout`; this does not itself prevent the
@@ -45,13 +34,6 @@ export type ClientError =
 	  }
 	/** A message rendered by a fallback, a contributed message that threw, a foreign message (each once). */
 	| { readonly kind: "messages"; readonly report: MessagesReport };
-=======
-/** What a client reports: its host's errors, plugins left out at a load or kept old at a reload, a failed update. */
-export type ClientError =
-	| { readonly kind: "host"; readonly error: HostError }
-	| { readonly kind: "plugins"; readonly failed: readonly PluginFailure[] }
-	| { readonly kind: "update_failed"; readonly error: unknown };
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /** What `startClient` takes. */
 export type ClientOptions<P extends Principal> = {
@@ -79,7 +61,6 @@ export type ClientOptions<P extends Principal> = {
 	/** Asked before each reconnect; `false` stops the loop (a guest's ended share). */
 	readonly canRetry?: () => Promise<boolean>;
 	readonly onConnection?: (state: ConnectionState) => void;
-<<<<<<< HEAD
 	/** The plugins' stylesheets (a page's; a terminal has none). */
 	readonly styles?: ClientStyles;
 	readonly environment: LoopEnvironment;
@@ -142,27 +123,6 @@ export async function startClient<P extends Principal>(options: ClientOptions<P>
 	// In the background: the scripts object is the server's, and a client starts (a page renders) without it, offline too.
 	if (follow)
 		void updates.follow(context).catch((error: unknown) => options.onError({ kind: "update_failed", error }));
-=======
-	/** A new set was applied (its scripts loaded or kept old): the page swaps the plugins' stylesheets. */
-	readonly applied?: (set: ScriptSet) => void;
-	readonly environment: LoopEnvironment;
-	readonly onError: (error: ClientError) => void;
-};
-
-/** A running client: its host, once its plugins are loaded, and its stop. */
-export type Client<P extends Principal> = { readonly host: Host<P>; stop(context: Context): Promise<void> };
-
-/** Starts a client: its host loaded with the initial scripts, its link kept, its plugins kept current. */
-export async function startClient<P extends Principal>(options: ClientOptions<P>): Promise<Client<P>> {
-	const context = BACKGROUND_CONTEXT;
-	const host = createHost<P>({ onError: (error) => options.onError({ kind: "host", error }) });
-	const entries = options.initial.map((script) => entryOf(script, options.modules));
-	const { loaded, report } = await LoadedFacets.load(host, options.core, entries, context);
-	if (report.failed.length > 0) options.onError({ kind: "plugins", failed: report.failed });
-	const loop = connect(host, options);
-	const updates = new Updates(host, loaded, options);
-	await updates.follow(context);
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	return {
 		host,
 		stop: async (ctx) => {
@@ -173,7 +133,6 @@ export async function startClient<P extends Principal>(options: ClientOptions<P>
 	};
 }
 
-<<<<<<< HEAD
 /**
  * Keeps `host`'s parent link to the server, asking `serverBase` and `canRetry` before every reconnect; `onState` hears
  * each state after the app's `onConnection`.
@@ -184,10 +143,6 @@ function connect<P extends Principal>(
 	serverBase: () => Promise<string | undefined>,
 	onState: (state: ConnectionState) => void,
 ): { stop(): void } {
-=======
-/** Keeps `host`'s parent link to the server, asking `serverBase` and `canRetry` before every reconnect. */
-function connect<P extends Principal>(host: Host<P>, options: ClientOptions<P>): { stop(): void } {
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	return keepConnected({
 		open: (events) => {
 			// The loop and the host both follow the link's close; a link has one close listener.
@@ -196,18 +151,12 @@ function connect<P extends Principal>(host: Host<P>, options: ClientOptions<P>):
 			host.connect(link, { principal: { kind: "server" } as unknown as P }, BACKGROUND_CONTEXT);
 			return link;
 		},
-<<<<<<< HEAD
 		onState: (state) => {
 			options.onConnection?.(state);
 			onState(state);
 		},
 		canRetry: async () => {
 			const base = await serverBase();
-=======
-		onState: (state) => options.onConnection?.(state),
-		canRetry: async () => {
-			const base = await options.serverBase();
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			if (base !== undefined && base !== options.base) {
 				options.outdated();
 				return false;
@@ -265,7 +214,6 @@ function entryOf(script: RegisteredScript, modules: ClientModules): SetEntry {
 	};
 }
 
-<<<<<<< HEAD
 /** The first pause before a failed update is tried again: 1 s, doubling from there. */
 const UPDATE_RETRY_INITIAL_MS = 1000;
 
@@ -278,17 +226,11 @@ const UPDATE_RETRY_MAX_MS = 30_000;
  * calls `outdated` instead. An update that failed (a script that did not load) is tried again after a growing pause (1 s
  * doubling to 30 s) until it applies or a newer set replaces it: the scripts object shows nothing new until the next
  * rollout or reconnect.
-=======
-/**
- * The client's plugin updates: it holds the scripts object and applies each new set in order (fetching the changed
- * scripts, reloading the host with the complete set); a new base calls `outdated` instead.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
  */
 class Updates<P extends Principal> {
 	readonly #host: Host<P>;
 	readonly #loaded: LoadedFacets;
 	readonly #options: ClientOptions<P>;
-<<<<<<< HEAD
 	/**
 	 * The script each plugin runs, by plugin: a plugin whose new script failed keeps its old one here, so a later set
 	 * with that script (a reconnect's snapshot) tries it again.
@@ -309,18 +251,6 @@ class Updates<P extends Principal> {
 		this.#loaded = loaded;
 		this.#options = options;
 		for (const script of options.initial) if (!left.has(script.plugin)) this.#scripts.set(script.plugin, script);
-=======
-	/** The scripts this client has, by plugin: its initial ones, then what each applied set fetched. */
-	readonly #scripts = new Map<string, RegisteredScript>();
-	readonly #abort = new AbortController();
-	#release: (() => void) | undefined;
-
-	constructor(host: Host<P>, loaded: LoadedFacets, options: ClientOptions<P>) {
-		this.#host = host;
-		this.#loaded = loaded;
-		this.#options = options;
-		for (const script of options.initial) this.#scripts.set(script.plugin, script);
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	}
 
 	/** Holds the scripts object and applies every set it shows, the first included (a reconnect's snapshot too). */
@@ -328,7 +258,6 @@ class Updates<P extends Principal> {
 		const held = this.#host.hold(this.#options.scripts, {}, context);
 		this.#release = () => held.release();
 		const watch = await held.set.watch(withAbortSignal(this.#abort.signal, context));
-<<<<<<< HEAD
 		// The set shown when the watch began (a set published before it, while the client started, is no frame).
 		void this.#take(watch.value as ScriptSet, context);
 		watch.start(async (call, ctx) => {
@@ -443,49 +372,4 @@ class Updates<P extends Principal> {
 		if (report.failed.length > 0) options.onError({ kind: "plugins", failed: report.failed });
 		return kept;
 	}
-=======
-		watch.start(async (call, ctx) => {
-			if (call.kind === "value") await this.#apply(call.value as ScriptSet, ctx);
-		});
-	}
-
-	/** Stops following: the watch ends, the hold is released. */
-	async stop(): Promise<void> {
-		this.#abort.abort();
-		this.#release?.();
-	}
-
-	/** Applies `set`: a new base calls `outdated`; else the changed scripts fetched and the host reloaded with all. */
-	async #apply(set: ScriptSet, context: Context): Promise<void> {
-		const options = this.#options;
-		if (set.base !== options.base) {
-			options.outdated();
-			return;
-		}
-		// The first frame (and a reconnect's snapshot) usually shows what this client runs already: nothing to reload.
-		const known = this.#scripts;
-		if (
-			set.plugins.length === known.size &&
-			set.plugins.every((entry) => known.get(entry.name)?.digest === entry.digest)
-		) {
-			options.applied?.(set);
-			return;
-		}
-		try {
-			const scripts: RegisteredScript[] = [];
-			for (const entry of set.plugins) {
-				const known = this.#scripts.get(entry.name);
-				scripts.push(known?.digest === entry.digest ? known : await options.fetchScript(entry));
-			}
-			const entries = scripts.map((script) => entryOf(script, options.modules));
-			const report = await this.#loaded.reload(this.#host, entries, context);
-			this.#scripts.clear();
-			for (const script of scripts) this.#scripts.set(script.plugin, script);
-			if (report.failed.length > 0) options.onError({ kind: "plugins", failed: report.failed });
-			options.applied?.(set);
-		} catch (error) {
-			options.onError({ kind: "update_failed", error });
-		}
-	}
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 }

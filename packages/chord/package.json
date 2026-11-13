@@ -56,6 +56,16 @@
 			"types": "./dist/telemetry-sqlite/index.d.ts",
 			"import": "./dist/telemetry-sqlite/index.js"
 		},
+		"./telemetry-sqlite/node": {
+			"source": "./src/telemetry-sqlite/node.ts",
+			"types": "./dist/telemetry-sqlite/node.d.ts",
+			"import": "./dist/telemetry-sqlite/node.js"
+		},
+		"./telemetry-ingest": {
+			"source": "./src/telemetry-ingest/index.ts",
+			"types": "./dist/telemetry-ingest/index.d.ts",
+			"import": "./dist/telemetry-ingest/index.js"
+		},
 		"./http": {
 			"source": "./src/node/http/index.ts",
 			"types": "./dist/node/http/index.d.ts",
@@ -65,6 +75,16 @@
 			"source": "./src/node/workers/index.ts",
 			"types": "./dist/node/workers/index.d.ts",
 			"import": "./dist/node/workers/index.js"
+		},
+		"./compression": {
+			"source": "./src/node/compression.ts",
+			"types": "./dist/node/compression.d.ts",
+			"import": "./dist/node/compression.js"
+		},
+		"./workers/child": {
+			"source": "./src/node/workers/child.ts",
+			"types": "./dist/node/workers/child.d.ts",
+			"import": "./dist/node/workers/child.js"
 		},
 		"./plugins": {
 			"source": "./src/node/plugins/index.ts",
@@ -111,15 +131,10 @@
 			"types": "./dist/node/tui/index.d.ts",
 			"import": "./dist/node/tui/index.js"
 		},
-		"./old": {
-			"source": "./src/old/index.ts",
-			"types": "./dist/old/index.d.ts",
-			"import": "./dist/old/index.js"
-		},
-		"./old/node": {
-			"source": "./src/old/node.ts",
-			"types": "./dist/old/node.d.ts",
-			"import": "./dist/old/node.js"
+		"./sync": {
+			"source": "./src/sync/index.ts",
+			"types": "./dist/sync/index.d.ts",
+			"import": "./dist/sync/index.js"
 		},
 		"./package.json": "./package.json"
 	},
@@ -159,11 +174,15 @@
 		"@earendil-works/pi-telemetry": "1.5.2"
 	},
 	"peerDependencies": {
-		"esbuild": "0.28.2",
-		"ws": "8.21.0"
+		"esbuild": "^0.28.2",
+		"react": "^19.3.0",
+		"ws": "^8.21.0"
 	},
 	"peerDependenciesMeta": {
 		"esbuild": {
+			"optional": true
+		},
+		"react": {
 			"optional": true
 		},
 		"ws": {
@@ -171,7 +190,11 @@
 		}
 	},
 	"devDependencies": {
+		"@types/react": "19.2.14",
+		"@types/react-dom": "19.2.3",
 		"@types/ws": "8.18.2",
+		"react": "19.3.0",
+		"react-dom": "19.3.0",
 		"vitest": "4.1.12",
 		"ws": "8.21.0"
 	}

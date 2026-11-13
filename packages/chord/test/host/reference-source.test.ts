@@ -11,15 +11,10 @@ import { defineState, type SingletonHandle } from "../../src/documents/index.ts"
 import { createHost, defineFacet, type Reference, type Self, type StoreSelf } from "../../src/host/index.ts";
 import { ChordObject } from "../../src/host/object.ts";
 import { resolveWatchable } from "../../src/host/reference.ts";
-<<<<<<< HEAD
 import { ReferenceSource } from "../../src/host/reference-source.ts";
 import { Replica } from "../../src/remote/replica.ts";
 import { constant } from "../../src/state/index.ts";
 import { Batch, type Source, type Subscriber } from "../../src/state/internal.ts";
-=======
-import { constant } from "../../src/state/index.ts";
-import type { Source, Subscriber } from "../../src/state/internal.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	changesOf,
 	delivered,

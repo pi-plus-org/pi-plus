@@ -2,12 +2,12 @@
  * Tests for the ask_user tool's execute path (plus/src/extensions/ask-user/index.ts):
  * non-interactive rejection, TUI custom-dialog path, decline, RPC fallback
  * dialogs, and validation failures. Uses a captured registerTool definition
- * with a mocked ExtensionContext — no provider or TUI involved.
+ * with a mocked ExtensionToolContext — no provider or TUI involved.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import type { ExtensionContext, ToolDefinition } from "../../../coding-agent/src/core/extensions/types.ts";
+import type { ExtensionToolContext, ToolDefinition } from "../../../coding-agent/src/core/extensions/types.ts";
 import { registerAskUser } from "../../src/extensions/ask-user/index.ts";
 import type { AskUserAnswers, AskUserQuestion } from "../../src/extensions/ask-user/schema.ts";
 
@@ -38,13 +38,20 @@ function capturedTool(): ToolDefinition {
 	return tool;
 }
 
-function mockCtx(ui: Record<string, unknown>, mode: string, hasUI: boolean): ExtensionContext {
-	return { mode, hasUI, ui } as unknown as ExtensionContext;
+function mockCtx(ui: Record<string, unknown>, mode: string, hasUI: boolean): ExtensionToolContext {
+	// ask_user never calls another tool, so the nested-call surface is a stub.
+	return {
+		mode,
+		hasUI,
+		ui,
+		tools: [],
+		executeTool: () => assert.fail("unexpected executeTool call"),
+	} as unknown as ExtensionToolContext;
 }
 
 type ToolResult = Awaited<ReturnType<ToolDefinition["execute"]>>;
 
-async function run(tool: ToolDefinition, params: Params, ctx: ExtensionContext): Promise<ToolResult> {
+async function run(tool: ToolDefinition, params: Params, ctx: ExtensionToolContext): Promise<ToolResult> {
 	return tool.execute("call-1", params, undefined, undefined, ctx) as Promise<ToolResult>;
 }
 

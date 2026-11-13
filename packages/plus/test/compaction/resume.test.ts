@@ -6,9 +6,11 @@
  * Upstream's manual compact() aborts an in-flight run and never continues it.
  * The plus wrapper captures isStreaming before compacting and, when a run was
  * interrupted, re-engages the model via a silent custom message with
- * triggerTurn. These tests drive the override with a minimal fake `this` and
- * a mocked upstream compact() — no live agent run is needed to verify the
- * glue.
+ * triggerTurn — whether the compaction lands or fails. Before aborting it also
+ * pre-flights upstream's "nothing to compact" failures so a doomed compaction
+ * cannot kill a running task. These tests drive the override with a minimal
+ * fake `this` and a mocked upstream compact() — no live agent run is needed to
+ * verify the glue.
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -31,6 +33,8 @@ interface FakeSession {
 	serializeCompaction: <T>(fn: () => Promise<T>) => Promise<T>;
 	isStreaming: boolean;
 	sendCustomMessage: ReturnType<typeof vi.fn>;
+	/** The override's pre-abort "nothing to compact" check; stubbed per test. */
+	findCompactionBlocker: () => string | undefined;
 }
 
 function makeFakeSession(isStreaming: boolean): FakeSession {
@@ -38,6 +42,7 @@ function makeFakeSession(isStreaming: boolean): FakeSession {
 		serializeCompaction: (fn) => fn(),
 		isStreaming,
 		sendCustomMessage: vi.fn().mockResolvedValue(undefined),
+		findCompactionBlocker: () => undefined,
 	};
 }
 
@@ -88,13 +93,41 @@ describe("AgentSession.compact() mid-run resume", () => {
 		expect(fake.sendCustomMessage).not.toHaveBeenCalled();
 	});
 
-	it("propagates compaction failures without resuming", async () => {
+	it("resumes the interrupted run even when the compaction fails", async () => {
+		// Upstream compact() aborts the run before it can fail, so a failed
+		// compaction must still re-engage the task it killed.
 		vi.spyOn(UpstreamAgentSession.prototype, "compact").mockRejectedValue(new Error("boom"));
 		const fake = makeFakeSession(true);
 
 		await assert.rejects(callCompact(fake), /boom/);
+		await vi.waitFor(() => expect(fake.sendCustomMessage).toHaveBeenCalledTimes(1));
+	});
+
+	it("short-circuits a run-interrupting compact() that has nothing to compact", async () => {
+		// The pre-flight: when a run is active and upstream compact() would
+		// abort it only to throw "Nothing to compact", the override rejects
+		// without touching upstream — the run must survive.
+		const compactSpy = vi.spyOn(UpstreamAgentSession.prototype, "compact").mockResolvedValue(COMPACTION_RESULT);
+		const fake = makeFakeSession(true);
+		fake.findCompactionBlocker = () => "Nothing to compact (session too small)";
+
+		await assert.rejects(callCompact(fake), /Nothing to compact \(session too small\)/);
+		expect(compactSpy).not.toHaveBeenCalled();
 		await Promise.resolve();
 		await Promise.resolve();
+		expect(fake.sendCustomMessage).not.toHaveBeenCalled();
+	});
+
+	it("lets an idle compact() through to upstream even when it would find nothing", async () => {
+		// No run at risk -> upstream's exact behavior and events, unchanged.
+		const compactSpy = vi
+			.spyOn(UpstreamAgentSession.prototype, "compact")
+			.mockRejectedValue(new Error("Nothing to compact (session too small)"));
+		const fake = makeFakeSession(false);
+		fake.findCompactionBlocker = () => "Nothing to compact (session too small)";
+
+		await assert.rejects(callCompact(fake), /Nothing to compact/);
+		expect(compactSpy).toHaveBeenCalledTimes(1);
 		expect(fake.sendCustomMessage).not.toHaveBeenCalled();
 	});
 

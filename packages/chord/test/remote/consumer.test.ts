@@ -1,7 +1,6 @@
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT as context, withCancel } from "../../src/context/index.ts";
-<<<<<<< HEAD
 import { type EventMember, evolve, int, local, map, method, remote, str } from "../../src/contracts/index.ts";
 import { type ChordError, PluginError } from "../../src/data/index.ts";
 import { type Ctx, createHost, defineFacet, type FacetHost, type HostError, type RefIn } from "../../src/host/index.ts";
@@ -11,16 +10,6 @@ import { DeflatedPart, jsonPart, type Part, wireError } from "../../src/link/int
 import { nodeCompression } from "../../src/node/compression.ts";
 import { RemoteObject } from "../../src/remote/remote-object.ts";
 import { constant } from "../../src/state/index.ts";
-=======
-import { int, local, map, method, remote, str } from "../../src/contracts/index.ts";
-import { PluginError } from "../../src/data/index.ts";
-import { createHost, defineFacet, type HostError } from "../../src/host/index.ts";
-import { resolveWatchable } from "../../src/host/reference.ts";
-import { memoryLinkPair } from "../../src/link/index.ts";
-import { DeflatedPart, jsonPart, type Part, wireError } from "../../src/link/internal.ts";
-import { nodeCompression } from "../../src/node/compression.ts";
-import { RemoteObject } from "../../src/remote/remote-object.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	addNote,
 	bindHold,

@@ -8,11 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { afterEach, describe, expect, it, vi } from "vitest";
-<<<<<<< HEAD
 import { BACKGROUND_CONTEXT as context, withCancel, withTelemetry } from "../../src/context/index.ts";
-=======
-import { BACKGROUND_CONTEXT as context, withCancel } from "../../src/context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { arr, int, local, num, obj, str } from "../../src/contracts/index.ts";
 import { ChordError } from "../../src/data/index.ts";
 import { MAX_PENDING_OPS } from "../../src/delta/pending.ts";

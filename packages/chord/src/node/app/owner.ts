@@ -8,10 +8,7 @@
 import { chmod } from "node:fs/promises";
 import type { Context } from "../../context/index.ts";
 import type { Principal } from "../../data/index.ts";
-<<<<<<< HEAD
 import { samePrincipal } from "../../data/principal.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { defineFacet, type Facet, type Host } from "../../host/index.ts";
 import { Http } from "../http/index.ts";
 import { hashToken, matchesHash, newToken, readSecret, writeSecret } from "./secrets.ts";

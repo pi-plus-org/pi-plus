@@ -1,17 +1,11 @@
 // `defineTable` (slice 6a §5): what a declaration materializes, the checks it makes, and its fingerprint.
 
 import { describe, expect, it } from "vitest";
-<<<<<<< HEAD
 import { hostKind, int, obj, opt, str } from "../../src/contracts/index.ts";
 import { host } from "../../src/store/host-column.ts";
 import { json } from "../../src/store/json-column.ts";
 import { defineTable, type KeyOf } from "../../src/store/table.ts";
 import { evolveTable } from "../../src/store/table-evolve.ts";
-=======
-import { int, obj, opt, str } from "../../src/contracts/index.ts";
-import { json } from "../../src/store/json-column.ts";
-import { defineTable } from "../../src/store/table.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 const columns = { id: str(), path: str(), at: int(), note: opt(str()), meta: json(obj({}), { version: 1 }) };
 

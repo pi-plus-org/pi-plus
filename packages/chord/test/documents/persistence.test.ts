@@ -3,11 +3,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT } from "../../src/context/index.ts";
-<<<<<<< HEAD
 import { hostKind, int, obj, str } from "../../src/contracts/index.ts";
-=======
-import { int, obj, str } from "../../src/contracts/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { track } from "../../src/delta/index.ts";
 import { defineState, type JsonObject } from "../../src/documents/index.ts";
 import { Persistence, type Stored, storedAfter } from "../../src/documents/persistence.ts";

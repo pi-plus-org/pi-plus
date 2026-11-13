@@ -1,18 +1,11 @@
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { describe, expect, it } from "vitest";
-<<<<<<< HEAD
 import { BACKGROUND_CONTEXT as context, withAbortSignal, withTelemetry } from "../../src/context/index.ts";
-=======
-import { BACKGROUND_CONTEXT as context, withAbortSignal } from "../../src/context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { int, local, method, remote, str } from "../../src/contracts/index.ts";
 import { withLinkedAbortSignal } from "../../src/host/ctx.ts";
 import type { ChordHost } from "../../src/host/host.ts";
 import type { Ctx, Host, Reference } from "../../src/host/index.ts";
-<<<<<<< HEAD
 import { CALL_CHAIN } from "../../src/host/old-work.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { constant } from "../../src/state/index.ts";
 import {
 	flushed,

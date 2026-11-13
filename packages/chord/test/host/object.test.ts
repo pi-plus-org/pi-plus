@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-<<<<<<< HEAD
 import { type Context, BACKGROUND_CONTEXT as context, withoutAbortSignal } from "../../src/context/index.ts";
-=======
-import { type Context, BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { arr, evolve, int, local, method, obj, remote, str } from "../../src/contracts/index.ts";
 import { broken, ChordError } from "../../src/data/index.ts";
 import { defineState, type SingletonHandle } from "../../src/documents/index.ts";
@@ -22,19 +18,13 @@ import {
 	untilAborted,
 } from "../../src/host/index.ts";
 import { ChordObject } from "../../src/host/object.ts";
-<<<<<<< HEAD
 import { defineJob } from "../../src/jobs/index.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { memoryLinkPair } from "../../src/link/index.ts";
 import { jsonPart, type Message } from "../../src/link/internal.ts";
 import { defineRegistry } from "../../src/registries/index.ts";
 import { constant, type Watchable } from "../../src/state/index.ts";
-<<<<<<< HEAD
 import { query } from "../../src/store/query.ts";
 import { defineTable } from "../../src/store/table.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	changesOf,
 	delivered,

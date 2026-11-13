@@ -2,10 +2,7 @@
 // jobs run one at a time), the seal fence over the transaction holding the line, the factory's pins between attempts,
 // the activation's loads and the residency of keyed documents; a commit's telemetry (its event, its duration, slice 9).
 
-<<<<<<< HEAD
 import type { TelemetryContext } from "@earendil-works/pi-telemetry";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Context } from "../context/index.ts";
 import { ChordError } from "../data/index.ts";
 import type { Batch } from "../state/internal.ts";

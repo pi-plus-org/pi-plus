@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 // The call window (§3, decision log "Flow control: an ack-clocked window"; decision "Call windows only for untrusted
 // links"): at most the peer's N calls of one origin in flight on a link; further calls wait in one FIFO queue, sent in
 // order as replies free slots. A peer that announced no window takes every call at once.
@@ -13,19 +12,6 @@ export type QueuedCall<H = number> = { readonly hold: H; readonly send: () => vo
  */
 export class CallWindow<C extends QueuedCall<unknown> = QueuedCall> {
 	/** The peer's N: 0 until its `hello` arrived ("no hello yet"), `Infinity` when it announced no window. */
-=======
-// The call window (§3, decision log "Flow control: an ack-clocked window"): at most the peer's N calls in flight on a
-// link from this host; further calls wait in one FIFO queue, sent in order as replies free slots.
-
-/** A call waiting for a slot: its hold (a rebind or release takes it out) and what sends it. */
-export type QueuedCall = { readonly hold: number; readonly send: () => void };
-
-/**
- * The calls of one link's consumer side. `limit` is the peer's N from its `hello` (0 before it, so every call waits).
- * A relay forwards its downstream calls at once, so only this host's own calls are counted here.
- */
-export class CallWindow<C extends QueuedCall = QueuedCall> {
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	#limit = 0;
 	#inFlight = 0;
 	readonly #waiting = new Set<C>();
@@ -40,7 +26,6 @@ export class CallWindow<C extends QueuedCall = QueuedCall> {
 		this.#waiting.add(call);
 	}
 
-<<<<<<< HEAD
 	/** The peer's window arrived with its `hello` (`undefined`: none announced): waiting calls go out. */
 	opened(limit: number | undefined): void {
 		this.#limit = limit ?? Infinity;
@@ -51,15 +36,6 @@ export class CallWindow<C extends QueuedCall = QueuedCall> {
 	 * A call in flight ended (its reply, its abort sent, its hold released or gone): its slot is free. A caller taking
 	 * waiting calls out at the same time takes them out first (`remove`, `removeHold`), so the slot never sends one.
 	 */
-=======
-	/** The peer's window arrived with its `hello`: waiting calls go out. */
-	opened(limit: number): void {
-		this.#limit = limit;
-		this.#drain();
-	}
-
-	/** A call in flight ended (its reply, its abort sent, its hold released or gone): its slot is free. */
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	freed(): void {
 		this.#inFlight--;
 		this.#drain();
@@ -71,7 +47,6 @@ export class CallWindow<C extends QueuedCall = QueuedCall> {
 	}
 
 	/** Takes every waiting call of `hold` out and returns them (its hold rebinds or was released). */
-<<<<<<< HEAD
 	removeHold(hold: C["hold"]): C[] {
 		return this.removeWhere((call) => call.hold === hold);
 	}
@@ -84,12 +59,6 @@ export class CallWindow<C extends QueuedCall = QueuedCall> {
 		const removed: C[] = [];
 		for (const call of this.#waiting) {
 			if (!matches(call)) continue;
-=======
-	removeHold(hold: number): C[] {
-		const removed: C[] = [];
-		for (const call of this.#waiting) {
-			if (call.hold !== hold) continue;
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 			this.#waiting.delete(call);
 			removed.push(call);
 		}

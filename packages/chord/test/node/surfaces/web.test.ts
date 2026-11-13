@@ -6,7 +6,6 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
-<<<<<<< HEAD
 import { hostKind } from "../../../src/contracts/index.ts";
 import { createHost } from "../../../src/host/index.ts";
 import { WebScripts } from "../../../src/index.ts";
@@ -14,11 +13,6 @@ import { Sessions } from "../../../src/node/app/index.ts";
 import { createHttp } from "../../../src/node/http/index.ts";
 import { createPlugins } from "../../../src/node/plugins/index.ts";
 import { pageBootstrap, pageScripts, webSurface } from "../../../src/node/surfaces/index.ts";
-=======
-import { WebScripts } from "../../../src/index.ts";
-import { Sessions } from "../../../src/node/app/index.ts";
-import { pageScripts } from "../../../src/node/surfaces/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { tempDir, testApp } from "../app/support.ts";
 import { send } from "../http/support.ts";
 

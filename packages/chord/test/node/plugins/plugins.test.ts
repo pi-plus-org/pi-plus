@@ -21,7 +21,6 @@ import {
 	type RolloutStep,
 } from "../../../src/node/plugins/index.ts";
 import { constant } from "../../../src/state/index.ts";
-<<<<<<< HEAD
 import {
 	changesOf,
 	delivered,
@@ -42,10 +41,6 @@ import {
 	writePackage,
 	writePlugin,
 } from "./support.ts";
-=======
-import { changesOf, delivered, expectCollected, rejection, settledHeap, transported, valuesOf } from "../../support.ts";
-import { gitRepository, HOST_PACKAGES, kindsOf, tempRoot, writeFiles, writePackage, writePlugin } from "./support.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /** The fixtures' contracts, as the `contracts` fixture declares them. */
 const Worker = hostKind("test.worker");
@@ -60,7 +55,6 @@ const Item = local("test.item", { version: 1, params: {}, members: { label: str(
 
 /** A plugin `dir` named `@test/<dir>` serving `Item` labelled `label` from its worker facet. */
 async function itemPlugin(root: string, dir: string, label: string): Promise<void> {
-<<<<<<< HEAD
 	await writePlugin(root, dir, `@test/${dir}`, { "worker.ts": itemSource(dir, label) });
 }
 
@@ -71,15 +65,6 @@ function itemSource(dir: string, label: string): string {
 		`const Item = local("test.${dir}", { version: 1, params: {}, members: { label: str() } });`,
 		`export default defineFacet((host) => host.serve(Item, () => ({ label: constant(${JSON.stringify(label)}) })));`,
 	].join("\n");
-=======
-	await writePlugin(root, dir, `@test/${dir}`, {
-		"worker.ts": [
-			'import { constant, defineFacet, local, str } from "@earendil-works/chord";',
-			`const Item = local("test.${dir}", { version: 1, params: {}, members: { label: str() } });`,
-			`export default defineFacet((host) => host.serve(Item, () => ({ label: constant(${JSON.stringify(label)}) })));`,
-		].join("\n"),
-	});
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 }
 
 /** The report of an in-process step's one host. */

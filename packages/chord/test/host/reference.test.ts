@@ -14,10 +14,7 @@ import {
 } from "../../src/host/index.ts";
 import { ChordObject } from "../../src/host/object.ts";
 import { Binding } from "../../src/host/reference.ts";
-<<<<<<< HEAD
 import { jsonPart } from "../../src/link/internal.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { RemoteObject } from "../../src/remote/remote-object.ts";
 import { constant } from "../../src/state/index.ts";
 import type { Store } from "../../src/store/index.ts";

@@ -3,14 +3,9 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-<<<<<<< HEAD
 import { hostKind, int, opt, str } from "../../src/contracts/index.ts";
 import { add, eq, prefix, when } from "../../src/store/expression.ts";
 import { host } from "../../src/store/host-column.ts";
-=======
-import { int, opt, str } from "../../src/contracts/index.ts";
-import { add, eq, prefix } from "../../src/store/expression.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { StagedWrite } from "../../src/store/step.ts";
 import type { ChordStore } from "../../src/store/store.ts";
 import { defineTable } from "../../src/store/table.ts";

@@ -4,12 +4,8 @@
 // handshake) fails its holders `failed { waiting }` until then, and a suspended address resolves nothing while held.
 // Each `resolve` is a `chord.resolve` root span linked to the hold that started it (slice 9).
 
-<<<<<<< HEAD
 import type { TelemetrySpan } from "@earendil-works/pi-telemetry";
 import { type Context, withTelemetry } from "../context/index.ts";
-=======
-import type { Context } from "../context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Address, HostKind, KindShape } from "../contracts/index.ts";
 import { kindParams, type ParamsData } from "../contracts/internal.ts";
 import { ChordError, forbidden, type Principal } from "../data/index.ts";

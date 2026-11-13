@@ -1,6 +1,5 @@
 // Tests of the React bindings (slice 11 §3) in a real browser (Chromium; skipped without one), on the fixture's page:
 // `useHold` holds while mounted and releases on unmount, `useWatch` re-renders on change, `useRefState` follows the
-<<<<<<< HEAD
 // reference's state, `useRegistry` the registry (the panels), `usePageState` keeps a value across a remount by another
 // component function and starts a new key fresh, `useMessages` re-renders in a language chosen while the page runs,
 // half-typed inputs kept, `useEvents` calls the latest listener (also between a commit and its passive effects),
@@ -9,12 +8,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
 import { LocaleChoice } from "../../../src/index.ts";
-=======
-// reference's state, `useRegistry` the registry (the panels).
-
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { Browser, CHROMIUM } from "../web/browser.ts";
 import { freePort, panelPlugin, signIn, versionedEntry, webApp } from "../web/support.ts";
 
@@ -53,7 +46,6 @@ describe.skipIf(CHROMIUM === undefined)("React bindings", () => {
 			await app.close(context);
 		}
 	}, 120_000);
-<<<<<<< HEAD
 
 	it("keeps page state across a remount by a new function, a new key starting fresh", async () => {
 		const { app } = await webApp(await versionedEntry("1"), await freePort());
@@ -133,6 +125,4 @@ describe.skipIf(CHROMIUM === undefined)("React bindings", () => {
 			await app.close(context);
 		}
 	}, 120_000);
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 });

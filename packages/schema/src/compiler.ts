@@ -24,10 +24,11 @@ import {
 	ALWAYS,
 	and,
 	anyCheck,
+	type Bound,
 	bytesCheck,
-	closedObject,
 	constCheck,
 	containsCheck,
+	declaredObject,
 	dependentRequiredCheck,
 	dependentSchemasCheck,
 	enumCheck,
@@ -43,9 +44,10 @@ import {
 	ifCheck,
 	indirect,
 	itemsCheck,
-	LEAF_CODES,
+	leafOf,
 	lengthCheck,
 	listCheck,
+	maskedAnyCheck,
 	NEVER,
 	notCheck,
 	numberCheck,
@@ -56,12 +58,14 @@ import {
 	REQUIRED,
 	scopedCheck,
 	stringCheck,
+	TYPE_CHECKS,
 	taggedCheck,
 	typeCheck,
+	typeMask,
 	uniqueCheck,
 } from "./checks.ts";
 import { documentOf, isSchemaObject, Resolver, resolveUri } from "./resolver.ts";
-import { sharedCheck, sharedRegex } from "./shared.ts";
+import { sharedRegex } from "./shared.ts";
 import type { Check, CompileOptions, FormatCheck, JsonSchema, SchemaObject } from "./types.ts";
 
 /** Thrown when a compile without dynamic scope tracking meets a bookended `$dynamicRef`: compile again with it. */
@@ -101,15 +105,11 @@ export class Compiler {
 			throw new Error(`A schema must be an object or a boolean, got ${JSON.stringify(node)}`);
 		const cached = this.cache.get(node);
 		if (cached !== undefined) return cached;
-		const key = this.leafKey(node);
-		if (key !== undefined) {
-			const shared = sharedCheck(key, () => this.plain(node, base));
-			this.cache.set(node, shared);
-			return shared;
-		}
+		const bare = this.bareType(node);
+		if (bare !== undefined) return bare;
 		const slot: { check: Check | undefined } = { check: undefined };
 		this.cache.set(node, indirect(slot));
-		const check = this.build(node, this.r.baseOf.get(node) ?? base);
+		const check = this.build(node, this.r.baseFor(node, base));
 		slot.check = check;
 		this.cache.set(node, check);
 		return check;
@@ -125,18 +125,17 @@ export class Compiler {
 	}
 
 	/**
-	 * The sharing key of a leaf schema (only assertion keywords; no subschemas, references or identifiers): equal leaves
-	 * in all compiled schemas share one check. Undefined for every other schema.
+	 * The module-level check of a schema that is only a `type` (with annotations), `ALWAYS` for one with no assertion
+	 * at all; undefined for every other schema. These are the most common subschemas and cost nothing to share.
 	 */
-	private leafKey(node: SchemaObject): string | undefined {
-		const picked: Record<string, unknown> = {};
-		for (const k of Object.keys(node)) {
-			if (LEAF_KEYWORDS.has(k)) picked[k] = node[k];
+	private bareType(node: SchemaObject): Check | undefined {
+		let type: unknown;
+		for (const k in node) {
+			if (k === "type") type = node.type;
 			else if (!NEUTRAL_KEYWORDS.has(k)) return undefined;
 		}
-		// A format checks through this compile's format map, so a leaf with one is shared only while formats are off.
-		if (picked.format !== undefined && this.formats !== undefined) return undefined;
-		return this.draft + JSON.stringify(picked);
+		if (type === undefined) return ALWAYS;
+		return typeof type === "string" ? TYPE_CHECKS.get(type) : undefined;
 	}
 
 	/** Every keyword of `node`, not tracking annotations. */
@@ -149,20 +148,21 @@ export class Compiler {
 			parts.push(bytesCheck(number(node.minLength) ?? 0, number(node.maxLength) ?? Number.POSITIVE_INFINITY));
 			typeInGroup = true;
 		} else {
-			const groups: [Check | undefined, boolean][] = [
-				[this.stringGroup(node, single === "string"), single === "string"],
-				[
-					this.numberGroup(node, single === "number" ? 1 : single === "integer" ? 2 : 0),
-					single === "number" || single === "integer",
-				],
-				[this.objectGroup(node, base, single === "object"), single === "object"],
-				[this.arrayGroup(node, base, single === "array"), single === "array"],
-			];
-			for (const [group, strict] of groups) {
-				if (group === undefined) continue;
-				parts.push(group);
-				if (strict) typeInGroup = true;
-			}
+			const string = this.stringGroup(node, single === "string");
+			if (string !== undefined) parts.push(string);
+			const numeric = single === "number" || single === "integer" || single === "bigint";
+			const mode = single === "number" ? 1 : single === "integer" ? 2 : single === "bigint" ? 3 : 0;
+			const number = this.numberGroup(node, mode);
+			if (number !== undefined) parts.push(number);
+			const object = this.objectGroup(node, base, single === "object");
+			if (object !== undefined) parts.push(object);
+			const array = this.arrayGroup(node, base, single === "array");
+			if (array !== undefined) parts.push(array);
+			typeInGroup =
+				(single === "string" && string !== undefined) ||
+				(numeric && number !== undefined) ||
+				(single === "object" && object !== undefined) ||
+				(single === "array" && array !== undefined);
 		}
 		if (types !== undefined && !typeInGroup) parts.unshift(typeCheck(types));
 		this.inPlace(node, base, parts);
@@ -193,7 +193,7 @@ export class Compiler {
 		return (
 			constUnion(branches, exactlyOne) ??
 			this.tagged(branches, base) ??
-			(exactlyOne ? oneCheck(checks()) : anyCheck(checks()))
+			(exactlyOne ? oneCheck(checks()) : anyOf(checks()))
 		);
 	}
 
@@ -255,7 +255,7 @@ export class Compiler {
 		for (const branch of branches) {
 			if (!isSchemaObject(branch)) return undefined;
 			const ref = typeof branch.$ref === "string" && Object.keys(branch).length === 1 ? branch.$ref : undefined;
-			const node = ref === undefined ? branch : this.r.resolve(ref, this.r.baseOf.get(branch) ?? base).node;
+			const node = ref === undefined ? branch : this.r.resolve(ref, this.r.baseFor(branch, base)).node;
 			if (!isSchemaObject(node)) return undefined;
 			resolved.push(node);
 		}
@@ -285,12 +285,12 @@ export class Compiler {
 		return stringCheck(strict, min, max, re, format);
 	}
 
-	private numberGroup(node: SchemaObject, mode: 0 | 1 | 2): Check | undefined {
-		const min = number(node.minimum);
-		const max = number(node.maximum);
-		const xmin = number(node.exclusiveMinimum);
-		const xmax = number(node.exclusiveMaximum);
-		const multipleOf = number(node.multipleOf);
+	private numberGroup(node: SchemaObject, mode: 0 | 1 | 2 | 3): Check | undefined {
+		const min = bound(node.minimum);
+		const max = bound(node.maximum);
+		const xmin = bound(node.exclusiveMinimum);
+		const xmax = bound(node.exclusiveMaximum);
+		const multipleOf = bound(node.multipleOf);
 		if ([min, max, xmin, xmax, multipleOf].every((x) => x === undefined)) return undefined;
 		const inf = Number.POSITIVE_INFINITY;
 		return numberCheck(mode, min ?? -inf, max ?? inf, xmin ?? -inf, xmax ?? inf, multipleOf);
@@ -338,20 +338,23 @@ export class Compiler {
 		) {
 			return undefined;
 		}
-		// One array per object: key, check, flags (leaf code, required, key also names an Object.prototype member).
+		// One array per object: key, check (or a leaf's argument), flags (leaf code, required, key also names an
+		// Object.prototype member).
 		const entries: unknown[] = [];
 		for (const k of keys) {
 			const check = this.check(properties[k], base);
+			const leaf = leafOf(check);
 			const flags =
-				(LEAF_CODES.get(check) ?? 0) |
-				(required.includes(k) ? REQUIRED : 0) |
-				(k in Object.prototype ? INHERITED : 0);
-			entries.push(k, check, flags);
+				(leaf?.[0] ?? 0) | (required.includes(k) ? REQUIRED : 0) | (k in Object.prototype ? INHERITED : 0);
+			entries.push(k, leaf === undefined ? check : leaf[1], flags);
 		}
 		const extraRequired = required.filter((k) => !Object.hasOwn(properties, k));
 		const pats = patternKeys.map((p) => [sharedRegex(p), this.check(patterns[p], base)] as const);
-		if (additional === false && pats.length === 0 && extraRequired.length === 0) return closedObject(entries, guard);
 		const extra = additional === undefined || additional === true ? undefined : this.check(additional, base);
+		if (pats.length === 0 && extraRequired.length === 0 && (extra === undefined || additional === false)) {
+			const requiredCount = keys.filter((k) => required.includes(k)).length;
+			return declaredObject(entries, requiredCount, additional === false, guard);
+		}
 		return openObject(entries, keys, extraRequired, pats, extra, guard);
 	}
 
@@ -404,8 +407,7 @@ export class Compiler {
 		if (cached !== undefined) return cached;
 		const slot: { check: AnnotatingCheck | undefined } = { check: undefined };
 		this.annotatingCache.set(node, indirectAnnotating(slot));
-		const b = this.r.baseOf.get(node) ?? base;
-		const check = this.buildAnnotating(node, b);
+		const check = this.buildAnnotating(node, this.r.baseFor(node, base));
 		slot.check = check;
 		this.annotatingCache.set(node, check);
 		return check;
@@ -510,29 +512,6 @@ export class Compiler {
 	}
 }
 
-// Keywords whose check depends only on their own value, and keywords that never affect a check.
-const LEAF_KEYWORDS = new Set([
-	"type",
-	"enum",
-	"const",
-	"minLength",
-	"maxLength",
-	"pattern",
-	"format",
-	"minimum",
-	"maximum",
-	"exclusiveMinimum",
-	"exclusiveMaximum",
-	"multipleOf",
-	"minItems",
-	"maxItems",
-	"uniqueItems",
-	"minProperties",
-	"maxProperties",
-	"required",
-	"dependentRequired",
-]);
-
 /** Keywords that never affect a check. */
 export const NEUTRAL_KEYWORDS = new Set([
 	"$schema",
@@ -587,7 +566,7 @@ const ANNOTATING = new Set([
 	"unevaluatedItems",
 ]);
 
-/** anyOf/oneOf whose branches are all `{ const: primitive }`: one shared enum (distinct values make oneOf the same). */
+/** anyOf/oneOf whose branches are all `{ const: primitive }`: an enum (distinct values make oneOf the same). */
 function constUnion(branches: readonly unknown[], exactlyOne: boolean): Check | undefined {
 	const values: unknown[] = [];
 	for (const branch of branches) {
@@ -597,8 +576,22 @@ function constUnion(branches: readonly unknown[], exactlyOne: boolean): Check | 
 		if (exactlyOne && values.includes(branch.const)) return undefined;
 		values.push(branch.const);
 	}
-	return sharedCheck(`enum${JSON.stringify(values)}`, () => enumCheck(values));
+	return enumCheck(values);
 }
+
+/** `anyOf`: its bare-type branches (`nullable` gives one) run as one type test. */
+function anyOf(checks: readonly Check[]): Check {
+	const types: string[] = [];
+	const rest: Check[] = [];
+	for (const check of checks) {
+		const type = BARE_TYPES.get(check);
+		if (type === undefined) rest.push(check);
+		else types.push(type);
+	}
+	return types.length === 0 ? anyCheck(rest) : maskedAnyCheck(typeMask(types), rest);
+}
+
+const BARE_TYPES: ReadonlyMap<Check, string> = new Map([...TYPE_CHECKS].map(([type, check]) => [check, type]));
 
 // The tag of a tagged-union branch: a primitive const on a required property of an object schema.
 function tagOf(branch: SchemaObject, key: string): unknown {
@@ -607,6 +600,11 @@ function tagOf(branch: SchemaObject, key: string): unknown {
 	const tag = isSchemaObject(properties) ? properties[key] : undefined;
 	if (!isSchemaObject(tag) || !Object.hasOwn(tag, "const")) return undefined;
 	return typeof tag.const === "object" && tag.const !== null ? undefined : tag.const;
+}
+
+/** A number keyword's value: a number, or a bigint (TypeBox's `Type.BigInt` bounds). */
+function bound(value: unknown): Bound | undefined {
+	return typeof value === "number" || typeof value === "bigint" ? value : undefined;
 }
 
 function number(value: unknown): number | undefined {

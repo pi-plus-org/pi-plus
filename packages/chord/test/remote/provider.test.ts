@@ -1,7 +1,6 @@
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-<<<<<<< HEAD
 import {
 	type Contract,
 	type EventSource,
@@ -22,15 +21,6 @@ import { type Compression, memoryLinkPair, type PartLimits } from "../../src/lin
 import { DeflatedPart, jsonPart, type Message } from "../../src/link/internal.ts";
 import { nodeCompression } from "../../src/node/compression.ts";
 import { ProviderSide } from "../../src/remote/provider.ts";
-=======
-import { type Contract, int, local, map, method, obj, remote } from "../../src/contracts/index.ts";
-import { PendingOps } from "../../src/delta/index.ts";
-import { defineState } from "../../src/documents/index.ts";
-import { createHost, defineFacet, type FacetHost } from "../../src/host/index.ts";
-import { type Compression, memoryLinkPair, type PartLimits } from "../../src/link/index.ts";
-import { DeflatedPart, jsonPart, type Message } from "../../src/link/internal.ts";
-import { nodeCompression } from "../../src/node/compression.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { constant } from "../../src/state/index.ts";
 import {
 	addNote,

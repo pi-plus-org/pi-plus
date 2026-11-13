@@ -13,8 +13,12 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { type DirectoryListing, Envs } from "./contract.ts";
 
+/** The picker at the location its view passes (`env`, `value`): the session's, or the new session's. */
+export const DIRECTORY_PICKER = { kind: "sheet", name: "cwd" } as const;
+
+/** The picker at `path` on `env`. */
 export function directoryPickerLayer(env: string | null, path: string) {
-	return { kind: "sheet" as const, name: "cwd", locator: JSON.stringify({ env, path }) };
+	return { ...DIRECTORY_PICKER, locator: JSON.stringify({ env, path }) };
 }
 function locationLabel(env: string | null, cwd: string): string {
 	return env ? `${env}:${cwd}` : shortPath(cwd);
@@ -130,6 +134,17 @@ export function DirectoryPicker({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: lists again when the folder or environment changes; load is recreated each render.
 	useEffect(() => load(shown), [shown, env, service]);
 	const moves = moving !== undefined && moving.env !== env;
+	const sandboxHost = (name: string | null) => {
+		const config = envs.find((entry) => entry.name === name)?.config;
+		return config?.type === "gondolin" ? config.host : undefined;
+	};
+	const sandbox = sandboxHost(env) !== undefined;
+	// Leaving a sandbox is confirmed: outside every sandbox its tools run unconfined, in another one they get its
+	// folders and network access.
+	const leaves = moves && sandboxHost(moving.env) !== undefined;
+	const [leaving, setLeaving] = useState<string>();
+	const target = listing ? listingKey(env, listing.path) : undefined;
+	const use = listing && `${moves ? "Move session to" : "Use"} ${locationLabel(env, listing.path)}`;
 
 	return (
 		<Sheet title="Working directory" onClose={onClose}>
@@ -144,11 +159,26 @@ export function DirectoryPicker({
 						disabled={loading}
 					>
 						<option value="">This device</option>
-						{envs.map((entry) => (
-							<option key={entry.name} value={entry.name}>
-								{entry.name} (remote)
-							</option>
-						))}
+						{envs.map(
+							(entry) =>
+								entry.config.type === "ssh" && (
+									<option key={entry.name} value={entry.name}>
+										{entry.name} (remote)
+									</option>
+								),
+						)}
+						{envs.some((entry) => entry.config.type === "gondolin") && (
+							<optgroup label="Sandboxes">
+								{envs.map(
+									(entry) =>
+										entry.config.type === "gondolin" && (
+											<option key={entry.name} value={entry.name}>
+												{entry.name} · sandbox on {entry.config.host}
+											</option>
+										),
+								)}
+							</optgroup>
+						)}
 					</select>
 				)}
 				<form
@@ -168,16 +198,48 @@ export function DirectoryPicker({
 						disabled={loading}
 					/>
 				</form>
-				{listing && (
-					<button
-						type="button"
-						className="button primary block directory-use"
-						disabled={loading}
-						onClick={() => onChange(env, listing.path)}
-					>
-						{moves ? "Move session to" : "Use"} {locationLabel(env, listing.path)}
-					</button>
+				{sandbox && (
+					<p className="muted small directory-note">
+						Tools of this session run in the {env} VM and can't leave it. Only you can move the session out.
+					</p>
 				)}
+				{listing &&
+					(leaves && leaving === target ? (
+						<div className="notice env-test directory-leave" role="alert">
+							<p>
+								<strong>Leave sandbox {moving?.env}?</strong>
+							</p>
+							<p>
+								{sandbox
+									? `Moving to ${locationLabel(env, listing.path)} gives this session's tools sandbox ${env}'s folders and allowed hosts instead.`
+									: `Moving to ${locationLabel(env, listing.path)} lets this session's tools run directly on ${env ?? "this device"}, with its full network access and files.`}
+							</p>
+							<p className="muted small">Files written in the sandbox stay in its folders.</p>
+							<div className="inline-form">
+								<button
+									type="button"
+									className="button danger"
+									disabled={loading}
+									onClick={() => onChange(env, listing.path)}
+								>
+									Move out
+								</button>
+								<button type="button" className="button" onClick={() => setLeaving(undefined)}>
+									Cancel
+								</button>
+							</div>
+						</div>
+					) : (
+						<button
+							type="button"
+							className="button primary block directory-use"
+							title={use}
+							disabled={loading}
+							onClick={() => (leaves ? setLeaving(target) : onChange(env, listing.path))}
+						>
+							<span className="directory-path">{use}</span>
+						</button>
+					))}
 				{moves && (
 					<p className="muted small directory-note">
 						Tools will run {env === null ? "on this device" : `on ${env}`}. The history stays; files are not
@@ -215,7 +277,7 @@ export function DirectoryPicker({
 					{listing.directories.map((path) => (
 						<button type="button" key={path} className="row-button mono" onClick={() => browse(path)}>
 							<span>
-								<FolderIcon /> {name(path)}
+								<FolderIcon /> <span className="directory-path">{name(path)}</span>
 							</span>
 							<ChevronIcon />
 						</button>
@@ -230,9 +292,15 @@ export function DirectoryPicker({
 					{recent(env)
 						.slice(0, 8)
 						.map((path) => (
-							<button type="button" key={path} className="row-button mono" onClick={() => browse(path)}>
+							<button
+								type="button"
+								key={path}
+								className="row-button mono"
+								title={locationLabel(env, path)}
+								onClick={() => browse(path)}
+							>
 								<span>
-									<FolderIcon /> {locationLabel(env, path)}
+									<FolderIcon /> <span className="directory-path">{locationLabel(env, path)}</span>
 								</span>
 								<ChevronIcon />
 							</button>

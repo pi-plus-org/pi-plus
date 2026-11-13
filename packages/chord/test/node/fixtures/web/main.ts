@@ -1,6 +1,5 @@
 // The web entry of the browser tests (the base bundle): `startPage` with the tests' API modules and React, a core facet
 // serving `Panels` and the counter, and a React app: the panels (`useRegistry`), a draft input (component state an
-<<<<<<< HEAD
 // in-place reload keeps), a counter held while shown (`useHold`, `useWatch`, `useRefState`), and a note in page state
 // (`usePageState`) whose component the "remount" button replaces by another function, as a plugin reload does, a
 // greeting in the page's language (`useMessages`), the core facet contributing its catalogs, the page's beats subscribed
@@ -8,17 +7,10 @@
 
 import * as React from "react";
 import { createElement as h, useLayoutEffect, useState } from "react";
-=======
-// in-place reload keeps), and a counter held while shown (`useHold`, `useWatch`, `useRefState`).
-
-import * as React from "react";
-import { createElement as h, useState } from "react";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import * as jsx from "react/jsx-runtime";
 import { createRoot } from "react-dom/client";
 import { BACKGROUND_CONTEXT } from "../../../../src/context/index.ts";
 import * as chord from "../../../../src/index.ts";
-<<<<<<< HEAD
 import {
 	HostProvider,
 	useEvents,
@@ -68,20 +60,6 @@ const core = defineFacet((host, self) => {
 		probe.beat = (member, value) => (member === "a" ? a : b).emit(value);
 		return { a, b };
 	});
-=======
-import { HostProvider, useHold, useRefState, useRegistry, useWatch } from "../../../../src/react/index.ts";
-import { startPage } from "../../../../src/web/index.ts";
-import * as webApi from "./api.ts";
-
-const { defineFacet } = chord;
-
-/** What the tests read from the page. */
-const probe = globalThis as unknown as { loads: number; counterState?: () => string | undefined; connection?: string };
-probe.loads = (probe.loads ?? 0) + 1;
-
-const core = defineFacet((host) => {
-	host.serve(webApi.Panels, { compose: (table) => table.map(({ value }) => value) });
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	host.serve(webApi.Counter, (_params, self) => {
 		const count = self.writable(0);
 		return {
@@ -111,7 +89,6 @@ function Counter() {
 	);
 }
 
-<<<<<<< HEAD
 /** An input of the page state at `key`. */
 function noteInput(key: string) {
 	const [note, setNote] = usePageState(key, "");
@@ -157,21 +134,12 @@ function App() {
 	const [note, setNote] = useState(0);
 	const [beats, setBeats] = useState(true);
 	probe.toggleBeats = () => setBeats((value) => !value);
-=======
-function App() {
-	const panels = useRegistry(webApi.Panels) ?? [];
-	const [draft, setDraft] = useState("");
-	const [shown, setShown] = useState(true);
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	return h(
 		"div",
 		null,
 		h("ul", { id: "panels" }, ...panels.map((panel) => h("li", { key: panel, className: "panel" }, panel))),
-<<<<<<< HEAD
 		// `Parts` holds components (its values are typed loosely: the API module declares no React types).
 		h("div", { id: "parts" }, ...parts.map((part, index) => h(part as () => React.ReactNode, { key: index }))),
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		h("input", {
 			id: "draft",
 			value: draft,
@@ -179,7 +147,6 @@ function App() {
 		}),
 		h("button", { type: "button", id: "toggle", onClick: () => setShown((value) => !value) }, "toggle"),
 		shown ? h(Counter) : null,
-<<<<<<< HEAD
 		h("button", { type: "button", id: "remount", onClick: () => setNote((value) => value + 1) }, "remount"),
 		h(NOTES[note % NOTES.length]!),
 		h(Greeting),
@@ -194,14 +161,6 @@ function App() {
 export function start(options: { readonly themes?: false } = {}): void {
 	const started = startPage({
 		...options,
-=======
-	);
-}
-
-/** Starts the page (Chord's package is free of side effects for bundlers: the entry calls this). */
-export function start(): void {
-	void startPage({
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		connect: () => new WebSocket(`${location.origin.replace(/^http/, "ws")}/chord`),
 		modules: { "@test/app/v1": chord, "@test/app/v1/web": webApi, react: React, "react/jsx-runtime": jsx },
 		core: [{ name: "@test/core", facet: core }],
@@ -209,7 +168,6 @@ export function start(): void {
 			probe.connection = state;
 		},
 		render: (host) => createRoot(document.getElementById("root")!).render(h(HostProvider, { host }, h(App))),
-<<<<<<< HEAD
 		onError: (error) => {
 			probe.errors.push(error);
 			console.error("chord page:", error.kind);
@@ -217,7 +175,5 @@ export function start(): void {
 	});
 	void started.then((client) => {
 		probe.stop = () => client.stop(BACKGROUND_CONTEXT);
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	});
 }

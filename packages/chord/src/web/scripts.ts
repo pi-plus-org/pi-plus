@@ -4,11 +4,7 @@
 // base bundle and queued (the page's bootstrap); later ones are fetched one each and resolve the fetch that asked for
 // them. The plugins' stylesheets are `styles.ts`'s.
 
-<<<<<<< HEAD
 import type { FacetFunction, RegisteredScript, ScriptEntry } from "../surfaces/index.ts";
-=======
-import type { FacetFunction, RegisteredScript, ScriptEntry, ScriptSet } from "../surfaces/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { REGISTER } from "../surfaces/index.ts";
 
 /**

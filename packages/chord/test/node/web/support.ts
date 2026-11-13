@@ -6,14 +6,9 @@ import { writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-<<<<<<< HEAD
 import type { AppOptions } from "../../../src/node/app/index.ts";
 import { pageScripts } from "../../../src/node/surfaces/index.ts";
 import { type TestPrincipal, tempDir, testApp } from "../app/support.ts";
-=======
-import { pageScripts } from "../../../src/node/surfaces/index.ts";
-import { tempDir, testApp } from "../app/support.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Browser } from "./browser.ts";
 
 /** The fixture's web entry. */

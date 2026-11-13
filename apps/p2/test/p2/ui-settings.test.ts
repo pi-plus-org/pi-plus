@@ -103,7 +103,6 @@ describe("Settings window", { skip: !browserTests }, () => {
 				"Devices",
 				"Discord",
 				"Logs",
-				"Traces",
 			],
 		);
 		assert.equal(

@@ -9,17 +9,10 @@ import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
-<<<<<<< HEAD
 import { type ArchiveManifest, packData, unpackStaging } from "../../../src/node/app/archive.ts";
 import { writeTar } from "../../../src/node/app/tar.ts";
 import { openNodeSqliteDatabase } from "../../../src/sqlite/node.ts";
 import { decodeJsonl, encodeJsonl, openStore, sqliteBackend } from "../../../src/store/index.ts";
-=======
-import { type ArchiveManifest, packData, unpackData } from "../../../src/node/app/archive.ts";
-import { writeTar } from "../../../src/node/app/tar.ts";
-import { openNodeSqliteDatabase } from "../../../src/sqlite/node.ts";
-import { encodeJsonl, openStore, sqliteBackend } from "../../../src/store/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { tempDir } from "./support.ts";
 
 const MANIFEST: ArchiveManifest = { format: 2, app: "acme", api: "v1", address: { kind: "doc", key: "doc|1" } };

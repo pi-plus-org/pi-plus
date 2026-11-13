@@ -4,18 +4,7 @@
 
 import type { CallToolResult, ToolAnnotations } from "@earendil-works/pi-mcp";
 import { arr, int, nul, obj, oneOf, opt, type Static, str, union, unknown } from "@earendil-works/pi-schema";
-import {
-	type AcceptsTable,
-	evolve,
-	LocationSchema,
-	literal,
-	local,
-	method,
-	record,
-	remote,
-	serverHost,
-	unsafe,
-} from "@p2/app/v1";
+import { LocationSchema, literal, local, method, record, remote, serverHost, unsafe } from "@p2/app/v1";
 
 /** An MCP tool as its server lists it (`tools/list`). */
 const ToolSchema = obj({
@@ -34,19 +23,6 @@ const RunsOnSchema = union([literal("host"), obj({ env: str() })]);
 /** Where an instance runs: `"host"` (the p2 host) or `{ env }` (an environment of `envs.json`). */
 export type RunsOn = Static<typeof RunsOnSchema>;
 
-/** One running (or failed) server process or connection, as `Mcp` version 2 (b4afdddf4) released it. */
-const InstanceSchemaV2 = obj({
-	id: str(),
-	server: str(),
-	source: oneOf(["owner", "project"]),
-	location: union([LocationSchema, nul()]),
-	runsOn: RunsOnSchema,
-	auth: opt(literal("oauth")),
-	status: oneOf(["starting", "connected", "sign-in", "failed"]),
-	error: opt(str()),
-	tools: arr(ToolSchema),
-});
-
 /** One running (or failed) server process or connection. */
 export const InstanceSchema = obj({
 	id: str(),
@@ -62,10 +38,8 @@ export const InstanceSchema = obj({
 	error: opt(str()),
 	/** Kept while it reconnects. */
 	tools: arr(ToolSchema),
-	/** The server's instructions from `initialize`, if it sent any; kept while it reconnects. */
-	instructions: opt(str()),
 });
-/** One instance as the manager lists it: its server, where it runs, its status, error, tools and instructions. */
+/** One instance as the manager lists it: its server, where it runs, its status, error and tools. */
 export type Instance = Static<typeof InstanceSchema>;
 
 /**
@@ -130,8 +104,7 @@ const Caller = { session: str(), generation: int(), incarnation: str() };
  * moves the session to any configured environment.
  */
 export const McpManager = local("p2.mcp.manager", {
-	// 3: an instance's `instructions`.
-	version: 3,
+	version: 2,
 	params: {},
 	members: {
 		instances: arr(InstanceSchema),
@@ -181,8 +154,12 @@ export const McpManager = local("p2.mcp.manager", {
 	},
 });
 
-/** `Mcp` version 2, as b4afdddf4 released it (pages built before version 3 still hold it). */
-const McpV2 = remote("p2.mcp", {
+/**
+ * MCP servers as a principal sees them: a session worker sets its locations and calls tools (its session, generation
+ * and incarnation from the link), the owner sees every instance with its errors and sign-ins, restarts them and signs in
+ * and out of HTTP servers. Nobody else gets one.
+ */
+export const Mcp = remote("p2.mcp", {
 	version: 2,
 	params: {},
 	hostAddress: serverHost,
@@ -190,7 +167,7 @@ const McpV2 = remote("p2.mcp", {
 		worker: {
 			state: {
 				/** The instances the session's leases use, shared ones included; `error` is the owner's only. */
-				servers: arr(InstanceSchemaV2),
+				servers: arr(InstanceSchema),
 				/** Why the session's leases refused entries of its projects' `mcp.json` (or a location). */
 				errors: arr(str()),
 			},
@@ -208,7 +185,7 @@ const McpV2 = remote("p2.mcp", {
 		},
 		owner: {
 			/** `errors`: the owner's `mcp.json`'s, then every lease's (by session). */
-			state: { instances: arr(InstanceSchemaV2), errors: arr(str()), signIns: arr(SignInSchema) },
+			state: { instances: arr(InstanceSchema), errors: arr(str()), signIns: arr(SignInSchema) },
 			methods: {
 				restart: method(obj({ instance: str() })),
 				/**
@@ -224,26 +201,10 @@ const McpV2 = remote("p2.mcp", {
 	},
 });
 
-/**
- * MCP servers as a principal sees them: a session worker sets its locations and calls tools (its session, generation
- * and incarnation from the link), the owner sees every instance with its errors and sign-ins, restarts them and signs in
- * and out of HTTP servers. Nobody else gets one. 3: an instance's `instructions` (the server's own, from `initialize`);
- * the provider still serves 2 (`MCP_ACCEPTS`).
- */
-export const Mcp = evolve(McpV2, (e) =>
-	e.state("worker", "servers", arr(InstanceSchema)).state("owner", "instances", arr(InstanceSchema)),
-);
-
-/** What `Mcp` version 2's holders get: instances without `instructions`. */
-export const MCP_ACCEPTS: AcceptsTable<typeof Mcp> = {
-	2: { state: { worker: { servers: withoutInstructions }, owner: { instances: withoutInstructions } } },
-};
-
-function withoutInstructions(instances: readonly Instance[]) {
-	return instances.map(({ instructions: _instructions, ...instance }) => instance);
-}
-
 /** The p2 page that signs the owner in to HTTP server `server` (relative: it opens on the origin the viewer uses). */
 export function signInLink(server: string): string {
 	return `/mcp/sign-in/${encodeURIComponent(server)}`;
 }
+
+/** The worker's Durable extension of MCP tools. */
+export const MCP_EXTENSION = "mcp";

@@ -1,6 +1,5 @@
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { describe, expect, expectTypeOf, it } from "vitest";
-<<<<<<< HEAD
 import { BACKGROUND_CONTEXT as context, withTelemetry } from "../../src/context/index.ts";
 import { int, local, method } from "../../src/contracts/index.ts";
 import {
@@ -11,11 +10,6 @@ import {
 	type FacetSelf,
 	type Host,
 } from "../../src/host/index.ts";
-=======
-import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-import { int, local } from "../../src/contracts/index.ts";
-import { defineFacet, type Facet, type FacetHost, type FacetSelf, type Host } from "../../src/host/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { defineRegistry } from "../../src/registries/index.ts";
 import { constant } from "../../src/state/index.ts";
 import { loaded } from "../support.ts";

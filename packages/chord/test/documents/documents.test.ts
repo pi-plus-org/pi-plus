@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { InMemoryTelemetryContext } from "@earendil-works/pi-telemetry";
 import { describe, expect, it, vi } from "vitest";
 import { type Context, BACKGROUND_CONTEXT as context, withCancel, withTelemetry } from "../../src/context/index.ts";
@@ -9,13 +8,6 @@ import { eq } from "../../src/store/expression.ts";
 import type { TableOf } from "../../src/store/index.ts";
 import { defineTable } from "../../src/store/table.ts";
 import { delivered, framesOf, loaded, memoryStore, rejection } from "../support.ts";
-=======
-import { describe, expect, it } from "vitest";
-import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-import { arr, int, local, method, obj, str } from "../../src/contracts/index.ts";
-import { defineState, type KeyedHandle, type SingletonHandle } from "../../src/documents/index.ts";
-import { delivered, framesOf, loaded, rejection } from "../support.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 const List = defineState("list", { schema: obj({ items: arr(str()) }), version: 1, initial: () => ({ items: [] }) });
 const Drafts = defineState("drafts", {
@@ -30,17 +22,10 @@ const Owner = local("app.owner", {
 	members: { list: obj({ items: arr(str()) }), touch: method() },
 });
 
-<<<<<<< HEAD
 /** Serves `Owner` and hands out its handles; `errors` collects the host's background errors. */
 async function owner() {
 	const handles: { list?: SingletonHandle<{ items: string[] }>; drafts?: KeyedHandle<{ body: string }> } = {};
 	const { host, errors } = await loaded((h) =>
-=======
-/** Serves `Owner` and hands out its handles. */
-async function owner() {
-	const handles: { list?: SingletonHandle<{ items: string[] }>; drafts?: KeyedHandle<{ body: string }> } = {};
-	const { host } = await loaded((h) =>
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		h.serve(Owner, (_, self) => {
 			handles.list = self.state(List);
 			handles.drafts = self.state(Drafts);
@@ -48,11 +33,7 @@ async function owner() {
 		}),
 	);
 	const reference = await host.get(Owner, { id: 1 }, context);
-<<<<<<< HEAD
 	return { host, errors, reference, list: handles.list!, drafts: handles.drafts! };
-=======
-	return { host, reference, list: handles.list!, drafts: handles.drafts! };
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 }
 
 /** The keys a keyed handle lists. */
@@ -133,7 +114,6 @@ describe("when the owner ends", () => {
 		expect(await rejection(list.change(() => {}, context))).toEqual(released);
 	});
 });
-<<<<<<< HEAD
 
 describe('transactions their context\'s end cancelled (decision "Mistakes that wait are reported at once" (e))', () => {
 	it("are reported besides rejecting: a change started in a root and not awaited, its fn settled first", async () => {
@@ -269,5 +249,3 @@ describe("commits in telemetry (slice 9)", () => {
 		now.mockRestore();
 	});
 });
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

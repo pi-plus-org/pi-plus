@@ -9,7 +9,6 @@
 
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
-<<<<<<< HEAD
 import type { TelemetryCarrier, TelemetryContext } from "@earendil-works/pi-telemetry";
 import {
 	awaitWithContext,
@@ -18,17 +17,11 @@ import {
 	withoutAbortSignal,
 	withTelemetry,
 } from "../../context/index.ts";
-=======
-import { awaitWithContext, type Context, withAbortSignal, withoutAbortSignal } from "../../context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { local } from "../../contracts/index.ts";
 import { isChordError, type Principal } from "../../data/index.ts";
 import { type Ctx, defineFacet, type Facet, type Host } from "../../host/index.ts";
 import type { RegistryValue } from "../../registries/index.ts";
-<<<<<<< HEAD
 import { hostAttribute, OpenSpan, parentOf, spanFailed, untraced } from "../../telemetry.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	type Admitted,
 	admit,

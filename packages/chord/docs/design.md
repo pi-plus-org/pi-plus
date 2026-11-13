@@ -1,11 +1,6 @@
 # Chord v2: target design
 
-<<<<<<< HEAD
 The design of Chord v2 (`packages/chord/src`, the package's root export `@earendil-works/chord`) and of how apps (the playground, p3) use it: **the one current statement of every rule** (owner,
-=======
-The design of Chord v2 (`packages/chord/src`, the package's root export `@earendil-works/chord`; Chord v1 is kept in
-`src/old`) and of how apps (the playground, p3) use it: **the one current statement of every rule** (owner,
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 2026-10-24). Every decision is recorded in the decision log `packages/chord/docs/decisions.md` (the history and the
 reasons, kept complete) and folded into this document in the same commit. Where a rule is built, the slice is named
 (`slices.md`); the code follows this document. It replaces `apps/p2/docs/target-design.md`.
@@ -2823,7 +2818,6 @@ Decision "Slice 11's points", "Slice 11, P3" to "P9", and "Tutorial gaps" (1) (p
 
 - `chord/surfaces` serves the client surfaces (web and terminal) from the server; `chord/web` is a page's client host
   with its connection loop (p2's `keepConnected`), loading and applying the plugins' web facets. A base bundle per
-<<<<<<< HEAD
   client kind built on the server from the app's entry (content-hashed; packages resolved with the server process's
   conditions unless the app gives its own, so a page runs the Chord source the server runs); at page load the kind's
   current plugin set as one combined file named by its hash, later changed plugins one script each, each a script that
@@ -2840,27 +2834,15 @@ Decision "Slice 11's points", "Slice 11, P3" to "P9", and "Tutorial gaps" (1) (p
   (an event member subscribed while mounted, below "Channels"), and `usePageState(key, initial)`:
   `useState`'s pair kept by the page's host under a key, so a component remounted by a plugin reload (a new function)
   keeps it (§21, "UI on client hosts").
-=======
-  client kind built on the server from the app's entry (content-hashed); at page load the kind's current plugin set as
-  one combined file named by its hash, later changed plugins one script each, each a script that registers itself (no
-  eval); new scripts apply in place (`host.reload` in the page); pages learn of them through an object the web
-  component serves (the current set); a base code change reloads the page.
-- `chord/react`: `HostProvider`, `useHold`, `useWatch`, `useRegistry`, `useRefState`.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - `chord/tui/launcher`: a Node client connecting with a token, always running the downloaded code (the app's terminal
   entry on `chord/tui`) in a sandbox (decision "The terminal's sandbox is a child process": a child process on pipes
   with an empty environment, `--permission` granting nothing and no SQLite; the builtin allowlist and a frozen
   substitute `process` inside; a bridge terminal; the trusted launcher outside, confirming copy, open and attach on its
-<<<<<<< HEAD
   own prompt); a component scope (`hold`, `watch`, `registry`, `on` (an event member's listener), released on dispose,
   one `changed` callback for the
   app's redraw; `pageState(key, initial)`, the host's page state shared with `usePageState`; `optimistic(read, reduce?)`,
   a reader showing optimistic actions while their calls are pending, with `add` and `pending`, React's `useOptimistic`,
   §3), no pi-tui dependency.
-=======
-  own prompt); a component scope (`hold`, `watch`, `registry`, released on dispose, one `changed` callback for the
-  app's redraw), no pi-tui dependency.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ### Messages and languages (built after slice 11)
 

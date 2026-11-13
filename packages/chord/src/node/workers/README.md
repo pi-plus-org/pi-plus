@@ -1,17 +1,11 @@
 # workers
 
 The workers component (slice 10 §3, §4, design §23, decision "Slice 10's points"): a forked worker process per address
-<<<<<<< HEAD
 of one host kind, started on demand by the route it owns, stopped when idle, never restarted by itself; forked from the
 kind's worker base, bundled once by `build` (a start waits for it); its plugins are built by the server and shipped.
 `workerMain` is the worker's side. Node-only. Exported as `@earendil-works/chord/workers`; the worker's side alone
 (`workerMain`, `processLock`) as `@earendil-works/chord/workers/child`, which loads no esbuild: a worker entry imports
 that.
-=======
-of one host kind, started on demand by the route it owns, stopped when idle, never restarted by itself; its plugins are
-built by the server and shipped. `workerMain` is the worker's side. Node-only. Exported as
-`@earendil-works/chord/workers`.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ## For apps (`index.ts`)
 
@@ -19,10 +13,7 @@ built by the server and shipped. `workerMain` is the worker's side. Node-only. E
 // server.ts
 const workers = createWorkers(server, Session, {
 	kind: "worker", entry: "./worker.ts", execArgv: ["--import", resolver], env: { … },      // bootstrap
-<<<<<<< HEAD
 	baseDir: join(dataDir, "cache", "workers", "session"), compileCache: join(dataDir, "cache", "node"),   // optional
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	authorize: (principal, address) => app.mayReach(principal, address),                   // the route's (synchronous)
 	principal: (address) => ({ kind: "worker", session: address.params.id }),
 	start: (address, ctx) => app.startData(address, ctx),                                  // JSON, before each start
@@ -33,20 +24,13 @@ const workers = createWorkers(server, Session, {
 	onError: (error) => log(error),                                                        // WorkersError
 }, ctx);
 workers.state                                   // { [address key]: WorkerState }, a JSON watchable
-<<<<<<< HEAD
 await workers.build()                           // { kind: "built", inputs } | { kind: "failed", error }; never rejects
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 await workers.stop(Session({ id }), ctx);       // suspended while held, then stopped
 await workers.retry(Session({ id }), ctx);      // a failed or suspended address starts again (if held)
 await plugins.rollout([plugins.step("server", server), workers.step("workers")], built, ctx);
 await workers.close(ctx);
 
-<<<<<<< HEAD
 // worker.ts (imports `workerMain` from "@earendil-works/chord/workers/child")
-=======
-// worker.ts
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 workerMain(async ({ address, start, parent, plugins, onClose }, ctx) => {
 	const host = createHost({ address, principal: { kind: "worker" }, store, onError });
 	onClose((ctx) => host.close(ctx));                                    // closers run in reverse order
@@ -60,7 +44,6 @@ workerMain(async ({ address, start, parent, plugins, onClose }, ctx) => {
   `resolve` rejects at once with its stored failure (its holders see `failed { waiting }`, nothing forks); the kernel
   reports that rejection (`resolve_failed`) once per new hold, so every tab opening a failed session adds one `onError`
   entry.
-<<<<<<< HEAD
 - **The worker base** (decision "Workers start from the base code the server booted with"): `createWorkers` bundles
   `entry` and the base code it imports once, at `build` (esbuild; the kit calls it right after the server listens, and
   a start waits for it, starting it when nothing did), and forks every worker from that snapshot, so an edit of the
@@ -94,14 +77,11 @@ workerMain(async ({ address, start, parent, plugins, onClose }, ctx) => {
   `nodeBaseInputs(entry, conditions)` records the same for a Node entry's static graph without writing or running
   anything, best effort (the kit's record of the server's own code): literal imports, lazy ones included; an import
   that does not resolve is left out; resolved as Node does (no `tsconfig.json` `paths`); other esbuild failures reject.
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - **Per address:** a child's events (`started`, `ready`, `idle`, `fatal`, its exit, its link closed by this side) are
   recorded on that child as they happen (a late event of an old child changes nothing); starts and stops run one after
   another. A start waits for the previous child's exit and rejects with a crash recorded meanwhile; a stop records its
   intent before `shutdown`, so the exit it causes is no crash.
 - **A start:** the app's `start(address, ctx)` (aborted by `close`), then the fork (`serialization: "advanced"`, a
-<<<<<<< HEAD
   detached process group, the worker base's file with `--enable-source-maps` and `execArgv`, the server's environment
   with `env` over it: a worker inherits every variable the server has, secrets included, unless the app starts the
   server with a trimmed one; stdout and stderr piped: the stderr tail kept, both mirrored to this process's own
@@ -117,18 +97,6 @@ workerMain(async ({ address, start, parent, plugins, onClose }, ctx) => {
   after the grace). After `ready` its exit is a stop: `worker_link_lost { address, error }`, and the held route
   resolves again, a new worker. A second within a minute of the address's last recovery fails it (public error
   `worker lost its link`), as does one before `ready`.
-=======
-  detached process group, the server's environment with `env` over it: a worker inherits every variable the server
-  has, secrets included, unless the app starts the server with a trimmed one; stdout and stderr piped: the stderr tail
-  kept, both mirrored to this process's own without `onOutput`), its IPC link made at once, the start message `{
-  address, start, scripts, lock }` (`scripts`: the kind's current set, `plugins.scripts(kind)`). The child takes the
-  lock (waiting for an old holder without polling), makes its parent link and sends `started` when the app's host
-  connects; `resolve` returns the link then. The start timer (60 s) covers fork, lock and connect only. `ready` (after
-  the app's function returned, with the idle state and the load report) makes the worker `running`.
-- **Failures stay** (R2): a crash (an exit nobody asked for), a `fatal`, a link closed by this side (the heartbeat, a
-  protocol error: the child is stopped, grace 5 s, then killed) or a failed start leaves the address `failed`
-  (`worker_failed` once, `worker_exited` for the exit) until `retry` or a rollout reaching workers.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - **Keep-alive:** the child reports when its idleness flips: `host.activity`'s `references`, `jobs` and `lingering` and
   the app's `busy` (a JSON watchable of a record of numbers) all zero, no reload running; local calls send nothing.
   The server stops a worker idle since `idleMs()` (checked every second, from `ready`). A stop: `shutdown`; the child
@@ -143,14 +111,9 @@ workerMain(async ({ address, start, parent, plugins, onClose }, ctx) => {
   `authorize_failed`, its error private too.
 - **`stop(address, ctx)`:** `RouteHandle.suspend`, then the stop: holders see `failed { waiting }` ("suspended") until
   their last release; a later hold starts it on demand; `retry` lifts it at once.
-<<<<<<< HEAD
 - **`close(ctx)`:** starts waiting in `start(address)` are aborted, the worker base's file removed, every child
   stopped, new starts reject `released/closed`; the host's close (the route's context) closes it too, and no exit
   after that is a failure.
-=======
-- **`close(ctx)`:** starts waiting in `start(address)` are aborted, every child stopped, new starts reject
-  `released/closed`; the host's close (the route's context) closes it too, and no exit after that is a failure.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - **`step(name)`** (§4): clears the failures from before it and retries the held ones (listed `{ host, report }` with
   their load report once ready, or `{ host, error }`), then ships the kind's current set to every worker whose last
   set is older, in parallel, one reload outstanding per child: `{ host, report }`, `{ host, stopped: true }` (stopped
@@ -162,12 +125,9 @@ workerMain(async ({ address, start, parent, plugins, onClose }, ctx) => {
   `shutdown`, the parent's disconnect, `SIGTERM` and `SIGINT` abort its context and run the closers registered so far,
   also during startup. An uncaught error or a throwing function sends `fatal` with `redact(error)` and exits 1.
 - `processLock(name, ctx)`: the lock (an abstract socket on Linux, a named pipe on Windows, a socket file elsewhere).
-<<<<<<< HEAD
   A taker fails closed on a socket file nobody accepts on; the component clears one (a worker killed by a signal left
   it) before each start and after a child's exit by a signal, in the address's queue (decision "Stale lock files are
   cleared by the starter").
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ## Examples
 
@@ -176,13 +136,7 @@ stays failed, Retry brings it back), `43-rollout` (an edit rolled out to the ser
 
 ## Inside the directory
 
-<<<<<<< HEAD
 `base.ts` (the worker base: the entry bundled once), `child.ts` (the worker's side as its own entry point),
 `control.ts` (control messages and errors as they cross),
 `lock.ts` (process locks), `process.ts` (one forked worker as the server sees it), `workers.ts` (the component: the
 route, per-address records, idle stops, the rollout step, the state), `main.ts` (`workerMain`).
-=======
-`control.ts` (control messages and errors as they cross), `lock.ts` (process locks), `process.ts` (one forked worker
-as the server sees it), `workers.ts` (the component: the route, per-address records, idle stops, the rollout step,
-the state), `main.ts` (`workerMain`).
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

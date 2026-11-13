@@ -2349,6 +2349,29 @@ validation and copies the v2 kernel added around Delta.
   `watch` and `registry`, releasing everything on dispose, calling one `changed` callback the app wires to its redraw
   (one line with pi-tui; any library works). p2's retry with backoff for gone references is not carried over (v2
   references wait and rebind by themselves). No pi-tui dependency.
+- **Admitting pages' telemetry (owner, 2026-11-12: "`telemetryIngestFacet({ admit(principal) })` (refused:
+  forbidden)"; p2 wiring telemetry; refines "Telemetry from browser pages"):** the ingest facet takes `admit(principal)`,
+  required: `PageTelemetry` serves a principal it admits, and a refused principal's hold fails `forbidden` (no contract
+  change, nothing written). Why: the budget of 1,200 spans per minute is per page (incarnation), and one principal may
+  open up to 1,000 pages' worth of links, so a guest could fill the store's queue for its whole retention; an app admits
+  whom it trusts (p2: owners only). The kit admits every page (its links are signed in). Its entry points are public for
+  an app with its own hosts: `@earendil-works/chord/telemetry-ingest` (the recorder, the batches and objects, the facet,
+  the senders).
+- **Surfaces for an app with its own HTTP stack and styling (owner, 2026-11-12: "Chord 1: yes", "Chord 2: yes", "Cloud:
+  (b)"; p2's move onto the web surface):** (1) `webSurface(server, { ..., routes: false })` contributes no `Http`
+  routes; the surface gives `file(path)`, `pageAssets()` and `base()`, and the app serves them through its own HTTP
+  stack with its own access rules and page template (`pageScripts`). (2) `startPage({ themes: false })` loads no
+  `Themes` provider and writes no theme on `:root`: an app with its own stylesheet keeps its variables. (3)
+  `startPage({ follow: false })` (and `startClient`'s `follow`): a static page that loads its combined plugins and
+  never follows the scripts object nor asks the server's base, for a page built offline and served elsewhere, whose
+  server publishes scripts it cannot load; built with `buildBase` and `pageBootstrap` (exported for it), its plugin
+  scripts registered by `registeredSource`. (4) (owner, 2026-11-12: "make the surface's base and plugin builds resolve
+  exactly like the server process does (source, no dist needed)") `webSurface`'s and `tuiSurface`'s `tsconfig` (and
+  `buildBase`'s `BaseResolution`): the base resolves through that tsconfig.json's `paths`, for a server whose loader
+  resolves workspace packages through them (p2's source resolver). Conditions alone missed a package whose `exports`
+  name only `dist/` (pi-ai's `./utils/*`): a checkout that never builds `dist/` (p2 on a phone) failed its base. Without
+  `tsconfig` every tsconfig.json stays ignored. Plugin builds need nothing: they bundle a plugin's own `dependencies`
+  only, the app's packages being host packages.
 - **`chord.plugins` is a package's manifest of plugins, as pi's (owner, 2026-11-01: "yes"; slice 12 review, Opus H1;
   refines "The plugin model ... imports and builds" (Imports) and `slice-12.md` §2, §5):** a package (npm, git, local)
   declares the plugins it provides in its `package.json`, `"chord": { "plugins": ["./notes", "./search"] }` (globs and
@@ -2542,7 +2565,8 @@ validation and copies the v2 kernel added around Delta.
   instance exists"; a per-binding view is possible later, the blip is cosmetic). Carry-over: calls surviving a
   `loading` unbind (slices.md, "Later: reload").
 - **Telemetry from browser pages (owner, 2026-11-04: "I just need this implemented"; "it couldn't really fuck the
-  server up"; tutorial gap):** a page records spans in memory (the click and the calls it makes, carriers on its calls
+  server up"; tutorial gap; (**superseded in part** by "Admitting pages' telemetry": an app admits pages by principal
+  through a hook, not "anonymous pages")):** a page records spans in memory (the click and the calls it makes, carriers on its calls
   as any client) and sends finished spans in batches every few seconds and when hidden, over its existing Chord link,
   to a telemetry object on the server (`ingest(batch)`): sign-in, principals, part limits and flow control apply as for
   any call; an app may admit anonymous pages. The server treats them as untrusted, best effort: batch size and rate
@@ -2658,7 +2682,10 @@ validation and copies the v2 kernel added around Delta.
   segments. (11) `cancel(upload)` drops an upload a writer gave up (a server route whose client went away), so it
   holds neither a slot of the cap nor bytes for the hour until it expires. (12) `@earendil-works/chord/app/files`
   exports `Files`, `FilesFolder`, `filesFacet`, `copyFiles` and the kit's private directories and stores without the
-  rest of the kit, for an app's worker process that must load neither esbuild nor the server's components (p2's).
+  rest of the kit, for an app's worker process that must load neither esbuild nor the server's components (p2's). (13) A
+  write takes an optional `created` for imports (owner, 2026-11-05, after p2's migration dry run: every migrated file
+  had the migration's time, so newest-first orders meant nothing): the version keeps the time it was made elsewhere;
+  the summary's newest versions are kept in `created` order, not write order.
 - **Workers start from the base code the server booted with (owner, 2026-11-04: "let's do this for armin"; Armin's
   incident report, Radius artifact 01m6m3xek8fveayqgstayg8w92):** the problem: a worker loads its entry module and the
   base code it imports from disk when it is forked, while the server keeps what it loaded at boot. An edit of the
@@ -2671,6 +2698,125 @@ validation and copies the v2 kernel added around Delta.
   workers only through a server restart, which the kit's `base` mark flags. Plugins are unaffected (workers get the
   server's built scripts). What the bundle keeps external (Node builtins, packages that cannot be bundled, such as
   native addons) is settled by the build. p2 adopts it through its own `createWorkers`.
+- **The kit's owner is a principal the app chooses (owner, 2026-11-06: "ok"; p3's principals are `user`, `guest`,
+  `worker`, `server`, with no `owner` kind):** the kit hardwired the owner as `{ kind: "owner" }` (the owner link,
+  the owner token file and device pairing issue sessions for it; pairing's confirm and approve, invites and a
+  pairing's starter check `kind === "owner"`; `AppOptions` required the variant in the app's principal type). Rule:
+  `startServer`'s `principal` option takes `owner: P` beside `server` and `worker`; every place above issues sessions
+  for that principal and recognizes it by canonical JSON (compared once per principal object, as the principal key);
+  the type requirement and the kit's `OWNER`/`OwnerPrincipal` exports go; `principal.worker` is required only with
+  worker kinds (a type error otherwise; added in the build for p3's first step, which has none). The owner is strict
+  JSON and never the server's principal (refused at start); the kit serves it as start data (`AppInfo.owner`), so
+  invites read it there. Changing `owner` between starts replaces the owner token file and revokes its old session;
+  other sessions issued for the old value stay what they were (the app revokes them if it wants). The kit stays
+  (owner: keep it and change it where it does not fit, rather than wiring p3 from the components: the kit keeps p3's
+  base code, which only a restart changes, small).
+- **A reloaded UI part shows its loading state (owner, 2026-11-06: "not worth it imo. a short loading state is
+  absolutely fine. this just adds more bugs and footguns"; p3 step 0a, rejected proposal `apps/p3/docs/step-0a/`
+  version 2, reviews `/tmp/p3-step0a-astra.md`, `/tmp/p3-step0a-sol.md`; **refined in part** by "References share one
+  wire hold": a remounted reference joining an already live remote object of its host is live at once, otherwise it
+  sees that object's loading or failure or holds anew; borrowed references and leases stay rejected):** after a web or terminal plugin's reload
+  its components remount and make new references, which show `loading` (no values) for one round trip until bound;
+  the rest of the page, and every reference of a server or worker reload, stay live (design §21). Rejected: a
+  per-host table sharing references between UI components (`useHold`, `useRegistry`, `TuiScope`), released when no
+  component and no call uses them. It covered only a same-update replacement of facet-contributed components; it
+  needed the host address in its key, a lease state machine for ended references, counting of parked and queued
+  calls, a borrowed reference type without `release`, and changed presence counts (one entry for several components;
+  a never-settling call keeping it). The three bug fixes of step 0a stay (stylesheets loaded before the plugin reloads,
+  base bundles built with the server's resolution conditions, the restart mark by content).
+- **A restarting page object's old UI may show unstyled (owner, 2026-11-06: "A"; step 0a):** a page applies a plugin's
+  new stylesheet when its new code is adopted and retires the old one a drawn frame after the reload. UI a plugin's
+  facet contributes is replaced in that update and always styled. UI contributed by an object in the page stays on its
+  old version until the restarted object's successor is live (design §21); classes the edit renamed or removed are
+  unstyled until then. Accepted and documented; apps contribute UI from facets and let objects supply data. Rejected
+  for now: a kernel signal "this plugin's restarts on this host finished" to retire old sheets later.
+- **The kit serves the reload control (owner, 2026-11-11: "approve of AppChanges"; p3 step 0, decision 1):** the kit's
+  plugin marks (`app.plugins.state`) and `app.applyChanges` were reachable only from the start script, so applying a
+  change from a page, a terminal or an agent tool would need base code (a signal handler or a route in the start
+  script), against p3's "Reloads first". The kit serves `AppChanges` (`chord.app.changes`, remote, on the server,
+  params `{}`) to the app's owner only (any other principal: `forbidden`): state `marks` (the plugins component's state
+  as it is) and `apply()`, which runs `applyChanges` and answers `{ steps: { name, failed: string[] }[] }`. The app
+  re-exports the token through its server API. Rejected: applying on a signal or a start-script route.
+- **Call windows only for untrusted links (owner, 2026-11-11: "make the limit ten thousand"; from the Pong netcode
+  discussion):** the call window N (design §3) bounds how many calls one caller runs at once on a provider; calls past
+  it wait in the caller's own queue, so a client that fires too many only slows itself. No saturation by calls was
+  ever observed, and the app's own hosts are assumed to behave: a link a host accepts as trusted (`trusted: true`)
+  has no call window (`hello` announces 0). An untrusted link (pages, guests, view frames running agent-written code)
+  keeps one, a host option `callWindow`, default 10,000 (was a fixed 256 in `remote/host-link.ts`): many people may
+  have much in flight, and a misbehaving page still cannot start unbounded handlers. To be built with the events
+  change if that is decided, otherwise on its own. Built with it (2026-11-11, spec `events/spec.md` §3): `hello.calls`
+  is optional, absent on a trusted link (the binary codec writes 0, which no window is; "no hello yet" stays a state of
+  its own in the code); relays honour each upstream window (relayed calls of an origin wait in a FIFO per upstream link
+  and origin, following the relay's own queued calls' lifecycle, rejected `unavailable` before a new `bound`'s `ack`
+  passes upstream), which closed slice 4a's carry-over "one N on every host".
+- **Events: fire-and-forget members (owner, 2026-11-11; spec `events/spec.md`, third draft after two rounds of reviews by
+  Astra and Sol; the Pong netcode discussion; **refined in part** by "References share one wire hold": over a link the
+  provider's eligibility is per wire hold, and a reference joining a shared hold gets what arrives at its host after it
+  bound, also an event in transit when it joined):** a contract member is state, a method, or an **event**: a JSON value an
+  object emits, delivered once to each reference bound to the object before the emit and still bound when it is sent,
+  never folded, never kept, never sent to a later holder, dropped for a holder that cannot keep up. State folds and keeps
+  the newest value, right for what a joiner needs and wrong for motion (a paddle sample is worthless a moment later and
+  interpolation needs the samples between). (1) Contracts: `events` in a remote variant, the local marker `event(schema)`;
+  one kind per name across the history; JSON only; the fingerprint lists events under their own kind (contracts without
+  events keep theirs); edits `addEvent`, `removeEvent`, `event`; `accepts.events` maps a changed event per variant (or
+  refuses its version's binding), a removed or added one needs nothing (an older consumer receives none of it), a no-op
+  edit needs an identity mapping. (2) Types: `EventMember<T>` (`on(listener, ctx)`, references expose only it),
+  `EventSource<T>` (adds `emit`, `self.events<T>()`), `EventSubscription` (`stop`); an implementation is the attempt's
+  own source or a reference's member (re-exposed, value and `at` unchanged), anything else fails `broken`. (3)
+  `self.events` is a declaration (inert in staging, owned by the attempt: `emit` after its seal throws `released`); an
+  emit is immediate, no transaction work; `at` is the emitting host's `Date.now()`. (4) Delivery, one rule: emits wait for
+  the event flush, a microtask the first queues, which sends after every state message published before it; each binding
+  records the host's emit counter when it is made (a hold at its `bound`, a reference at its binding to the instance; an
+  arrival takes the receiving host's next value) and gets only later entries while it stays that binding; one `event`
+  message per link and origin, then the same-host listeners outside the reentrancy fence, entry then subscription order;
+  a throwing listener ends its subscription (`listener_error`). (5) Wire: `event { origin?, events: [{ hold, member, at,
+  value }] }`, `ack.events` (messages consumed: parsed, inflated, delivered or deliberately dropped; one per origin per
+  inbound turn; never combined with a state ack), an event window per link and origin at the emitting host (host option
+  `eventWindow`, default 32: a full window drops that flush's entries, counted, nothing queues), event tickets naming
+  each message's sender (relays forward at once, filter entries as for state, never acknowledge themselves: an early ack
+  of a filtered message would credit an earlier sender's message still unconsumed downstream). (6) Versions: one mapping
+  per emit per bound older version, kept while a reference of it is bound; a throwing mapping drops that emit for that
+  version, reported once per failure episode (`event_mapping_failed`). (7) `useEvents` in `chord/react`, `TuiScope.on`.
+  (8) Metrics `chord.events.emitted`, `sent`, `dropped { reason }`, `encodes`. Outside Chord: a clock (an app's `now()`
+  method), consumer-to-provider events (calls through the client's latest-only outbox), netcode policy, unreliable
+  transports (WebTransport later). Rejected: a stream type (design §31: events have no backpressure, replay or restart
+  rules), a subscription message per member (every bound hold gets its variant's events; a consumer without listeners
+  drops them on arrival). Settled by the build's code reviews (Astra and Sol, 2026-11-11; the strict rule by the
+  owner): (9) a relay forwards a hold's `release` upstream before it frees its forwarded calls' slots (else a call of
+  another hold could reach an honest finite-window upstream before the release that ends them there, one call too
+  many); an `abort` is forwarded, then frees its slot. (10) The strict failure rule holds over links too: a hold whose
+  object no longer shows it live untaps its events at once, while its state follows the admitted commits; an emit its
+  object failed after in the same turn reaches no holder anywhere. (11) The event window is checked per entry before
+  any encode (it cannot change during a flush), and a consumer drops a value nothing listens to before any inflate or
+  parse. (12) Contracts without event members cost nothing per binding (no event records, nodes or taps; shared empty
+  name lists), measured against the commit before events (`benchmarks.md`). (13) `useEvents` updates its listener in
+  a layout effect (an event between a commit and its passive effects reaches that render's listener).
+- **Documents and table rows can belong to a host (owner, 2026-11-09: "it looks like we have a plan"; p3 session data,
+  backups and exports):** data needed while a host is not running lives on another host (p3: facts about a session the
+  server needs while its worker is off) but must travel with that host on export, import and delete. (1) `defineState`'s
+  `keyed` takes `true` (string keys, as today) or a **host kind**: keys are then addresses of that kind
+  (`bindings.change(Session({ id }), fn, ctx)`, typed `KeyOf<K>`), stored with the address key in `key` and in a new
+  indexed `host` column of `chord_documents` (NULL for string keys, so a string can never pose as an address); store
+  schema migration to version 3. (2) Tables get a column type `host(Kind)` (at most one per table): the value is an
+  address (written and read as `Address`, stored as its key, indexed automatically); the table catalog records it. (3)
+  Two store operations: export the records and rows belonging to one address (a filtered archive in the existing format:
+  manifest, `document.create`/`document.revision` parts of records with that `host`, per table with a host column its
+  definition and `put` parts of its rows, `end`), and import such an archive into a store that already has data (fresh
+  ids and seqs; an existing record or row for the same address refuses unless the import is an explicit replace; a copy
+  under a new address rewrites only the host columns and keys). Delete retires those records and rows. (4) The kit's
+  per-address export, import and delete (`exportData`, `importData`, archive) include the server's records and rows
+  belonging to that address, next to the host's own store. Migration of imported content happens when the owning
+  object loads it, as for every document. Plugins must not put addresses inside JSON values they expect to be rewritten.
+  To be specified, reviewed and built (p3 status 2026-11-09). Built 2026-11-09 (spec `host-keyed/spec.md`, reviewed by
+  gpt-6-astra and gpt-6.1-sol). Owner decisions in review: (5) no checks a forged archive could defeat anyway and no
+  guards against plugin mistakes: no fingerprint or metadata comparison of archive tables (the store's own host column
+  and a per-row target check are enough), no re-validation of decoded address keys, no refusal of dropping the
+  automatic host index, no host-data guards after `host.close()`; (6) the kit has no recovery journal: import unpacks
+  into staging, moves the old directory aside, renames staging into place and commits the server's part last (definite
+  failures undo the renames; an unknown outcome keeps everything and is reported); delete commits the server's part
+  first, then removes the directory; the remaining crash windows are documented (re-run the import with replace; a
+  repeated delete removes an orphan directory). Host-keyed keyed members (`keyed(schema, Kind)`) and migration of older
+  archive tables through the owner's `evolveTable` history are part of the build.
 - **A plugin's npm dependencies are bundled; external only by opt-in (owner, 2026-10-29: "explicit opt in + (a)"):**
   a plugin's `dependencies` are installed into its own `node_modules` (`npm install --ignore-scripts`) and bundled into
   each facet that imports them (host packages, its `peerDependencies`, stay external and are passed in). On Node a
@@ -3038,7 +3184,8 @@ validation and copies the v2 kernel added around Delta.
   again with the same id on `retry`, and an old `state` or `gone` still in flight then looked like the new hold's
   (reproduced by three reviewers). The relay still checks everything arriving from downstream. A reference failed
   `too_large/part` leaves its path (a reconnect does not hold it again) until `ref.retry()`; this lives only in the
-  consumer's memory.
+  consumer's memory. (**Refined in part** by "References share one wire hold": the failure reaches every reference
+  sharing the hold; a `retry` moves only the retrying reference to a new private hold.)
 - **Slice 4b fix round (owner, 2026-10-24):** the builder's five choices accepted and folded into design.md: call
   arguments sent up a parent link are never compressed (a host cannot tell whether its parent sees it as a child or a
   route); `revoke` goes on route links before revoked child links close (worker objects end `forbidden/revoked`, not
@@ -3355,6 +3502,28 @@ From `research/chord-on-durable-objects.md`, adopted for the Chord v2 kernel bec
   child conversations in a core per-conversation policy document (`readOnly`, `followsSessionCwd`) in the creating
   commit; chat and relocation read it directly; `ReadOnlyConversations` and `SessionCwdFollowers` go away. (This was
   plugin design, not a missing mechanism: today the rule is lost when subagents is not loaded.)
+- **References share one wire hold (owner, 2026-11-09 and 2026-11-12; spec `shared-holds/design.md`, sixth draft after
+  reviews by GPT-6 Astra and GPT-6.1 Sol, with the last review's amendments):** a host keeps one remote object per
+  sharing key: type, version, fingerprint, params' identity key, the address its placement computed (`hostAddress` is
+  not in the fingerprint), and the caller (its principal's own JSON as the wire carries it, insertion order, cached
+  per principal object; its incarnation), joined with Chord's escaped key join. A reference whose key the host holds
+  binds to that object with no message (live at once if it is live); each keeps its own binding (release, state,
+  watches, subscriptions, parked calls, calls); the last release sends `release` (no linger, D8). Not shared:
+  `self.get` references (Q5), relayed holds (R1), a reference after the last release, a private retry after
+  `too_large/part`, a broken object (it leaves the table for good), a suspended route address, and (decided by the
+  build, conservatively) a key whose object is failed `waiting` over a link: a new hold is a new request there. A join
+  to an object failed `waiting` on an unlinked route path is a new request for the route (`Path.requested`). Seen
+  members: "seen" is a value the reference received while live; joining a non-live object nothing is seen, joining a
+  live one the failed or missing members are not; until a value arrives after the join such a member shows no last
+  value. Releasing one of several references cancels its own calls: queued ones unsent, sent ones aborted newest
+  first. Accepted differences (design §7, §19, §22, events spec §2): (1) provider presence and `host.activity` count
+  holds, not components; (2) a joiner skips the provider's and relays' admission and the first snapshot; (3) events in
+  transit reach a joiner; (4) a non-final release aborts its calls at the provider with `aborted`, the caller still gets
+  `released`; (5) part limits apply to received parts only; (6) shared values are identical objects; (7) a joiner is
+  live at once; (8) a retry of a refused shared hold restarts it for every reference; (9) within one commit, watch
+  callbacks of several references sharing a replica run in subscription order, not hold order (and so may calls those
+  listeners make). No wire, codec or protocol change. Rejected (design §31): keeping a hold past its last release,
+  borrowed references and leases.
 
 ## Still valid from `target-design.md`
 

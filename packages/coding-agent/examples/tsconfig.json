@@ -43,6 +43,9 @@
 			"@earendil-works/chord/workers": [
 				"../../../packages/chord/src/node/workers/index.ts"
 			],
+			"@earendil-works/chord/workers/child": [
+				"../../../packages/chord/src/node/workers/child.ts"
+			],
 			"@earendil-works/chord/plugins": [
 				"../../../packages/chord/src/node/plugins/index.ts"
 			],
@@ -70,11 +73,8 @@
 			"@earendil-works/chord/tui/launcher": [
 				"../../../packages/chord/src/node/tui/index.ts"
 			],
-			"@earendil-works/chord/old": [
-				"../../../packages/chord/src/old/index.ts"
-			],
-			"@earendil-works/chord/old/node": [
-				"../../../packages/chord/src/old/node.ts"
+			"@earendil-works/chord/sync": [
+				"../../../packages/chord/src/sync/index.ts"
 			],
 			"@test/contracts/*": [
 				"../../chord/test/node/fixtures/plugins/contracts/*.ts"
@@ -198,7 +198,8 @@
 	"include": [
 		"./extensions/**/*",
 		"../../*/src/**/*.d.ts",
-		"../test/suite/regressions/8261-subagent-project-trust.test.ts"
+		"../test/suite/regressions/8261-subagent-project-trust.test.ts",
+		"../test/subagent-extension.test.ts"
 	],
 	"exclude": [
 		"**/node_modules/**",

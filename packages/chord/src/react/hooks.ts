@@ -1,15 +1,9 @@
 // React bindings (slice 11 §3, decision "Slice 11, P7"; p2's `useObject`, `useReadable`, `useRegistry`): a host in
-<<<<<<< HEAD
 // context, references held for a component's life, watchables read with `useSyncExternalStore`, event members
 // subscribed while mounted, page state kept for the host's life, and a plugin's messages in the host's language. A
 // component unmounted by a reload has not left (design §21): its releases are plain releases, presence is the app's. A component of a reloaded plugin is a new
 // function and remounts, its `useState` starting over; what must survive is page state (decision "Tutorial gaps" (1)).
 // No components, no styling.
-=======
-// context, references held for a component's life, and watchables read with `useSyncExternalStore`. A component
-// unmounted by a reload has not left (design §21): its releases are plain releases, presence is the app's. No
-// components, no styling.
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 import {
 	createContext,
@@ -17,31 +11,20 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
-<<<<<<< HEAD
 	useLayoutEffect,
 	useMemo,
 	useRef,
-=======
-	useMemo,
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	useState,
 	useSyncExternalStore,
 } from "react";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "../context/index.ts";
-<<<<<<< HEAD
 import type { Contract, EventMember, ParamsOf } from "../contracts/index.ts";
-=======
-import type { Contract, ParamsOf } from "../contracts/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Principal } from "../data/index.ts";
 import { canonicalJson } from "../data/principal.ts";
 import type { Held, Host, RefState } from "../host/index.ts";
 import type { Registry } from "../registries/index.ts";
-<<<<<<< HEAD
 import { hostLanguage, type Messages, type Translator } from "../surfaces/index.ts";
 import { pageState } from "../surfaces/page-state.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { NativeWatchable, Watchable } from "../watch.ts";
 import { watchStore } from "./stores.ts";
 
@@ -84,7 +67,6 @@ export function useWatch<T>(watchable: Watchable<T> | NativeWatchable<T> | undef
 	return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
 }
 
-<<<<<<< HEAD
 /**
  * Subscribes to event member `member` (a reference's, decision "Events: fire-and-forget members") while the component
  * is mounted: each event calls the latest `listener` (a new function per render does not subscribe again); nothing
@@ -109,8 +91,6 @@ export function useEvents<T>(
 	}, [member]);
 }
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 /** Registry `R`'s composed value on the component's host, re-rendering on change; `undefined` until it is usable. */
 export function useRegistry<C, V>(R: Registry<C, V>): V | undefined {
 	const host = useHost();
@@ -127,7 +107,6 @@ export function useRegistry<C, V>(R: Registry<C, V>): V | undefined {
 export function useRefState(ref: { readonly state: NativeWatchable<RefState> } | undefined): RefState | undefined {
 	return useWatch(ref?.state);
 }
-<<<<<<< HEAD
 
 /**
  * A value the page keeps under `key` for its host's life, not the component's, with its setter (`useState`'s pair): a
@@ -151,5 +130,3 @@ export function useMessages<N extends string, M>(
 	const language = useSyncExternalStore(state.subscribe, state.read, state.read);
 	return useMemo(() => ({ t: messages.in(language), locale: language?.locale }), [messages, language]);
 }
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

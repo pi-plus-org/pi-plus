@@ -2,10 +2,7 @@
 
 import type { Context } from "../context/index.ts";
 import type { JsonValue } from "../json.ts";
-<<<<<<< HEAD
 import { chordMetrics } from "../telemetry.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /** An app's principal: plain JSON with a `kind`. Chord never persists it. */
 export type Principal = { readonly kind: string; readonly [field: string]: JsonValue };

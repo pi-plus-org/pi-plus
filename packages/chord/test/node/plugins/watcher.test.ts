@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 // Tests of the watcher (slice 7c §5, slice 12 §4, p3 step 0a): dirty marks from the files facets used and from plugin
 // directories, `install`, `set`, `base` compared with what the running base artifacts read, a change during a build
 // keeping its mark, `node_modules` and `.git` ignored, real file events, the marks as a JSON watchable, and single-file
@@ -11,26 +10,11 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
 import { contentHash } from "../../../src/node/plugins/base-inputs.ts";
-=======
-// Tests of the watcher (slice 7c §5, slice 12 §4): dirty marks from the files facets used and from plugin directories,
-// `install`, `set`, `base`, a change during a build keeping its mark, `node_modules` and `.git` ignored, real file
-// events, the marks as a JSON watchable, and single-file plugins' files.
-
-import { readdirSync, readFileSync } from "node:fs";
-import { realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
-import { BACKGROUND_CONTEXT as context } from "../../../src/context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { type BuiltFacet, discoverPlugins } from "../../../src/node/plugins/index.ts";
 import { PluginWatcher } from "../../../src/node/plugins/watcher.ts";
 import { Batch } from "../../../src/state/internal.ts";
 import { changesOf, delivered } from "../../support.ts";
-<<<<<<< HEAD
 import { KINDS, settleFileEvents, tempRoot, writeFiles, writePlugin } from "./support.ts";
-=======
-import { KINDS, tempRoot, writeFiles, writePlugin } from "./support.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 /** A root with plugins `a` (worker), `b` (server) and the contracts fixture, a base directory, and a watcher of both. */
 async function watched() {
@@ -38,10 +22,7 @@ async function watched() {
 	const base = await realpath(await tempRoot());
 	await writePlugin(root, "a", "@test/a", { "worker.ts": "", "own.ts": "" });
 	await writePlugin(root, "b", "@test/b", { "server.ts": "" });
-<<<<<<< HEAD
 	await settleFileEvents();
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	const failures: unknown[] = [];
 	const watcher = new PluginWatcher(
 		{ roots: [root], base: [base], kinds: KINDS, failed: (error) => failures.push(error) },
@@ -64,10 +45,7 @@ async function watched() {
 		used("@test/a", "worker", [join(root, "a", "worker.ts"), contract]),
 		used("@test/b", "server", [join(root, "b", "server.ts"), contract]),
 	]);
-<<<<<<< HEAD
 	await settleFileEvents();
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 	return { root, base, watcher, failures };
 }
 
@@ -104,7 +82,6 @@ describe("the watcher's marks", () => {
 		expect(watcher.value).toMatchObject({ set: false });
 		watcher.mark(join(root, "b", "web.tsx"));
 		expect(watcher.value).toMatchObject({ set: true, dirty: ["@test/b"] });
-<<<<<<< HEAD
 		await writeFile(join(base, "core.ts"), "export {};");
 		watcher.mark(join(base, "core.ts"));
 		await vi.waitFor(() => expect(watcher.value).toMatchObject({ base: true }), { timeout: 5_000 });
@@ -131,10 +108,6 @@ describe("the watcher's marks", () => {
 		await writeFile(join(elsewhere, "entry.ts"), "export {};");
 		await vi.waitFor(() => expect(watcher.value).toMatchObject({ base: true }), { timeout: 5_000 });
 		expect(base).not.toBe(elsewhere);
-=======
-		watcher.mark(join(base, "core.ts"));
-		expect(watcher.value).toMatchObject({ base: true });
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 		watcher.close();
 	});
 
@@ -265,7 +238,6 @@ describe("the watcher and links", () => {
 	});
 });
 
-<<<<<<< HEAD
 describe("base code compared with what the running bases read (p3 step 0a)", () => {
 	/** A watcher of a base directory holding `files` (the server's own code, hashed at its start), and no roots. */
 	async function based(files: Readonly<Record<string, string>>) {
@@ -505,8 +477,6 @@ function hashOf(text: string): string {
 	return contentHash(new TextEncoder().encode(text));
 }
 
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 /** The inotify watches this process holds (Linux): one line per watch in its inotify descriptors' fdinfo. */
 function inotifyWatches(): number {
 	let count = 0;

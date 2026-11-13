@@ -2,10 +2,7 @@
 // object's slot bound to the attempt's seal token and the definition's version.
 
 import type { Context } from "../context/index.ts";
-<<<<<<< HEAD
 import type { Address, KindShape } from "../contracts/index.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Draft } from "../delta/index.ts";
 import type { Watch, Watchable, WatchHandle } from "../watch.ts";
 import type { JsonObject, StateDefinition } from "./definition.ts";

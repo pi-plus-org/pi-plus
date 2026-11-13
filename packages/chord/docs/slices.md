@@ -44,7 +44,6 @@ slice spec's section citations are for orientation, not a reading limit (owner, 
 - **Slice 11** (committed 2026-11-03, `slice-11.md`): `src/surfaces/` (scripts objects, registered scripts, the
   connection loop, clients, themes), `src/web/`, `src/react/`, `src/tui/`, `src/node/surfaces/`, `src/node/tui/` (the
   launcher and its child-process sandbox); examples 56-59.
-<<<<<<< HEAD
 - **Live queries** (built 2026-11-03, decision "Live queries over an object's own tables"): `self.query` in
   `src/store/live-query.ts`; examples 59 and 61 use it; `test/bench/live-query.ts`.
 - **Slice 9** (built 2026-11-04, `slice-9.md`): telemetry, `src/telemetry.ts` (`CHORD_TELEMETRY_SCHEMA`, the span sites'
@@ -63,8 +62,6 @@ slice spec's section citations are for orientation, not a reading limit (owner, 
   `host/adapted.ts`, the `event` message and `ack.events` (both codecs), event windows and tickets in
   `remote/provider.ts`, `useEvents`, `TuiScope.on`; `callWindow` (none announced on trusted links) and relayed calls
   queued per upstream window; example 67; `test/bench/events.ts`.
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - **Chord's shared code** (upstream pi): `src/watch.ts` (`Watch`, `NativeWatch`, `WatchHandle`, `WatchEnd`,
   `NativeWatchable`), Delta (`track`, `diffRevisions`, `applyImmutable`, encoders, `PendingOps`, `appendText`),
   context, JSON, output, SQLite drivers.
@@ -88,11 +85,7 @@ telemetry last, since it instruments the app kit too; 2026-11-01: the plugin mod
 | 6b | **Durable and jobs on the store** | persisted jobs, Durable's `StoreStorage`, the Chord source over Durable's views (`self.follow`) |
 | 8 | **Registries and `host.root`** | registries, `self.writable`, `retryOn`, Durable's `registryReader`, `host.root` (`chord(fn, context)` and the harness object are p3's base code) |
 | 7a | **The dependency model** | requests that outlive providers, parked attempts without timers, wakes, the publication gate, getters, registries as dependencies, `parked_long` (`slice-7a.md`, `dependencies/model.md`) |
-<<<<<<< HEAD
 | 7b | **Reload in the kernel** | `host.reload`: staging, commit, rollback; restarts (swaps until 2026-11-05), removal and re-serving; holds and `accepts` across a reload; jobs and registries across a reload; per-name wakes (`slice-7b/` brief) |
-=======
-| 7b | **Reload in the kernel** | `host.reload`: staging, commit, rollback; swaps, restarts, removal and re-serving; holds and `accepts` across a reload; jobs and registries across a reload; per-name wakes (`slice-7b/` brief) |
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 | 7c | **Plugins** | `chord/plugins` (discovery, `buildFacet`, `evaluateFacet`, `pluginFile`, `installDependencies`, the watcher, `rollout`, `mapStack`; no dev/prod split; the kernel's `load`/`reload` per plugin; `slice-7c.md`) |
 | 10 | **HTTP and workers** | `chord/http` (server, `Http` registry, responses as descriptions, WebSocket entry) and `chord/workers` (a worker per address, IPC, idle stop) |
 | 12 | **The plugin model** | imports (relative within a repository, package names pinned across), versioned app API with Chord re-exported, per-kind API modules and contract files with the build's import check, single-file plugins, git installs, `testPlugin`, a required root (`slice-12.md`) |
@@ -257,14 +250,6 @@ deleted (the slice's spec and code are the record). Moved here from `carry-over.
 
 ### After slice 11
 
-<<<<<<< HEAD
-=======
-- **Messages and languages in the app kit** (decision "Messages and languages in the app kit", proposal
-  `docs/i18n/`): `defineMessages`, `t.message`/`t.render`, `MessagesOf`, the `Translations` registry with
-  fallbacks and conflicts, the locale preference per principal (default from the device, live switch, `lang`/`dir` on
-  the page), `useMessages` and the terminal scope's redraw, `formatTime`/`formatNumber`; tests and an example (the
-  notes plugin in English and German, a French translation plugin, a server message rendered per viewer).
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 - **Small examples** (owner, 2026-10-30: the 7c examples are complete but complex): once HTTP, workers, web and TUI
   exist, a pass of small, easy-to-read examples, each showing one thing a plugin author or app does.
 
@@ -274,10 +259,6 @@ deleted (the slice's spec and code are the record). Moved here from `carry-over.
 - `withLinkedAbortSignal` lives in `src/host/ctx.ts` and moves next to `withAbortSignal` in `src/context` (pi
   first): a call's context linked to long-lived abort signals until the call settles, instead of `AbortSignal.any`,
   which keeps cleanup entries per call while its sources live before Node 24.16.0 (nodejs/node#62367). (Slice 4a.)
-<<<<<<< HEAD
-=======
-- An export for `nodeCompression` (`src/node/compression.ts`; no subpath exports it yet). (Slice 4b.)
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 ### The sync layer (not a slice; when Radius sync is built)
 

@@ -3,25 +3,16 @@
 // both on the attempt that is live; the attempt's seal cuts its invocations off (slice 6a §1.3). Each phase of a run
 // (its start's intent, its run, its finish) is a `chord.job` span, under the run's stored carrier or its starter's span.
 
-<<<<<<< HEAD
 import type { TelemetrySpan } from "@earendil-works/pi-telemetry";
 import { type Context, withAbortSignal, withoutAbortSignal, withTelemetry } from "../context/index.ts";
-=======
-import { type Context, withAbortSignal, withoutAbortSignal } from "../context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { ChordError, isChordError, PluginError, type Principal } from "../data/index.ts";
 import type { Draft } from "../delta/index.ts";
 import type { CommitPersistence, JsonObject, Tx } from "../documents/index.ts";
 import type { Documents, SealToken, Transaction } from "../documents/internal.ts";
 import { type Ctx, sleep } from "../host/index.ts";
-<<<<<<< HEAD
 import { type AnyHost, CallContext, type Caller, nextDelay, SpanCtx } from "../host/internal.ts";
 import type { JsonValue } from "../json.ts";
 import { capped, chordSpans, ended, OpenSpan, parentOf, spanFailed, untraced } from "../telemetry.ts";
-=======
-import { type AnyHost, CallContext, type Caller, nextDelay } from "../host/internal.ts";
-import type { JsonValue } from "../json.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Watchable } from "../watch.ts";
 import type { JobDefinition, Outcome } from "./definition.ts";
 import type { JobRecords, Settled } from "./records.ts";

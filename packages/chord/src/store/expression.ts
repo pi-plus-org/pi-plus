@@ -2,11 +2,7 @@
 // form"): the builders plugins write `where` and `set` with, and their compilation at staging into one data-only
 // vocabulary (what the outbox and archives carry; `evaluate.ts` runs it in JavaScript, `sql.ts` renders it).
 
-<<<<<<< HEAD
 import type { Address, Optional } from "../contracts/index.ts";
-=======
-import type { Optional } from "../contracts/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { invalid } from "../data/internal.ts";
 import type { JsonValue } from "../json.ts";
 import type { Column, Columns, ColumnType, ColumnTypeOf, ValueOf } from "./columns.ts";

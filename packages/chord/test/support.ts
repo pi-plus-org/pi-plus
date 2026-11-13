@@ -63,18 +63,12 @@ import {
 } from "../src/link/internal.ts";
 import { nodeCompression } from "../src/node/compression.ts";
 import { NodeSqliteDatabase, openNodeSqliteDatabase } from "../src/sqlite/node.ts";
-<<<<<<< HEAD
 import type { Writable } from "../src/state/index.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { ArchivePart } from "../src/store/archive.ts";
 import { sqliteBackend } from "../src/store/backend.ts";
 import { changeDocument, createDocument, retireDocument } from "../src/store/engine.ts";
 import { json } from "../src/store/json-column.ts";
-<<<<<<< HEAD
 import { LiveQueries } from "../src/store/live-query.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { StagedWrite } from "../src/store/step.ts";
 import { type ChordStore, openStore, type Store } from "../src/store/store.ts";
 import { defineTable, type TableDefinition } from "../src/store/table.ts";

@@ -1,5 +1,4 @@
 // Tests of `TuiScope` (slice 11 §4, decision "Slice 11, P9"): references held for a component, watchables and
-<<<<<<< HEAD
 // registries followed, one `changed` callback for every change, everything released at `dispose`, and the host's page
 // state shared by every scope (decision "Tutorial gaps" (1)), and messages in the host's language, a change redrawing
 // (decision "Messages and languages in the app kit"), and an optimistic value shown while a call is pending (decision
@@ -27,16 +26,6 @@ const Notes = local("test.notes", {
 	params: {},
 	members: { text: str(), write: method(str()), written: event(str()) },
 });
-=======
-// registries followed, one `changed` callback for every change, and everything released at `dispose`.
-
-import { describe, expect, it } from "vitest";
-import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-import { createHost, defineFacet, defineRegistry, local, method, str } from "../../src/index.ts";
-import { TuiScope } from "../../src/tui/scope.ts";
-
-const Notes = local("test.notes", { version: 1, params: {}, members: { text: str(), write: method(str()) } });
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 
 const Panels = defineRegistry<string, readonly string[]>("test.panels", { version: 1 });
 
@@ -50,7 +39,6 @@ async function host() {
 				facet: defineFacet((h, self) => {
 					h.serve(Notes, (_params, object) => {
 						const text = object.writable("first");
-<<<<<<< HEAD
 						const written = object.events<string>();
 						return {
 							text: object.derive([text], ([value]) => value),
@@ -58,12 +46,6 @@ async function host() {
 							write: async (next) => {
 								text.set(next);
 								written.emit(next);
-=======
-						return {
-							text: object.derive([text], ([value]) => value),
-							write: async (next) => {
-								text.set(next);
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 								return null;
 							},
 						};
@@ -118,7 +100,6 @@ describe("a component's scope", () => {
 		await h.close(context);
 	});
 });
-<<<<<<< HEAD
 
 describe('a scope\'s event subscriptions (decision "Events: fire-and-forget members")', () => {
 	it("call the listener for each event, never changed by themselves, until dispose", async () => {
@@ -284,5 +265,3 @@ describe("a scope's messages", () => {
 		await h.close(context);
 	});
 });
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)

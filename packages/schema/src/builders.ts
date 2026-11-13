@@ -2,14 +2,27 @@
 // they accept, so `Static<typeof schema>` is the TypeScript type a valid value has. The objects are ordinary data:
 // they serialize with JSON.stringify and compile with compile() like any other schema.
 
+import type { TypeBoxStatic } from "./typebox-static.ts";
+
 declare const STATIC: unique symbol;
 declare const OPTIONAL_TYPE: unique symbol;
 
 /** A JSON Schema object whose valid values have type `T` (a type-level brand; nothing extra exists at run time). */
 export type Schema<T = unknown> = { readonly [keyword: string]: unknown } & { readonly [STATIC]?: T };
 
-/** The type of the values `S` accepts; `unknown` for schemas not built with these functions. */
-export type Static<S> = S extends { readonly [STATIC]?: infer T } ? (unknown extends T ? unknown : T) : unknown;
+// TypeBox is tested first and in its own branch: a builder brand's fallback through TypeBoxStatic would leave
+// `Static<S>` of a generic `S` (constrained to builder schemas) unresolvable to its constraint's types.
+/**
+ * The type of the values `S` accepts: the type a builder recorded; for a TypeBox schema (`'~kind'` or `'~unsafe'`),
+ * TypeBox's static type for the common kinds (see `TypeBoxStatic`); else `unknown`.
+ */
+export type Static<S> = S extends { readonly "~kind": unknown } | { readonly "~unsafe": unknown }
+	? TypeBoxStatic<S>
+	: S extends { readonly [STATIC]?: infer T }
+		? unknown extends T
+			? unknown
+			: T
+		: unknown;
 
 /** Annotations every builder accepts: they describe the schema and never change what it accepts. */
 export interface Annotations<T = unknown> {
@@ -51,6 +64,23 @@ export function num(options: Annotations<number> & NumberBounds = {}): Schema<nu
 /** An integer within optional bounds. */
 export function int(options: Annotations<number> & NumberBounds = {}): Schema<number> {
 	return { type: "integer", ...options };
+}
+
+/** Bounds of a bigint: TypeBox's `Type.BigInt` options. */
+export interface BigintBounds {
+	readonly minimum?: bigint;
+	readonly maximum?: bigint;
+	readonly exclusiveMinimum?: bigint;
+	readonly exclusiveMaximum?: bigint;
+	readonly multipleOf?: bigint;
+}
+
+/**
+ * A bigint within optional bounds (`{ type: "bigint" }`, as TypeBox's `Type.BigInt`): an extension of JSON Schema for
+ * values that never pass through JSON, such as 64-bit integers a Parquet reader decodes.
+ */
+export function bigint(options: Annotations<bigint> & BigintBounds = {}): Schema<bigint> {
+	return { type: "bigint", ...options };
 }
 
 /** A boolean. */
@@ -123,6 +153,29 @@ export function tuple<const S extends readonly Schema[]>(
 /** An object with string keys and values of `value` (a record). */
 export function map<T>(value: Schema<T>, options: Annotations<Record<string, T>> = {}): Schema<Record<string, T>> {
 	return { type: "object", additionalProperties: value, ...options };
+}
+
+/**
+ * `schema` typed as accepting `T`, for values the builders cannot express (a type checked elsewhere, a schema from
+ * another system). The schema is returned as it is: nothing checks that its values are `T`.
+ */
+export function unsafe<T>(schema: Schema = {}): Schema<T> {
+	// The brand is type-level only; asserting it is what this builder is for.
+	return schema as Schema<T>;
+}
+
+/**
+ * A schema that contains itself, as a tree's children are trees: `build` receives a reference to the schema it
+ * returns. TypeScript cannot infer a recursive type from the builders, so `T` is given:
+ * `recursive<Tree>("Tree", (tree) => obj({ name: str(), children: arr(tree) }))`. `id` becomes the schema's `$id`
+ * and the target of the reference, so it must be unique among the recursive schemas within one schema.
+ *
+ * The counterpart of TypeBox's `Type.Cyclic` + `Type.Ref`, with other JSON: an `$id` on the schema instead of `$defs`
+ * and a root `$ref`. It validates the same values. The JSON differs only where a schema is published, and its type is
+ * written once instead of inferred, which a recursive schema (a file tree) needs only once.
+ */
+export function recursive<T>(id: string, build: (self: Schema<T>) => Schema<T>): Schema<T> {
+	return { ...build({ $ref: id }), $id: id };
 }
 
 /** A Uint8Array with optional length bounds (an extension of JSON Schema for values that never pass through JSON). */

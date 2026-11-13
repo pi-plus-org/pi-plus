@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_CONTEXT as context } from "../../src/context/index.ts";
-<<<<<<< HEAD
 import { bool, evolve, hostKind, int, oneOf, opt, remote, str } from "../../src/contracts/index.ts";
 import { addressOfKey, contractData, keyOfAddress, kindOfKey, kindParams } from "../../src/contracts/internal.ts";
-=======
-import { evolve, hostKind, int, oneOf, opt, remote, str } from "../../src/contracts/index.ts";
-import { contractData, kindParams } from "../../src/contracts/internal.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { isChordError } from "../../src/data/index.ts";
 import { checkAddress } from "../../src/data/internal.ts";
 import { expectCollected } from "../support.ts";

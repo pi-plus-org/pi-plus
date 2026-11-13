@@ -2,10 +2,7 @@
 
 import { compile, type JsonSchema, type Validator } from "@earendil-works/pi-schema";
 import type { Context } from "../context/index.ts";
-<<<<<<< HEAD
 import { chordMetrics } from "../telemetry.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import { type ChordError, invalid } from "./errors.ts";
 
 /** A Chord-owned record holding a schema: a snapshot, or a contract's params. */

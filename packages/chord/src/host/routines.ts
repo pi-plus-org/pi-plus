@@ -3,20 +3,13 @@
 // each call gets its own ctx and its own `chord.routine` root span; a call that throws is reported and called again
 // after a backoff.
 
-<<<<<<< HEAD
 import type { TelemetryContext } from "@earendil-works/pi-telemetry";
 import { type Context, withTelemetry } from "../context/index.ts";
-=======
-import type { Context } from "../context/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Principal } from "../data/index.ts";
 import { type Op, PendingOps } from "../delta/index.ts";
 import type { JsonValue } from "../json.ts";
 import { NativeSource, Source } from "../state/internal.ts";
-<<<<<<< HEAD
 import { capped, ended, OpenSpan, untraced } from "../telemetry.ts";
-=======
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import {
 	NativeWatch,
 	type NativeWatchable,

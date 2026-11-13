@@ -5,16 +5,9 @@
 
 import { BACKGROUND_CONTEXT } from "../../context/index.ts";
 import { type Address, method, obj, remote, str } from "../../contracts/index.ts";
-<<<<<<< HEAD
 import { forbidden, type Principal } from "../../data/index.ts";
 import { samePrincipal } from "../../data/principal.ts";
 import { defineFacet, type Facet } from "../../host/index.ts";
-=======
-import { ChordError, type Principal } from "../../data/index.ts";
-import { canonicalJson } from "../../data/principal.ts";
-import { defineFacet, type Facet } from "../../host/index.ts";
-import type { JsonValue } from "../../json.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Store } from "../../store/index.ts";
 import { type ArchiveManifest, packStore } from "./archive.ts";
 

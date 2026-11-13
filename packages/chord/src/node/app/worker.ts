@@ -6,7 +6,6 @@
 // one place telemetry is stored").
 
 import { join } from "node:path";
-<<<<<<< HEAD
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Principal } from "../../data/index.ts";
 import { createHost, type PrincipalAttributes } from "../../host/index.ts";
@@ -15,13 +14,6 @@ import { openNodeSqliteDatabase } from "../../sqlite/node.ts";
 import { openStore, sqliteBackend } from "../../store/index.ts";
 import { translationsFacet } from "../../surfaces/index.ts";
 import { sendWorkerTelemetry, TelemetryRecorder } from "../../telemetry-ingest/index.ts";
-=======
-import type { Principal } from "../../data/index.ts";
-import { createHost } from "../../host/index.ts";
-import type { JsonValue } from "../../json.ts";
-import { openNodeSqliteDatabase } from "../../sqlite/node.ts";
-import { openStore, sqliteBackend } from "../../store/index.ts";
->>>>>>> b18ab67cb (feat(chord): Chord v2 is the package's root)
 import type { Watchable } from "../../watch.ts";
 import { workerMain } from "../workers/child.ts";
 import type { AppApi, AppKind, KitStart } from "./app.ts";
