@@ -21,9 +21,11 @@ export const TaskUpdateParams = Type.Object({
 	description: Type.Optional(Type.String()),
 	activeForm: Type.Optional(Type.String()),
 	status: Type.Optional(
-		StringEnum(["pending", "in_progress", "completed", "deleted"] as const, {
-			description: "pending | in_progress | completed | deleted (deleted removes the task)",
-		}),
+		Type.Unsafe<"pending" | "in_progress" | "completed" | "deleted">(
+			StringEnum(["pending", "in_progress", "completed", "deleted"] as const, {
+				description: "pending | in_progress | completed | deleted (deleted removes the task)",
+			}),
+		),
 	),
 	addBlocks: Type.Optional(Type.Array(Type.String(), { description: "Task ids this task blocks" })),
 	addBlockedBy: Type.Optional(Type.Array(Type.String(), { description: "Task ids blocking this task" })),

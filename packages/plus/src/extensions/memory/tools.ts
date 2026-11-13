@@ -8,7 +8,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext } from "../../../../coding-agent/src/core/extensions/types.ts";
 import type { MemoryStore } from "./store.ts";
-import { MEMORY_TYPES } from "./store.ts";
+import { MEMORY_TYPES, type MemoryType } from "./store.ts";
 
 export const MemorySaveParams = Type.Object({
 	name: Type.String({
@@ -17,13 +17,15 @@ export const MemorySaveParams = Type.Object({
 	description: Type.String({
 		description: "One-line description of what this memory captures; used to judge relevance in future sessions",
 	}),
-	type: StringEnum(MEMORY_TYPES, {
-		description:
-			"user: who the user is (role, preferences, goals) | " +
-			"feedback: guidance from corrections or confirmed approaches | " +
-			"project: ongoing work context not derivable from the code | " +
-			"reference: pointers to external resources (docs, dashboards, tickets)",
-	}),
+	type: Type.Unsafe<MemoryType>(
+		StringEnum(MEMORY_TYPES, {
+			description:
+				"user: who the user is (role, preferences, goals) | " +
+				"feedback: guidance from corrections or confirmed approaches | " +
+				"project: ongoing work context not derivable from the code | " +
+				"reference: pointers to external resources (docs, dashboards, tickets)",
+		}),
+	),
 	body: Type.String({
 		description:
 			"Markdown content of the memory. For feedback and project memories, structure the body as the " +

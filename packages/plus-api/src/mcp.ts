@@ -26,7 +26,6 @@ import {
 } from "../../coding-agent/src/extensions/mcp/config.ts";
 import {
 	McpOAuthCredentialStore,
-	McpSignInCancelledError,
 	type McpSignInPrompt,
 	signInMcpServer,
 } from "../../coding-agent/src/extensions/mcp/oauth.ts";
@@ -34,6 +33,7 @@ import {
 	createDefaultTransport,
 	McpServerConnection,
 	McpServerLog,
+	McpSignInCancelledError,
 } from "../../coding-agent/src/extensions/mcp/runtime.ts";
 import {
 	CONFIG_DIR_NAME,
