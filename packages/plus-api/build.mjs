@@ -44,6 +44,16 @@ const plusRedirectPlugin = createPlusRedirectPlugin(redirectByFile, exemptPrefix
 function commonBuildOptions() {
 	return {
 		absWorkingDir: repoRoot,
+		banner: {
+			// Bundled CJS deps (cross-spawn, proper-lockfile, ...) reach Node builtins
+			// through esbuild's ESM interop shim, which throws "Dynamic require ... is
+			// not supported" whenever the artifact is loaded by a real ESM loader
+			// (plain `node`, tsx, ...) where `require` is undefined. Give the module
+			// scope a require binding so api.js and the lazy sibling entries load
+			// under any loader; CJS-wrapping loaders (jiti, bundled hosts) behave as
+			// before because their own `require` already shadowed nothing here.
+			js: 'import { createRequire as __piPlusSdkCreateRequire } from "node:module"; const require = __piPlusSdkCreateRequire(import.meta.url);',
+		},
 		bundle: true,
 		define: { PI_BUNDLED_NODE: "true" },
 		external: ["@earendil-works/chord", "@silvia-odwyer/photon-node"],
