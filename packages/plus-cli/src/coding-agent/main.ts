@@ -43,6 +43,7 @@ import {
 	registerUserHooks,
 	registerWebSearch,
 } from "../../../plus/src/extensions/index.ts";
+import { withAutoCustomModels } from "../../../plus/src/hub/custom-models.ts";
 import { dispatchCompletion } from "../completion/index.ts";
 import { registerChanges, registerFancyDiff, registerPlainTools, registerTabTitle } from "../extensions/index.ts";
 import { parseArgs } from "./cli/args.ts";
@@ -133,7 +134,11 @@ export async function main(args: string[], options?: MainOptions) {
 			// wins), which also makes the old packages exit-sync unnecessary —
 			// `packages` is a general key now and is written straight to the base.
 			process.env[ENV_BASE_AGENT_DIR] = getAgentDir();
-			const profileDir = materializeProfile(plan.name, profile);
+			// profiles.json may hold plain ids pi's catalog does not know (desktop
+			// saves, or profiles saved before classification existed); classify
+			// them into custom model definitions so the materialized models.json
+			// registers them and pi can resolve them at run time.
+			const profileDir = materializeProfile(plan.name, withAutoCustomModels(profile));
 			process.env[ENV_AGENT_DIR] = profileDir;
 		}
 	}
