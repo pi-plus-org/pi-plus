@@ -39,6 +39,12 @@ describe("buildTasksSection", () => {
 		assert.ok(section.includes("trivial single-step"));
 	});
 
+	it("mentions the automatic cleanup of leftover tasks", () => {
+		const section = buildTasksSection([]);
+		assert.ok(section.includes("cleared automatically when a new request starts"));
+		assert.ok(section.includes("start each new job with a fresh batch"));
+	});
+
 	it("spells out the tool signatures so models need not discover them blind", () => {
 		const section = buildTasksSection([]);
 		assert.ok(section.includes("Available tools:"));

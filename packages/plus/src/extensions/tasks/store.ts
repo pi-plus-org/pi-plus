@@ -222,6 +222,33 @@ export class TaskStore {
 	}
 
 	/**
+	 * Delete every task in the list, returning the number removed. The
+	 * high-water mark is kept, so ids stay monotonic across the wipe.
+	 */
+	clear(): Promise<number> {
+		return this.enqueue(async () => {
+			let entries: fs.Dirent[];
+			try {
+				entries = fs.readdirSync(this.listDir, { withFileTypes: true });
+			} catch {
+				return 0;
+			}
+			let removed = 0;
+			for (const entry of entries) {
+				if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+				try {
+					fs.unlinkSync(path.join(this.listDir, entry.name));
+					removed++;
+				} catch {
+					/* skip unreadable files */
+				}
+			}
+			if (removed > 0) this.notify();
+			return removed;
+		});
+	}
+
+	/**
 	 * Subscribe to mutations of this list. Returns an unsubscribe function.
 	 * Notifications are best-effort fan-out: a throwing listener never breaks
 	 * the task operation that triggered it.

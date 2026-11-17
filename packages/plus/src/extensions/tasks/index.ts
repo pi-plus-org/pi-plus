@@ -5,6 +5,10 @@
  * command and a ctrl+shift+t shortcut opening a task-list overlay. Whenever
  * the session's list is non-empty, a pinned widget above the editor shows the
  * tasks at a glance; the store's subscription notifies it on every mutation.
+ * A user-started run (the session was idle, so leftover tasks belong to
+ * finished or abandoned work) wipes the list first unless a task is still in
+ * progress, so each new job starts from a fresh batch; hosts embedding pi (the
+ * pi-plus desktop) observe the same wipe through subscribeToTasks.
  *
  * Use these to break multi-step work into trackable tasks: create the plan up
  * front, mark tasks in_progress while working on them, and complete them as
@@ -37,7 +41,9 @@ export function buildTasksSection(tasks: Task[]): string {
 		"with TaskCreate up front (typically 2-5 tasks covering the whole job). Mark a task " +
 		"in_progress when you start it and completed immediately when it finishes. Use " +
 		"TaskUpdate for corrections and blocks/blockedBy when order matters; check state " +
-		"with TaskList. Do not create tasks for trivial single-step requests.\n" +
+		"with TaskList. Do not create tasks for trivial single-step requests. Leftover tasks " +
+		"from earlier work are cleared automatically when a new request starts (unless one is " +
+		"still in progress), so start each new job with a fresh batch.\n" +
 		"Available tools:\n" +
 		"- TaskCreate({ subject, description, activeForm?, owner? }) — create a task; subject is a short " +
 		'imperative ("Fix auth bug"), activeForm is the progress display ("Fixing auth bug")\n' +
@@ -92,8 +98,20 @@ async function showTaskOverlay(ctx: ExtensionCommandContext | ExtensionContext):
 
 export function registerTasks(pi: ExtensionAPI): void {
 	// Prompt nudge + current-list recall, mirroring the memory extension.
+	// Stale cleanup: a user-started run means the session was idle, so any
+	// leftover list belongs to finished or abandoned work — wipe it unless a
+	// task is still in progress (an interrupted job the user may resume and
+	// continue). Custom triggerTurn runs (mid-run compaction resume) never
+	// clear, and the section below is built from the post-cleanup list.
 	pi.on("before_agent_start", async (event, ctx) => {
-		event.systemPromptOptions.sections[TASKS_SECTION_NAME] = buildTasksSection(await storeFor(ctx).list());
+		const store = storeFor(ctx);
+		if (event.messageType === "user") {
+			const tasks = await store.list();
+			if (tasks.length > 0 && !tasks.some((t) => t.status === "in_progress")) {
+				await store.clear();
+			}
+		}
+		event.systemPromptOptions.sections[TASKS_SECTION_NAME] = buildTasksSection(await store.list());
 	});
 
 	// Pinned task widget above the editor: subscribe to the session's list and

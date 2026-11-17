@@ -147,6 +147,38 @@ describe("get / list", () => {
 	});
 });
 
+describe("clear", () => {
+	it("removes every task and returns the count", async () => {
+		await store.create({ subject: "A", description: "a" });
+		await store.create({ subject: "B", description: "b" });
+		assert.equal(await store.clear(), 2);
+		assert.deepEqual(await store.list(), []);
+	});
+
+	it("keeps the high-water mark so ids stay monotonic across the wipe", async () => {
+		await store.create({ subject: "A", description: "a" });
+		await store.create({ subject: "B", description: "b" });
+		await store.clear();
+		const next = await store.create({ subject: "C", description: "c" });
+		assert.equal(next.id, "3");
+	});
+
+	it("is a no-op for a missing directory", async () => {
+		const empty = TaskStore.forDir(path.join(dir, "nope"));
+		assert.equal(await empty.clear(), 0);
+	});
+
+	it("notifies subscribers with the empty list", async () => {
+		const notifications: number[] = [];
+		const unsubscribe = store.subscribe((tasks) => notifications.push(tasks.length));
+		await store.create({ subject: "A", description: "a" });
+		await store.clear();
+		await flush();
+		unsubscribe();
+		assert.deepEqual(notifications, [1, 0]);
+	});
+});
+
 describe("formatTaskLine", () => {
 	it("formats status, owner, and blockers", async () => {
 		const a = await store.create({ subject: "Fix auth", description: "d" });
