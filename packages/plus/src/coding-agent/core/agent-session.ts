@@ -41,16 +41,23 @@
  *   the session-executable slash-command set for embedding hosts, exposed on
  *   this subclass so the SDK bundle's redirects hand hosts the same class
  *   upstream factories use (see the getSlashCommands doc below)
+ * - AgentSession.steer / AgentSession.prompt(streamingBehavior: "steer") ->
+ *   steer-mode input during a run spawns a forked background agent that
+ *   processes it in parallel with the main run, instead of joining the main
+ *   run's steering queue at the next turn boundary (see parallel-steer.ts).
+ *   Follow-up mode is untouched. Opt out with PI_PLUS_PARALLEL_STEER=0.
  */
 export * from "../../../../coding-agent/src/core/agent-session.ts";
 
+import type { ImageContent } from "@earendil-works/pi-ai";
 import {
 	type AgentSessionConfig,
 	type PromptOptions,
+	type QueuedInputDisposition,
 	AgentSession as UpstreamAgentSession,
 } from "../../../../coding-agent/src/core/agent-session.ts";
 import { type CompactionResult, prepareCompaction } from "../../../../coding-agent/src/core/compaction/compaction.ts";
-import type { ContextUsage } from "../../../../coding-agent/src/core/extensions/types.ts";
+import type { ContextUsage, InputSource } from "../../../../coding-agent/src/core/extensions/types.ts";
 import type { SlashCommandInfo } from "../../../../coding-agent/src/core/slash-commands.ts";
 import type { SourceInfo } from "../../../../coding-agent/src/core/source-info.ts";
 import { getShellConfig } from "../../../../coding-agent/src/utils/shell.ts";
@@ -59,6 +66,7 @@ import { createAsyncSerializer } from "../../compaction/serialize.ts";
 import { traceCompactionCall } from "../../compaction/trace.ts";
 import { applyIdleMicroCompact } from "../../context/microcompact.ts";
 import { getContextUsagePlus } from "../../context/usage.ts";
+import { BackgroundRunManager, parallelSteerEnabled } from "./parallel-steer.ts";
 
 /**
  * Windows shell fallback: the built-in "bash" tool requires Git Bash (or bash
@@ -118,12 +126,20 @@ export class AgentSession extends UpstreamAgentSession {
 	// arriving there still treats the task as active (pre-flight + resume).
 	private compactionResumePending = false;
 
+	// Background runs spawned for steer-mode input during an active run
+	// (see parallel-steer.ts).
+	private readonly backgroundRuns = new BackgroundRunManager();
+
 	constructor(config: AgentSessionConfig) {
 		super(applyWindowsShellFallback(config));
 		this.runIdleMicroCompact();
 	}
 
 	override async prompt(text: string, options?: PromptOptions): Promise<void> {
+		if (this.tryParallelSteer(text, options?.streamingBehavior, options?.images)) {
+			// Queued for the background agent; upstream's prompt() never runs.
+			return;
+		}
 		// CC evaluates the time-based micro-compact trigger before every API call.
 		// The constructor check only covers session open, so a session that stays
 		// open past the idle window (desktop app) must clear stale tool results on
@@ -131,7 +147,49 @@ export class AgentSession extends UpstreamAgentSession {
 		// cannot accrue mid-run (assistant timestamps refresh), so per-prompt
 		// evaluation matches CC; the projection-based selection is idempotent.
 		this.runIdleMicroCompact();
-		await super.prompt(text, options);
+		return super.prompt(text, options);
+	}
+
+	/**
+	 * Steer-mode input during a run spawns a forked background agent instead of
+	 * joining the main run's steering queue at the next turn boundary (see
+	 * parallel-steer.ts). Falls back to upstream steering when disabled, when
+	 * idle, for `/`-prefixed input (extension commands must still execute), and
+	 * for images (the background task prompt is text-only).
+	 */
+	override async steer(
+		text: string,
+		images?: ImageContent[],
+		options?: { source?: InputSource },
+	): Promise<QueuedInputDisposition> {
+		if (this.tryParallelSteer(text, "steer", images)) {
+			return "queued";
+		}
+		return super.steer(text, images, options);
+	}
+
+	/** Number of background runs currently processing parallel-steered messages. */
+	get backgroundRunCount(): number {
+		return this.backgroundRuns.count;
+	}
+
+	override dispose(): void {
+		this.backgroundRuns.dispose();
+		super.dispose();
+	}
+
+	private tryParallelSteer(text: string, streamingBehavior?: "steer" | "followUp", images?: ImageContent[]): boolean {
+		if (
+			parallelSteerEnabled() &&
+			this.isStreaming &&
+			streamingBehavior === "steer" &&
+			!images?.length &&
+			!text.startsWith("/")
+		) {
+			this.backgroundRuns.start(this, text);
+			return true;
+		}
+		return false;
 	}
 
 	private runIdleMicroCompact(): void {

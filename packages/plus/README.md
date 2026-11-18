@@ -60,6 +60,26 @@ upstream packages stay pristine so they can be synced/updated without merge conf
 | `PI_MAX_THINKING_TOKENS` | number (`0` disables) | Thinking budget (enables thinking at `high` when > 0) |
 | `PI_DISABLE_THINKING` | truthy | Disables thinking entirely |
 | `PI_DISABLE_ADAPTIVE_THINKING` | truthy | Forces the budget-based thinking path |
+| `PI_PLUS_PARALLEL_STEER` | `0` disables (default on) | Steer-mode input during a run is processed by a forked background agent (subprocess) running in parallel with the main run; the result lands in the session transcript as a `plus.background_result` entry when the run reaches a turn boundary. Follow-up mode is unaffected |
+
+## Parallel steering
+
+Steering a running session upstream waits for the current turn's tool calls to
+finish and then injects the message into the same run and context. With plus,
+`steer`-mode input typed while a run is active instead spawns an isolated
+background agent — the same subprocess machinery as the subagent extension,
+seeded with a serialized excerpt of the current transcript — that processes
+the message concurrently. When it finishes, the outcome (status, usage, final
+output) is appended to the session transcript as a `plus.background_result`
+custom message: immediately when the session is idle, at the next turn-end
+flush while a run is active, so it never interrupts an in-flight assistant
+message.
+
+Fallbacks that keep upstream behavior: steering while the session is idle,
+messages with images, `/`-prefixed input (extension commands must still
+execute), and `PI_PLUS_PARALLEL_STEER=0`. Background runs survive a main-run
+abort (they are parallel work) and are aborted on session dispose; concurrent
+file edits between the main and background agent are possible by design.
 
 ## Tests
 
