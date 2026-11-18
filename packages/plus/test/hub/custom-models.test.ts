@@ -87,6 +87,42 @@ describe("withAutoCustomModels", () => {
 		]);
 	});
 
+	it("introduces a model declared only in model-input.json", () => {
+		writeModelInput("p", { "acme-extra": ["text"] });
+		const profile = { name: "p", provider: "anthropic", models: ["acme-unknown-model"] };
+		const result = withAutoCustomModels(profile, "p");
+		expect(result.models).toEqual([
+			{ id: "acme-unknown-model", name: "acme-unknown-model", input: ["text", "image"] },
+			{ id: "acme-extra", name: "acme-extra", input: ["text"] },
+		]);
+	});
+
+	it("introduces models into a profile that declares none", () => {
+		writeModelInput("p", { "acme-extra": ["text", "image"] });
+		const profile = { name: "p", provider: "anthropic" };
+		const result = withAutoCustomModels(profile, "p");
+		expect(result.models).toEqual([{ id: "acme-extra", name: "acme-extra", input: ["text", "image"] }]);
+	});
+
+	it("skips model-input.json entries that name a builtin catalog model not in the profile", () => {
+		writeModelInput("p", { [builtinModelId]: ["text"] });
+		const profile = { name: "p", provider: "anthropic", models: ["acme-unknown-model"] };
+		const result = withAutoCustomModels(profile, "p");
+		expect(result.models).not.toContain(builtinModelId);
+		expect(result.models).toEqual([
+			{ id: "acme-unknown-model", name: "acme-unknown-model", input: ["text", "image"] },
+		]);
+	});
+
+	it("skips qualified ids in model-input.json", () => {
+		writeModelInput("p", { "other/model": ["text"] });
+		const profile = { name: "p", provider: "anthropic", models: ["acme-unknown-model"] };
+		const result = withAutoCustomModels(profile, "p");
+		expect(result.models).toEqual([
+			{ id: "acme-unknown-model", name: "acme-unknown-model", input: ["text", "image"] },
+		]);
+	});
+
 	it("defaults an explicit custom model definition without input to text and images", () => {
 		const profile = {
 			name: "p",

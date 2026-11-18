@@ -30,11 +30,12 @@ import { AGENT_DIR, type CustomModel, type ModelEntry, type Profile, profileDirF
 // (MODEL_INPUT_FILE) overrides that per model id; an explicit `input` on a
 // profiles.json definition sits between the two in precedence:
 // model-input.json > definition.input > ["text", "image"].
-// The override file only covers models pi does not know: for a catalog model,
-// a models.json `models` entry would REPLACE the catalog entry (provider-
-// composer modelFromJson starts from hard defaults, not the catalog facts),
+// only covers models pi does not know: for a catalog model, a models.json
+// `models` entry would REPLACE the catalog entry (provider-composer
+// modelFromJson starts from hard defaults, not the catalog facts),
 // so restricting a catalog model's modalities needs pi's modelOverrides
-// mechanism, which materialization does not write.
+// mechanism, which materialization does not write. The file may also
+// introduce models the profile does not declare at all (see below).
 
 /** Profile-dir file letting the user pin input modalities per unknown model id: { "<model-id>": ["text", "image"] }. */
 export const MODEL_INPUT_FILE = "model-input.json";
@@ -90,7 +91,6 @@ export function withAutoCustomModels(profile: Profile, profileName?: string): Pr
 	const provider = profile.provider;
 	if (!provider) return profile;
 	const profileModels = profile.models ?? [];
-	if (profileModels.length === 0) return profile;
 
 	const inputOverrides = readModelInputOverrides(profileName);
 	const builtinProvider = getBuiltinProviders().find((p) => p === provider);
@@ -98,8 +98,10 @@ export function withAutoCustomModels(profile: Profile, profileName?: string): Pr
 	const storeIds = new Set(storeCatalogModelIds(provider));
 
 	let changed = false;
+	const seenIds = new Set<string>();
 	const models: ModelEntry[] = profileModels.map((entry) => {
 		if (typeof entry !== "string") {
+			seenIds.add(entry.id);
 			// Explicit definition of a model pi does not know: pin its input
 			// modalities unless it already declares them or the override file
 			// names it (the file is the deliberate local edit, so it wins).
@@ -113,6 +115,7 @@ export function withAutoCustomModels(profile: Profile, profileName?: string): Pr
 			changed = true;
 			return { ...entry, input: DEFAULT_INPUT };
 		}
+		seenIds.add(entry);
 		// Qualified "provider/model" ids are resolved by the runtime itself.
 		if (entry.includes("/")) return entry;
 		if (builtinIds.has(entry) || storeIds.has(entry)) return entry;
@@ -129,5 +132,17 @@ export function withAutoCustomModels(profile: Profile, profileName?: string): Pr
 		if (!builtinProvider && storeIds.size === 0) definition.api = "openai-completions";
 		return definition;
 	});
+	// The file may also introduce models the profile does not declare at all:
+	// each remaining id becomes a custom definition with the file's input. An
+	// entry naming a catalog model is skipped — adding it here would REPLACE
+	// the catalog facts (provider-composer modelFromJson starts from hard
+	// defaults), and a qualified "provider/model" id resolves by itself.
+	for (const [id, input] of Object.entries(inputOverrides)) {
+		if (seenIds.has(id) || id.includes("/") || builtinIds.has(id) || storeIds.has(id)) continue;
+		changed = true;
+		const definition: CustomModel = { id, name: id, input };
+		if (!builtinProvider && storeIds.size === 0) definition.api = "openai-completions";
+		models.push(definition);
+	}
 	return changed ? { ...profile, models } : profile;
 }
