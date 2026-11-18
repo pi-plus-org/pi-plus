@@ -138,7 +138,7 @@ export async function main(args: string[], options?: MainOptions) {
 			// saves, or profiles saved before classification existed); classify
 			// them into custom model definitions so the materialized models.json
 			// registers them and pi can resolve them at run time.
-			const profileDir = materializeProfile(plan.name, withAutoCustomModels(profile));
+			const profileDir = materializeProfile(plan.name, withAutoCustomModels(profile, plan.name));
 			process.env[ENV_AGENT_DIR] = profileDir;
 		}
 	}

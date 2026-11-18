@@ -43,5 +43,5 @@ import { withAutoCustomModels } from "../../plus/src/hub/custom-models.ts";
 // materialization time (shared with the pi-plus CLI launch path) — see
 // packages/plus/src/hub/custom-models.ts for why.
 export function materializeProfile(name: string, profile: Profile): string {
-	return hubMaterializeProfile(name, withAutoCustomModels(profile));
+	return hubMaterializeProfile(name, withAutoCustomModels(profile, name));
 }
