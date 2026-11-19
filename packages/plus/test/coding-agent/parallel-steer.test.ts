@@ -4,6 +4,9 @@
  * The background runner is faked — no real subprocesses or provider calls.
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
@@ -28,7 +31,7 @@ import { emptyUsage, type SubagentResult } from "../../src/extensions/subagent/f
 
 interface FakeCall {
 	defaultCwd: string;
-	defaults: { model?: string; thinkingLevel?: string };
+	defaults: { model?: string; thinkingLevel?: string; agentDir?: string };
 	agentName: string;
 	task: string;
 	cwd: string | undefined;
@@ -43,7 +46,11 @@ function createFakeRunner() {
 	const runner: BackgroundRunner = (defaultCwd, defaults, agent, task, cwd, signal) => {
 		calls.push({
 			defaultCwd,
-			defaults: { model: defaults.model, thinkingLevel: String(defaults.thinkingLevel) },
+			defaults: {
+				model: defaults.model,
+				thinkingLevel: String(defaults.thinkingLevel),
+				agentDir: defaults.agentDir,
+			},
 			agentName: agent.name,
 			task,
 			cwd,
@@ -87,14 +94,17 @@ interface Harness {
 	cleanup: () => void;
 }
 
-async function createHarness(fakeRunner: BackgroundRunner): Promise<Harness> {
+async function createHarness(
+	fakeRunner: BackgroundRunner,
+	options: { settingsManager?: SettingsManager; cwd?: string } = {},
+): Promise<Harness> {
 	// The session captures the module-level runner at construction.
 	setBackgroundRunnerForTests(fakeRunner);
 	const fauxProvider = registerFauxProvider();
 	const model = fauxProvider.getModel();
 
 	const sessionManager = SessionManager.inMemory();
-	const settingsManager = SettingsManager.inMemory();
+	const settingsManager = options.settingsManager ?? SettingsManager.inMemory();
 	const authStorage = AuthStorage.inMemory();
 	await authStorage.modify(model.provider, async () => ({ type: "api_key", key: "faux-key" }));
 	const modelRegistry = await createInMemoryModelRegistry(authStorage);
@@ -131,7 +141,7 @@ async function createHarness(fakeRunner: BackgroundRunner): Promise<Harness> {
 		agent,
 		sessionManager,
 		settingsManager,
-		cwd: process.cwd(),
+		cwd: options.cwd ?? process.cwd(),
 		modelRuntime: getModelRuntime(modelRegistry),
 		resourceLoader,
 		extensionRunnerRef,
@@ -173,11 +183,16 @@ beforeEach(() => {
 	fake = createFakeRunner();
 });
 
+const createdDirs: string[] = [];
+
 afterEach(() => {
 	harn?.cleanup();
 	harn = undefined;
 	setBackgroundRunnerForTests(undefined);
 	vi.unstubAllEnvs();
+	for (const dir of createdDirs.splice(0)) {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 describe("parallel steer routing", () => {
@@ -219,6 +234,27 @@ describe("parallel steer routing", () => {
 		expect(session.getSteeringMessages()).toHaveLength(0);
 		expect(fake.calls).toHaveLength(1);
 		expect(fake.calls[0].task).toContain("summarize the diff");
+	});
+
+	it("forwards the session's agent dir so the child resolves the same hub profile", async () => {
+		// pi-plus-desktop runs several profiles in one process and passes each
+		// session its agent dir through SettingsManager.create. The spawned
+		// child must get that dir (DispatchDefaults.agentDir -> child `--as`) —
+		// the env fallback would give it the wrong profile's model/auth.
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plus-parallel-steer-"));
+		createdDirs.push(root);
+		const cwd = path.join(root, "project");
+		const agentDir = path.join(root, "agent");
+		fs.mkdirSync(cwd, { recursive: true });
+		fs.mkdirSync(agentDir, { recursive: true });
+		const settingsManager = SettingsManager.create(cwd, agentDir);
+		harn = await createHarness(fake.runner, { settingsManager, cwd });
+		const { session } = harn;
+		setStreaming(session, true);
+
+		await session.steer("background task");
+
+		expect(fake.calls[0].defaults.agentDir).toBe(agentDir);
 	});
 
 	it("followUp during a run stays on the upstream queue", async () => {

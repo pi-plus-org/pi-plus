@@ -27,6 +27,7 @@ import type { AgentSession, QueuedInputDisposition } from "../../../../coding-ag
 import type { AgentConfig } from "../../extensions/subagent/agents.ts";
 import { formatUsageStats, getFinalOutput, type SubagentResult } from "../../extensions/subagent/format.ts";
 import { type DispatchDefaults, runSingleAgent } from "../../extensions/subagent/run.ts";
+import { getSettingsManagerAgentDir } from "./settings-manager.ts";
 
 /**
  * Child agent descriptor: no agent-type system prompt, model/thinking inherited
@@ -86,8 +87,11 @@ export class BackgroundRunManager {
 			// some providers (faux in tests) carry an empty provider name.
 			model: model ? (model.provider ? `${model.provider}/${model.id}` : model.id) : undefined,
 			thinkingLevel: session.thinkingLevel,
-			// agentDir stays undefined: the runner resolves the hub profile the
-			// same way the subagent tool does (PI_CODING_AGENT_DIR env).
+			// The session's own agent dir (recorded by the plus SettingsManager
+			// overlay) forwards the hub profile to the child as `--as`. SDK hosts
+			// run several profiles in one process, so the env fallback would give
+			// the child the wrong profile (and thus the wrong model/auth).
+			agentDir: getSettingsManagerAgentDir(session.settingsManager),
 		};
 		this.runner(cwd, defaults, BACKGROUND_AGENT, task, cwd, controller.signal, undefined)
 			.then((result) => this.deliver(session, text, result))

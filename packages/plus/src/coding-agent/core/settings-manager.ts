@@ -256,6 +256,20 @@ prototypePatch.getProviderRetrySettings = function (this: SettingsManagerReadInt
 	};
 };
 
+/**
+ * Agent dir each SettingsManager was created with, recorded by the patched
+ * `create` below. Parallel steering reads this to forward the session's hub
+ * profile to the spawned child (`--as`); SDK hosts (pi-plus-desktop tabs)
+ * run several profiles in one process, so the env fallback cannot identify
+ * the right one. `inMemory`/`fromStorage` managers have no entry — callers
+ * fall back to the process env there.
+ */
+const managerAgentDirs = new WeakMap<UpstreamSettingsManager, string>();
+
+export function getSettingsManagerAgentDir(manager: UpstreamSettingsManager): string | undefined {
+	return managerAgentDirs.get(manager);
+}
+
 const upstreamCreate = UpstreamSettingsManager.create.bind(UpstreamSettingsManager);
 
 UpstreamSettingsManager.create = (
@@ -284,5 +298,6 @@ UpstreamSettingsManager.create = (
 	} catch {
 		/* reported by the normal settings read paths */
 	}
+	managerAgentDirs.set(manager, resolvedAgentDir);
 	return manager;
 };

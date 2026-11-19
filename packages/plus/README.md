@@ -69,7 +69,11 @@ finish and then injects the message into the same run and context. With plus,
 `steer`-mode input typed while a run is active instead spawns an isolated
 background agent — the same subprocess machinery as the subagent extension,
 seeded with a serialized excerpt of the current transcript — that processes
-the message concurrently. When it finishes, the outcome (status, usage, final
+the message concurrently. The child inherits the session's model, thinking
+level, and hub profile (the profile is forwarded as `--as` from the session's
+agent dir, so SDK hosts running several profiles in one process resolve the
+same model catalog and auth). When it finishes, the outcome (status, usage,
+final
 output) is appended to the session transcript as a `plus.background_result`
 custom message: immediately when the session is idle, at the next turn-end
 flush while a run is active, so it never interrupts an in-flight assistant
