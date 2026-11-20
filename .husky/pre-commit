@@ -8,6 +8,14 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# Fork scope gate: staged paths must stay inside the extended packages, so
+# core packages remain pristine for upstream syncs (merge commits are exempt —
+# git does not run pre-commit on them).
+node scripts/check-fork-scope.mjs
+if [ $? -ne 0 ]; then
+  exit 1
+fi
+
 # Run the check script (formatting, linting, and type checking)
 echo "Running formatting, linting, and type checking..."
 npm run check
