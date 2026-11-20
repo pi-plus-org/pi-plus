@@ -13,7 +13,6 @@ import {
 	type ResolveCliModelResult,
 	findInitialModel as upstreamFindInitialModel,
 	resolveCliModel as upstreamResolveCliModel,
-	restoreModelFromSession as upstreamRestoreModelFromSession,
 } from "../../../../coding-agent/src/core/model-resolver.ts";
 import { setCurrentModel } from "../../context/detection.ts";
 
@@ -40,16 +39,6 @@ export async function findInitialModel(
 	options: Parameters<typeof upstreamFindInitialModel>[0],
 ): Promise<InitialModelResult> {
 	const result = await upstreamFindInitialModel(options);
-	if (result.model) {
-		applyPlusModelPolicy(result.model);
-	}
-	return result;
-}
-
-export async function restoreModelFromSession(
-	...args: Parameters<typeof upstreamRestoreModelFromSession>
-): Promise<{ model: Model<any> | undefined; fallbackMessage: string | undefined }> {
-	const result = await upstreamRestoreModelFromSession(...args);
 	if (result.model) {
 		applyPlusModelPolicy(result.model);
 	}

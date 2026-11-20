@@ -19,7 +19,7 @@ import { registerSubagent } from "../../src/extensions/subagent/index.ts";
 
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
-function renderToText(component: { render(width: number): string[] }): string {
+function renderToText(component: { render(width: number): readonly string[] }): string {
 	return component.render(120).map(stripAnsi).join("\n").trim();
 }
 

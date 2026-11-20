@@ -16,8 +16,14 @@ import { completeSummarization } from "../../../../coding-agent/src/core/compact
 import { markNoReasoning } from "../../reasoning/effort.ts";
 import { getRecapPrompt, sanitizeRecapTitle } from "./prompt.ts";
 
-/** Output cap for the title call; generous for an 8-word line, cheap overall. */
-const RECAP_MAX_OUTPUT_TOKENS = 128;
+/**
+ * Output cap for the title call. Generous for an ≤8-word line, and mandatory
+ * for always-thinking models: markNoReasoning strips the reasoning level, and
+ * a model whose thinkingLevelMap has no "off" (e.g. kimi-for-coding) still
+ * thinks at its provider default — reasoning tokens count against maxTokens,
+ * so a cap near the title length burns the whole budget before any text.
+ */
+const RECAP_MAX_OUTPUT_TOKENS = 1024;
 
 /** Abort the title call rather than let it hang the (fire-and-forget) recap. */
 const RECAP_TIMEOUT_MS = 30_000;

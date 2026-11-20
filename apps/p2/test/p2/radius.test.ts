@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -150,13 +150,13 @@ test("Radius-relayed artifact previews may sit below the Radius shell's frame", 
 	await chat.send({ text: "artifact", requestId: "artifact" }, BACKGROUND_CONTEXT);
 	await until(chat.view, (view) =>
 		(view?.entries ?? []).some((entry) =>
-			(entry.model ?? []).some((message) => message.role === "toolResult" && message.toolName === "artifact"),
+			(entry.model ?? []).some((message) => message.role === "toolResult" && message.toolName === "codemode"),
 		),
 	);
 	chat.release();
 	// The relayed app is framed by the shell, and `frame-ancestors` checks every ancestor: `'self'` alone showed
 	// Chrome's blocked-frame page instead of every inline preview.
-	const id = f.open(`/artifact?${new URLSearchParams({ session, name: "demo", version: "1" })}`);
+	const id = f.open(`/artifact-frame?${new URLSearchParams({ session, id: "demo", version: "1" })}`);
 	const response = await f.radius.response(id);
 	assert.equal(response.status, 200);
 	const csp = (response.headers as [string, string][]).find(
@@ -164,6 +164,51 @@ test("Radius-relayed artifact previews may sit below the Radius shell's frame", 
 	);
 	assert.match(String(csp?.[1]), /; frame-ancestors 'self' https:\/\/radius\.earendil\.com$/);
 });
+
+test(
+	"a relayed session file opens in a tab of its own, but no other site's page reads it",
+	{ timeout: 30_000 },
+	async (t) => {
+		const f = await fixture(t);
+		const owner = clientHost(await localOwner(f.server));
+		t.after(() => owner.close(BACKGROUND_CONTEXT));
+		const session = (
+			await (await holdIn(owner, Sessions, {}, "owner")).create({ cwd: f.directory }, BACKGROUND_CONTEXT)
+		).id;
+		await writeFile(join(f.directory, "note.txt"), "hello");
+		const path = `/workspace-file?${new URLSearchParams({ session, conversation: "1", path: "note.txt" })}`;
+		const status = async (headers: [string, string][]) =>
+			(
+				await f.radius.response(
+					f.open(path, { headers: [["x-radius-shell-origin", "https://radius.earendil.com"], ...headers] }),
+				)
+			).status;
+		// Opened in a new tab without the tab's Radius cookie, the request passes Radius sign-in and comes back cross-site.
+		const tab: [string, string][] = [
+			["sec-fetch-site", "cross-site"],
+			["sec-fetch-mode", "navigate"],
+		];
+		assert.equal(await status([...tab, ["sec-fetch-dest", "document"]]), 200);
+		assert.equal(await status([...tab, ["sec-fetch-dest", "iframe"]]), 403, "another site's frame");
+		assert.equal(
+			await status([
+				["sec-fetch-site", "cross-site"],
+				["sec-fetch-mode", "no-cors"],
+				["sec-fetch-dest", "image"],
+			]),
+			403,
+			"another site's subresource",
+		);
+		assert.equal(
+			await status([
+				["sec-fetch-site", "same-origin"],
+				["sec-fetch-mode", "no-cors"],
+				["sec-fetch-dest", "image"],
+			]),
+			200,
+		);
+	},
+);
 
 test("the relayed app page names the Radius shell that frames it", { timeout: 60_000 }, async (t) => {
 	const f = await fixture(t, undefined, {}, { web: true });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { OAuthCredential } from "@earendil-works/pi-ai";
 import { radiusProvider } from "@earendil-works/pi-ai/providers/radius";
 import { DEFAULT_RADIUS_GATEWAY, normalizeRadiusGatewayUrl } from "@earendil-works/pi-ai/providers/radius-config";
+import { SERVER_PART_LIMITS } from "@p2/app/v1";
 import { WebSocket } from "ws";
 import type { Forwards } from "../ports/contract.ts";
 import {
@@ -145,7 +146,11 @@ const CHANNEL_SUBPROTOCOL = "pi-server.channel.v1";
 /** A channel socket's direction pauses its source above this many unsent bytes, and resumes below the low mark. */
 const PIPE_HIGH_BYTES = 256 * 1024;
 const PIPE_LOW_BYTES = 64 * 1024;
-const MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
+/**
+ * A WebSocket message the brain carries: the largest part the server sends a page. The relay has its own limit per data
+ * message (32 MiB by default since Radius ee560a41, `SERVER_MAX_DATA_MESSAGE_BYTES`), which a larger part fails at.
+ */
+const MAX_MESSAGE_BYTES = SERVER_PART_LIMITS.part;
 /** The relay's default window, for relays that do not state it in `connection_open`. */
 const DEFAULT_HTTP_WINDOW = 256 * 1024;
 const CONGESTION_HIGH_BYTES = 1024 * 1024;
@@ -390,6 +395,15 @@ export class RadiusBrain {
 		return this.#shellPage;
 	}
 
+	/**
+	 * What a request to this brain's gateway on its own behalf needs (session sync, `plugins/sync`): the gateway, this
+	 * brain's server ID and a current access token, refreshed as the connection refreshes it. Rejects while not signed in.
+	 */
+	async syncAccess(): Promise<{ readonly gateway: string; readonly serverId: string; readonly token: string }> {
+		const config = await this.#currentConfig();
+		return { gateway: config.gateway, serverId: config.serverId, token: config.credential.access };
+	}
+
 	close(): void {
 		this.#closed = true;
 		this.#abort.abort();
@@ -430,7 +444,7 @@ export class RadiusBrain {
 		if (name !== undefined) url.searchParams.set("name", name);
 		const socket = new WebSocket(url, HOST_SUBPROTOCOLS, {
 			headers: { authorization: `Bearer ${config.credential.access}` },
-			maxPayload: 16 * 1024 * 1024 + DATA_HEADER_BYTES,
+			maxPayload: MAX_MESSAGE_BYTES + DATA_HEADER_BYTES,
 			handshakeTimeout: this.#handshakeTimeoutMs,
 		});
 		socket.binaryType = "nodebuffer";

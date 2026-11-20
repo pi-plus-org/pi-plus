@@ -48,7 +48,7 @@ export class PlanViewComponent implements Component {
 	private selectedIndex = 0;
 	private lastWidth = 80;
 	private cachedWidth?: number;
-	private cachedBody?: string[];
+	private cachedBody?: readonly string[];
 
 	constructor(options: PlanViewComponentOptions) {
 		this.plan = options.plan;
@@ -162,7 +162,7 @@ export class PlanViewComponent implements Component {
 		this.markdown.invalidate();
 	}
 
-	private bodyLines(width: number): string[] {
+	private bodyLines(width: number): readonly string[] {
 		if (this.cachedWidth === width && this.cachedBody) return this.cachedBody;
 		this.cachedWidth = width;
 		this.cachedBody = this.markdown.render(width);
