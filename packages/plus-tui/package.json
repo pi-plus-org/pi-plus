@@ -1,0 +1,24 @@
+{
+	"name": "@pi-plus/plus-tui",
+	"version": "0.1.0",
+	"private": true,
+	"description": "pi-plus TUI extension package: mid-text slash-command autocompletion for the pi editor, for CLI and app (p2) consumers",
+	"type": "module",
+	"scripts": {
+		"test": "node --import ../../apps/p2/src/source.ts --test test/*.test.ts",
+		"check": "tsc -p tsconfig.p2.json",
+		"p2-dev": "node loader/p2-dev.mjs"
+	},
+	"imports": {},
+	"exports": {
+		".": "./src/index.ts",
+		"./*": "./src/*.ts"
+	},
+	"dependencies": {
+		"@earendil-works/pi-tui": "1.5.2"
+	},
+	"devDependencies": {
+		"@types/node": "22.19.19",
+		"typescript": "7.0.2"
+	}
+}

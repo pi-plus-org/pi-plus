@@ -94,7 +94,12 @@ const banner = {
 // the plus package dirs are never redirected, mirroring loader/hooks.mjs (no redirect loops).
 const redirectByFile = buildRedirectMap(repoRoot, REDIRECTS);
 
-const exemptPrefixes = [plusDir, scriptDir, join(repoRoot, "packages", "plus-api")].map((dir) => `${dir}/`);
+const exemptPrefixes = [
+	join(repoRoot, "packages", "plus"),
+	join(repoRoot, "packages", "plus-tui"),
+	scriptDir,
+	join(repoRoot, "packages", "plus-api"),
+].map((dir) => `${dir}/`);
 const plusRedirectPlugin = createPlusRedirectPlugin(redirectByFile, exemptPrefixes);
 
 function commonBuildOptions() {

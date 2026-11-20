@@ -12,6 +12,13 @@ export const REDIRECTS = new Map([
 		"packages/coding-agent/src/modes/interactive/components/settings-selector.ts",
 		"packages/plus-cli/src/coding-agent/ui/settings-selector.ts",
 	],
+	// Mid-text slash-command completion: the pi-tui editor and combined autocomplete provider
+	// are full extended copies in packages/plus-tui (see the headers there for the divergence
+	// list). Redirect both entry points so every consumer of the TUI editor picks up the
+	// behavior. Importers inside packages/plus-tui/ are exempt from redirects, so the copies'
+	// relative imports back into packages/tui/src/ resolve upstream.
+	["packages/tui/src/components/editor.ts", "packages/plus-tui/src/components/editor.ts"],
+	["packages/tui/src/autocomplete.ts", "packages/plus-tui/src/autocomplete.ts"],
 	// Resume list: `pipi --resume` / `pipi -r` (main.ts -> selectSession) and the TUI
 	// `/resume` both construct this component, so the wrapper filters headless
 	// sessions where they are displayed. Only the CLI bundles this file, so the

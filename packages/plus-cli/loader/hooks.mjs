@@ -19,7 +19,7 @@ import { REDIRECTS } from "./redirects.mjs";
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 // Importers inside any plus package dir are never redirected (they may be wrappers
 // importing the true upstream module via relative path).
-const exemptPrefixes = ["packages/plus/", "packages/plus-cli/", "packages/plus-api/"].map(
+const exemptPrefixes = ["packages/plus/", "packages/plus-tui/", "packages/plus-cli/", "packages/plus-api/"].map(
 	(dir) => `${repoRoot}${dir}`,
 );
 
