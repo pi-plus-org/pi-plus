@@ -17,6 +17,8 @@ const ALLOWED_PREFIXES = [
 	"assets/",
 	"devops/",
 	"scripts/",
+  "package.json",
+  "package-lock.json"
 ];
 // The gate's own infrastructure, kept explicit: without these it could never
 // have been committed (scripts/ would cover them now, but the intent reads
