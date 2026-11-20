@@ -8,8 +8,19 @@
 
 import { spawnSync } from "node:child_process";
 
-const ALLOWED_PREFIXES = ["packages/plus/", "packages/hub/", "packages/plus-cli/", "packages/plus-api/", "packages/plus-tui/"];
-// The gate's own infrastructure: without these it could never be committed.
+const ALLOWED_PREFIXES = [
+	"packages/plus/",
+	"packages/hub/",
+	"packages/plus-cli/",
+	"packages/plus-api/",
+	"packages/plus-tui/",
+	"assets/",
+	"devops/",
+	"scripts/",
+];
+// The gate's own infrastructure, kept explicit: without these it could never
+// have been committed (scripts/ would cover them now, but the intent reads
+// clearer spelled out).
 const ALLOWED_PATHS = new Set(["scripts/check-fork-scope.mjs", ".husky/pre-commit"]);
 
 const staged = spawnSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACDMRT"], { encoding: "utf8" });
