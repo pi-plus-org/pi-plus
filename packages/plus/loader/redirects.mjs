@@ -25,6 +25,10 @@ export const REDIRECTS = new Map([
 	// handlers) stay out of user-facing session lists.
 	["packages/coding-agent/src/core/session-manager.ts", "packages/plus/src/coding-agent/core/session-manager.ts"],
 	["packages/coding-agent/src/core/defaults.ts", "packages/plus/src/coding-agent/core/defaults.ts"],
+	// Folded shell cards: collapsed bash/powershell cards show only the command
+	// line plus a hidden-line count instead of upstream's 5-line output preview;
+	// failed commands keep the tail preview so the exit status stays visible.
+	["packages/coding-agent/src/core/tools/renderers/bash.ts", "packages/plus/src/coding-agent/core/tools/renderers/bash.ts"],
 	// pi-plus owns provider login (`pipi profile add <name> -p <provider>`, see
 	// packages/plus/src/auth/login.ts), so the TUI /login flow is disabled: the
 	// slash-commands wrapper drops the entry from the built-in list, the

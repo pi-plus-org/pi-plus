@@ -41,11 +41,13 @@
  *   the session-executable slash-command set for embedding hosts, exposed on
  *   this subclass so the SDK bundle's redirects hand hosts the same class
  *   upstream factories use (see the getSlashCommands doc below)
- * - AgentSession.steer / AgentSession.prompt(streamingBehavior: "steer") ->
- *   steer-mode input during a run spawns a forked background agent that
- *   processes it in parallel with the main run, instead of joining the main
- *   run's steering queue at the next turn boundary (see parallel-steer.ts).
- *   Follow-up mode is untouched. Opt out with PI_PLUS_PARALLEL_STEER=0.
+ * - AgentSession.steer -> Claude Code steering parity (see
+ *   plus/src/coding-agent/core/steer-interrupt.ts): a slash command naming a
+ *   registered extension command is deferred to the settle boundary instead
+ *   of throwing while a run is active, and plain text aborts the run when
+ *   every in-flight tool is cancel-safe (markToolCancelSafe) so the message
+ *   is delivered as the first message of a fresh run. Unflagged in-flight
+ *   tools keep upstream behavior: injection at the next inter-turn boundary.
  */
 export * from "../../../../coding-agent/src/core/agent-session.ts";
 
@@ -66,7 +68,7 @@ import { createAsyncSerializer } from "../../compaction/serialize.ts";
 import { traceCompactionCall } from "../../compaction/trace.ts";
 import { applyIdleMicroCompact } from "../../context/microcompact.ts";
 import { getContextUsagePlus } from "../../context/usage.ts";
-import { BackgroundRunManager, parallelSteerEnabled } from "./parallel-steer.ts";
+import { InFlightToolTracker } from "./steer-interrupt.ts";
 
 /**
  * Windows shell fallback: the built-in "bash" tool requires Git Bash (or bash
@@ -126,20 +128,34 @@ export class AgentSession extends UpstreamAgentSession {
 	// arriving there still treats the task as active (pre-flight + resume).
 	private compactionResumePending = false;
 
-	// Background runs spawned for steer-mode input during an active run
-	// (see parallel-steer.ts).
-	private readonly backgroundRuns = new BackgroundRunManager();
+	// In-flight tool calls for the steer interrupt decision, fed by session
+	// events (see steer-interrupt.ts).
+	private steerInFlightTools = new InFlightToolTracker();
+
+	// Slash commands received via steer() during a run; executed at the settle
+	// boundary instead of throwing mid-run.
+	private deferredSteerCommands: string[] = [];
 
 	constructor(config: AgentSessionConfig) {
 		super(applyWindowsShellFallback(config));
 		this.runIdleMicroCompact();
+
+		// Steer interrupt-on-submit: track in-flight tools and drain slash
+		// commands deferred by the steer() override when a run settles.
+		this.subscribe((event) => {
+			if (event.type === "tool_execution_start") {
+				this.steerInFlightTools.toolStarted(event.toolCallId, event.toolName);
+			} else if (event.type === "tool_execution_end") {
+				this.steerInFlightTools.toolEnded(event.toolCallId);
+			} else if (event.type === "agent_end") {
+				this.steerInFlightTools.clear();
+			} else if (event.type === "agent_settled") {
+				void this.runDeferredSteerCommands();
+			}
+		});
 	}
 
 	override async prompt(text: string, options?: PromptOptions): Promise<void> {
-		if (this.tryParallelSteer(text, options?.streamingBehavior, options?.images)) {
-			// Queued for the background agent; upstream's prompt() never runs.
-			return;
-		}
 		// CC evaluates the time-based micro-compact trigger before every API call.
 		// The constructor check only covers session open, so a session that stays
 		// open past the idle window (desktop app) must clear stale tool results on
@@ -147,49 +163,73 @@ export class AgentSession extends UpstreamAgentSession {
 		// cannot accrue mid-run (assistant timestamps refresh), so per-prompt
 		// evaluation matches CC; the projection-based selection is idempotent.
 		this.runIdleMicroCompact();
-		return super.prompt(text, options);
+
+		// Steer-mode prompts interrupt the run when every in-flight tool is
+		// cancel-safe; route them through steer() so both entry points share the
+		// interrupt-on-submit decision (see steer-interrupt.ts).
+		if (options?.streamingBehavior === "steer" && this.isStreaming && !text.startsWith("/")) {
+			await this.steer(text, options.images, { source: options.source });
+			return;
+		}
+		await super.prompt(text, options);
 	}
 
 	/**
-	 * Steer-mode input during a run spawns a forked background agent instead of
-	 * joining the main run's steering queue at the next turn boundary (see
-	 * parallel-steer.ts). Falls back to upstream steering when disabled, when
-	 * idle, for `/`-prefixed input (extension commands must still execute), and
-	 * for images (the background task prompt is text-only).
+	 * steer() plus behavior (Claude Code steering parity):
+	 * - Slash input naming a registered extension command is deferred to the
+	 *   settle boundary and executed there, instead of throwing mid-run.
+	 * - Plain text aborts the run when every in-flight tool is cancel-safe
+	 *   (markToolCancelSafe; vacuously true while only the model is streaming),
+	 *   so the message is delivered as the first message of a fresh run.
+	 *   Unflagged in-flight tools keep upstream behavior: the run continues and
+	 *   the message is injected at the next inter-turn boundary.
 	 */
 	override async steer(
 		text: string,
 		images?: ImageContent[],
 		options?: { source?: InputSource },
 	): Promise<QueuedInputDisposition> {
-		if (this.tryParallelSteer(text, "steer", images)) {
-			return "queued";
+		if (text.startsWith("/")) {
+			if (this.isStreaming && this.findExtensionCommand(text)) {
+				this.deferredSteerCommands.push(text);
+				return "queued";
+			}
+			return super.steer(text, images, options);
 		}
-		return super.steer(text, images, options);
+		const disposition = await super.steer(text, images, options);
+		this.maybeInterruptRunForSteer();
+		return disposition;
 	}
 
-	/** Number of background runs currently processing parallel-steered messages. */
-	get backgroundRunCount(): number {
-		return this.backgroundRuns.count;
+	/**
+	 * Interrupt-on-submit: abort the run when every in-flight tool is
+	 * cancel-safe (vacuously true while only the model is streaming), so the
+	 * just-queued steered message is delivered as the first message of a fresh
+	 * run instead of at the next inter-turn boundary.
+	 */
+	private maybeInterruptRunForSteer(): void {
+		if (!this.isStreaming || !this.steerInFlightTools.allCancelSafe()) return;
+		this.agent.abort();
 	}
 
-	override dispose(): void {
-		this.backgroundRuns.dispose();
-		super.dispose();
+	/** Returns the registered extension command matching the slash input, if any. */
+	private findExtensionCommand(text: string): unknown {
+		const spaceIndex = text.indexOf(" ");
+		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+		const internals = this as unknown as { _extensionRunner: { getCommand(name: string): unknown } };
+		return internals._extensionRunner.getCommand(commandName);
 	}
 
-	private tryParallelSteer(text: string, streamingBehavior?: "steer" | "followUp", images?: ImageContent[]): boolean {
-		if (
-			parallelSteerEnabled() &&
-			this.isStreaming &&
-			streamingBehavior === "steer" &&
-			!images?.length &&
-			!text.startsWith("/")
-		) {
-			this.backgroundRuns.start(this, text);
-			return true;
+	/** Executes slash commands deferred by steer() once the run has settled. */
+	private async runDeferredSteerCommands(): Promise<void> {
+		if (this.deferredSteerCommands.length === 0) return;
+		const commands = this.deferredSteerCommands.splice(0);
+		const execute = (
+			this as unknown as { _tryExecuteExtensionCommand(text: string): Promise<void> }
+		)._tryExecuteExtensionCommand.bind(this);
+		for (const command of commands) {
+			await execute(command);
 		}
-		return false;
 	}
 
 	private runIdleMicroCompact(): void {
