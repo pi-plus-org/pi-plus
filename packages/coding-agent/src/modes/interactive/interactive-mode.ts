@@ -167,6 +167,7 @@ import { createMermaidMarkdownTransformer } from "./components/mermaid.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
 import {
 	type AuthSelectorProvider,
+	type AuthSelectorStatus,
 	formatAuthSelectorProviderStatus,
 	formatAuthSelectorProviderType,
 	OAuthSelectorComponent,
@@ -4091,6 +4092,7 @@ export class InteractiveMode {
 					message.cancelled,
 					message.truncated ? ({ truncated: true } as TruncationResult) : undefined,
 					message.fullOutputPath,
+					message.fullOutputError,
 				);
 				this.chatContainer.addChild(component);
 				break;
@@ -4544,6 +4546,7 @@ export class InteractiveMode {
 			await this.ui.terminal.drainInput(1000);
 			this.stop();
 			await flushStdout();
+			killTrackedDetachedChildren();
 			process.exit(0);
 		}
 
@@ -4565,6 +4568,9 @@ export class InteractiveMode {
 		}
 
 		await flushStdout();
+		// dispose() only starts killing a running `!` command, which on Windows loses the race with
+		// exit. After the last await, so it also catches a shell spawned after the abort.
+		killTrackedDetachedChildren();
 		process.exit(0);
 	}
 
@@ -4627,10 +4633,7 @@ export class InteractiveMode {
 	private registerSignalHandlers(): void {
 		this.unregisterSignalHandlers();
 
-		const signals: NodeJS.Signals[] = ["SIGTERM"];
-		if (process.platform !== "win32") {
-			signals.push("SIGHUP");
-		}
+		const signals: NodeJS.Signals[] = ["SIGTERM", "SIGHUP"];
 
 		for (const signal of signals) {
 			const handler = () => {
@@ -6058,12 +6061,13 @@ export class InteractiveMode {
 		const options: AuthSelectorProvider[] = [];
 		for (const provider of this.session.modelRuntime.getProviders()) {
 			const authStatus = this.session.modelRuntime.getProviderAuthStatus(provider.id);
-			const status = authStatus.configured
-				? {
-						type: this.session.modelRuntime.isUsingOAuth(provider.id) ? ("oauth" as const) : ("api_key" as const),
-						source: authStatus.label ?? authStatus.source,
-					}
-				: undefined;
+			let status: AuthSelectorStatus | undefined;
+			if (authStatus.configured) {
+				const type = this.session.modelRuntime.isUsingOAuth(provider.id) ? "oauth" : "api_key";
+				status = { kind: "configured", type, source: authStatus.label ?? authStatus.source };
+			} else if (authStatus.source === "stored") {
+				status = { kind: "unresolved" };
+			}
 			const subscription = provider.auth.oauth?.isSubscription === true;
 			if ((!authType || authType === "oauth") && provider.auth.oauth) {
 				options.push({
@@ -6092,13 +6096,13 @@ export class InteractiveMode {
 
 	private async getLogoutProviderOptions(): Promise<AuthSelectorProvider[]> {
 		return (await this.session.modelRuntime.listCredentials({ signal: AbortSignal.timeout(15_000) }))
-			.map(({ providerId, type }) => {
+			.map(({ providerId, type }): AuthSelectorProvider => {
 				const provider = this.session.modelRuntime.getProvider(providerId);
 				return {
 					id: providerId,
 					name: provider?.name ?? providerId,
 					authType: type,
-					status: { type, source: "stored credential" },
+					status: { kind: "configured", type, source: "stored credential" },
 					subscription: provider?.auth.oauth?.isSubscription === true,
 				};
 			})
@@ -7270,6 +7274,7 @@ export class InteractiveMode {
 				result.cancelled,
 				result.truncated ? ({ truncated: true, content: result.output } as TruncationResult) : undefined,
 				result.fullOutputPath,
+				result.fullOutputError,
 			);
 
 			// Record the result in session
@@ -7312,6 +7317,7 @@ export class InteractiveMode {
 					result.cancelled,
 					result.truncated ? ({ truncated: true, content: result.output } as TruncationResult) : undefined,
 					result.fullOutputPath,
+					result.fullOutputError,
 				);
 			}
 		} catch (error) {
