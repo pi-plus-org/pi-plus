@@ -39,6 +39,16 @@ import type {
 	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 
+/** Options for running a Bash command through an embedding host. */
+export type ExecuteBashOptions = NonNullable<Parameters<AgentSession["executeBash"]>[2]>;
+/** Result of a Bash command run through an embedding host. */
+export type ExecuteBashResult = Awaited<ReturnType<AgentSession["executeBash"]>>;
+/** Runtime returned by `createPlusAgentSessionRuntime`, including host-owned Bash execution. */
+export type PlusAgentSessionRuntime = AgentSessionRuntime & {
+	executeBash(command: string, onChunk?: (chunk: string) => void, options?: ExecuteBashOptions): Promise<ExecuteBashResult>;
+	abortBash(): void;
+};
+
 // Value import for the SessionManager static shadow below (the augmented
 // instance side is reachable via interface merging; statics are not).
 import { SessionManager as UpstreamSessionManager } from "@earendil-works/pi-coding-agent";
@@ -621,7 +631,7 @@ export interface CreatePlusAgentSessionRuntimeOptions extends CreateAgentSession
  *  bindExtensions themselves. */
 export declare function createPlusAgentSessionRuntime(
 	options?: CreatePlusAgentSessionRuntimeOptions,
-): Promise<AgentSessionRuntime>;
+): Promise<PlusAgentSessionRuntime>;
 
 /**
  * Profile management: the curated @earendil-works/pi-hub surface bundled into

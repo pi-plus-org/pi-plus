@@ -80,8 +80,9 @@ await session.prompt("Review this repository");
   `session.bindExtensions()` yourself. Pass `ui` dialog handlers to get working
   `ask_user` questions (bound with mode `"rpc"`, so the tool falls back to sequential
   select/input/confirm dialogs bridged to your UI); omit `ui` for a headless session.
-- `createPlusAgentSessionRuntime()` returns an `AgentSessionRuntime` instead of a
-  single session: the same pi-plus layer and one-bind-per-session rules, plus the
+- `createPlusAgentSessionRuntime()` returns a `PlusAgentSessionRuntime` (an
+  `AgentSessionRuntime` plus host-owned Bash execution) instead of a single
+  session: the same pi-plus layer and one-bind-per-session rules, plus the
   CLI's session-replacement machinery — `runtime.cd`-style switches
   (`switchSession`), `newSession`, and `fork` (with `{position: "at"}` for the CLI's
   in-place `/clone`). The pi-plus `/cd`/`/init` extensions and anything else needing
@@ -91,6 +92,7 @@ await session.prompt("Review this repository");
   the `onRebind` callback (it also fires for the initial bind) and never call
   `bindExtensions()` yourself. `runtime.dispose()` is async and emits
   `session_shutdown`.
+
 - `session.setAutoCompactionEnabled(bool)` writes the **global**
   `<agentDir>/settings.json` compaction flag (not a per-session setting), so a host
   toggle labeled per-session would surprise users — it also flips behavior for the
@@ -109,6 +111,24 @@ await session.prompt("Review this repository");
   the CLI entry is not part of the SDK. Likewise `parseArgs`/`Args` and
   `SettingsSelectorComponent` are upstream pi's versions, not the pipi-branded CLI
   wrappers.
+
+### Bash execution
+
+Hosts can run shell commands outside an LLM turn through the runtime:
+
+```ts
+const result = await runtime.executeBash("git status", (chunk) => {
+	process.stdout.write(chunk);
+}, { id: "status-1" });
+
+runtime.abortBash(); // cancels every command currently running on the session
+```
+
+The result is recorded in the session context unless `excludeFromContext` is
+set. This API is for host-initiated actions (for example, a user-entered `!`
+command); it does not route through the model's tool-permission gate, so the
+host must obtain any required user consent before calling it. `excludeTools:
+["bash"]` only controls the model-facing Bash tool during LLM turns.
 
 ## Building the artifact
 

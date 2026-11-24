@@ -796,6 +796,37 @@ describe("createPlusAgentSessionRuntime", () => {
 		}
 	}, 30000);
 
+	it("executes and aborts Bash commands through the runtime", async () => {
+		const cwd = makeTempDir();
+		const agentDir = makeTempDir();
+		const { faux, model, modelRuntime } = await createFauxHarness();
+		const observer = makeRuntimeObserver();
+
+		const runtime = await createPlusAgentSessionRuntime({
+			cwd,
+			agentDir,
+			model,
+			modelRuntime,
+			settingsManager: SettingsManager.inMemory(),
+			extensionFactories: [observer.factory],
+			onRebind: observer.onRebind,
+		});
+
+		try {
+			const result = await runtime.executeBash("echo sdk-bash", (chunk) => {
+				expect(chunk).toContain("sdk-bash");
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.output).toContain("sdk-bash");
+			expect(runtime.session.isBashRunning).toBe(false);
+			runtime.abortBash();
+		} finally {
+			await runtime.dispose();
+			faux.unregister();
+		}
+	}, 30000);
+
 	it("routes /cd through the runtime actions wired for embedding hosts", async () => {
 		const cwd = makeTempDir();
 		const agentDir = makeTempDir();

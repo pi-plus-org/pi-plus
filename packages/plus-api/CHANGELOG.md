@@ -4,6 +4,7 @@
 
 ### Added
 
+- `createPlusAgentSessionRuntime()` now returns host-owned Bash execution alongside the upstream runtime: `runtime.executeBash(command, onChunk?, { id?, excludeFromContext?, operations? })` records the result in session context and `runtime.abortBash()` cancels in-flight commands. This is the stable embedding API for host-initiated commands such as a desktop composer's `!` runner; it bypasses the model tool-permission gate by design, so hosts remain responsible for user consent.
 - The diagram extension (`pi-plus-diagram`, shared core `packages/plus/src/extensions/diagram/`) joins `plusSdkExtensionFactories`: SDK sessions get the `draw_diagram` tool (structured JSON spec → layered layout → box-drawing ASCII in `details`, optional `file` write of a standalone HTML/SVG document), and the SDK surface re-exports the rendering pieces directly — `renderDiagramHtml(spec, options?)` for hosts that want self-contained HTML/SVG from a spec without a tool call, plus `layoutDiagram`, the `DiagramSpec`/`DiagramNode`/`DiagramEdge`/`DiagramShape`/`DiagramDetails` types, and `DiagramError`/`DIAGRAM_TOOL_NAME`.
 
 - `createPlusSdkExtensionFactories(agentDir?: string)` builds the hidden non-TUI pi-plus extension factories with the session's agent dir bound into the sub-agent-spawning extensions (`pi-plus-subagent`, `pi-plus-memory`); `plusSdkExtensionFactories` stays the env-fallback binding (`createPlusSdkExtensionFactories()`), so hosts importing the array directly keep the pipi-CLI behavior. Declared in `api.d.ts`.

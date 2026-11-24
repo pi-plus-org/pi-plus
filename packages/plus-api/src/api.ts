@@ -108,7 +108,6 @@ export * from "./profiles.ts";
 import type { DefaultResourceLoaderOptions } from "../../coding-agent/src/core/resource-loader.ts";
 import type {
 	AgentSession,
-	AgentSessionRuntime,
 	AgentSessionRuntimeDiagnostic,
 	CreateAgentSessionOptions,
 	CreateAgentSessionResult,
@@ -118,6 +117,7 @@ import type {
 	ExtensionError,
 	ExtensionUIContext,
 	InlineExtension,
+	AgentSessionRuntime as UpstreamAgentSessionRuntime,
 } from "../../coding-agent/src/index.ts";
 import {
 	createAgentSession,
@@ -335,6 +335,24 @@ export async function createPlusAgentSession(
 	return result;
 }
 
+/** Options for running a Bash command through an embedding host. */
+export type ExecuteBashOptions = NonNullable<Parameters<AgentSession["executeBash"]>[2]>;
+
+/** Result of a Bash command run through an embedding host. */
+export type ExecuteBashResult = Awaited<ReturnType<AgentSession["executeBash"]>>;
+
+/** Runtime returned by `createPlusAgentSessionRuntime`, including host-owned Bash execution. */
+export type PlusAgentSessionRuntime = UpstreamAgentSessionRuntime & {
+	/** Executes a Bash command outside an LLM turn and records its result. */
+	executeBash(
+		command: string,
+		onChunk?: (chunk: string) => void,
+		options?: ExecuteBashOptions,
+	): Promise<ExecuteBashResult>;
+	/** Cancels every Bash command currently running on this session. */
+	abortBash(): void;
+};
+
 export interface CreatePlusAgentSessionRuntimeOptions extends CreateAgentSessionOptions {
 	/** Additional host extension factories, appended after the pi-plus ones. */
 	extensionFactories?: InlineExtension[];
@@ -408,7 +426,7 @@ export interface CreatePlusAgentSessionRuntimeOptions extends CreateAgentSession
  */
 export async function createPlusAgentSessionRuntime(
 	options: CreatePlusAgentSessionRuntimeOptions = {},
-): Promise<AgentSessionRuntime> {
+): Promise<PlusAgentSessionRuntime> {
 	const {
 		extensionFactories,
 		ui,
@@ -512,5 +530,10 @@ export async function createPlusAgentSessionRuntime(
 
 	runtime.setRebindSession(bind);
 	await bind(runtime.session);
-	return runtime;
+
+	return Object.assign(runtime, {
+		executeBash: (command: string, onChunk?: (chunk: string) => void, options?: ExecuteBashOptions) =>
+			runtime.session.executeBash(command, onChunk, options),
+		abortBash: () => runtime.session.abortBash(),
+	}) as PlusAgentSessionRuntime;
 }
