@@ -1,0 +1,11 @@
+{
+	"name": "@pi/p2-plugins",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Fork-only p2 (pi-plus-desktop) global plugins: p2 loads these from <data>/plugins at startup.",
+	"type": "module",
+	"scripts": {
+		"check": "tsc --noEmit -p tsconfig.json",
+		"install-plugins": "node install.mjs"
+	}
+}

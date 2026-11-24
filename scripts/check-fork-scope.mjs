@@ -14,6 +14,8 @@ const ALLOWED_PREFIXES = [
 	"packages/plus-cli/",
 	"packages/plus-api/",
 	"packages/plus-tui/",
+	// Fork-owned p2 global plugins; apps/p2 itself is upstream-owned.
+	"apps/plus-p2/",
 	"assets/",
 	"devops/",
 	"scripts/",
@@ -38,8 +40,8 @@ const violations = files.filter(
 
 if (violations.length === 0) process.exit(0);
 
-console.error("check-fork-scope: fork commits may only touch the extended packages:");
-console.error("  packages/plus, packages/hub, packages/plus-cli, packages/plus-api, packages/plus-tui");
+console.error("check-fork-scope: fork commits may only touch the fork's own paths:");
+console.error("  packages/plus, packages/hub, packages/plus-cli, packages/plus-api, packages/plus-tui, apps/plus-p2");
 console.error("");
 console.error("Off-path staged files (restore them or move the change into an extended package):");
 for (const file of violations) console.error(`  ${file}`);

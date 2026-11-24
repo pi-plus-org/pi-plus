@@ -35,6 +35,7 @@ import {
 	registerContextGuard,
 	registerDiagram,
 	registerInit,
+	registerMcpAutocomplete,
 	registerMemory,
 	registerPlan,
 	registerRecap,
@@ -181,7 +182,10 @@ export async function main(args: string[], options?: MainOptions) {
 	// keyless DuckDuckGo fallback last) and WebFetch (URL → text); pi-plus-permissions
 	// adds the /permissions command and the tool-call permission gate (bypass |
 	// accept-edits | auto | plan; bypass is the default, so behavior stays pi-like until
-	// the user switches — in TUI mode accept-edits prompts through the dialog UI).
+	// the user switches — in TUI mode accept-edits prompts through the dialog UI);
+	// pi-plus-mcp-autocomplete lists MCP tools in the editor's slash completion
+	// (/mcp__server__tool), so selecting one tells the agent which tool to use
+	// (the inserted text matches no slash command and reaches the model as a prompt).
 	// Merged with any caller-provided factories; upstream appends its own
 	// built-ins (main.ts: extensionFactories = [...builtInExtensions, ...]).
 	const merged: MainOptions = {
@@ -203,6 +207,7 @@ export async function main(args: string[], options?: MainOptions) {
 			{ name: "pi-plus-diagram", factory: registerDiagram, hidden: true },
 			{ name: "pi-plus-init", factory: registerInit, hidden: true },
 			{ name: "pi-plus-web-search", factory: registerWebSearch, hidden: true },
+			{ name: "pi-plus-mcp-autocomplete", factory: registerMcpAutocomplete, hidden: true },
 			{ name: "pi-plus-tab-title", factory: registerTabTitle, hidden: true },
 			{ name: "pi-plus-plain-tools", factory: registerPlainTools, hidden: true },
 			{ name: "pi-plus-fancy-diff", factory: registerFancyDiff, hidden: true },

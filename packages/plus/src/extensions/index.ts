@@ -6,6 +6,7 @@ export { registerContextGuard } from "./context-guard/index.ts";
 export { registerDiagram } from "./diagram/index.ts";
 export { registerUserHooks } from "./hooks/index.ts";
 export { registerInit } from "./init/index.ts";
+export { registerMcpAutocomplete } from "./mcp-autocomplete/index.ts";
 export { registerMemory } from "./memory/index.ts";
 export {
 	createPermissionsExtension,
