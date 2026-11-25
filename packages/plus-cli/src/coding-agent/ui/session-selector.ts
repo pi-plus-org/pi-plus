@@ -24,6 +24,7 @@ import type { KeybindingsManager } from "../../../../coding-agent/src/core/keybi
 import { SessionSelectorComponent as UpstreamSelector } from "../../../../coding-agent/src/modes/interactive/components/session-selector.ts";
 import type { SessionInfo, SessionListProgress } from "../../../../plus/src/coding-agent/core/session-manager.ts";
 import { filterInteractiveSessions } from "../../../../plus/src/coding-agent/core/session-manager.ts";
+import { stripLeadingSkillBlocks } from "../../../../plus/src/coding-agent/core/skill-block.ts";
 
 /** Structural copy of the module-private `SessionsLoader` type upstream. */
 type SessionsLoader = (onProgress?: SessionListProgress, signal?: AbortSignal) => Promise<SessionInfo[]>;
@@ -50,7 +51,12 @@ function filterProgress(onProgress?: SessionListProgress): SessionListProgress |
 			return;
 		}
 		const tick = ++latestTick;
-		const sessions = [...partialSessions];
+		// Partial lists bypass the SessionManager list patches, so strip the expanded
+		// skill-invocation blocks here too (display-only; transcripts keep them).
+		const sessions = partialSessions.map((session) => ({
+			...session,
+			firstMessage: stripLeadingSkillBlocks(session.firstMessage),
+		}));
 		void filterInteractiveSessions(sessions)
 			.then((filtered) => {
 				if (tick === latestTick) onProgress(loaded, total, filtered);

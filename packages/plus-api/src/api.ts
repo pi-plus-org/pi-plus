@@ -64,6 +64,7 @@ export {
 	getDefaultSessionInteractive,
 	setDefaultSessionInteractive,
 } from "../../plus/src/coding-agent/core/session-manager.ts";
+export { stripLeadingSkillBlocks } from "../../plus/src/coding-agent/core/skill-block.ts";
 export * from "../../plus/src/context/plus-settings.ts";
 export * from "../../plus/src/extensions/cache.ts";
 export {

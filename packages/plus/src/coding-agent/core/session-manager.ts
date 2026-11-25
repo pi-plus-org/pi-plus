@@ -47,6 +47,7 @@ import type {
 } from "../../../../coding-agent/src/core/session-manager.ts";
 import { SessionManager as UpstreamSessionManager } from "../../../../coding-agent/src/core/session-manager.ts";
 import { resolvePath } from "../../../../coding-agent/src/utils/paths.ts";
+import { stripLeadingSkillBlocks } from "./skill-block.ts";
 
 /**
  * The upstream class with the pi-plus statics visible to consumers of this
@@ -230,6 +231,16 @@ async function decorateInteractive(infos: SessionInfo[]): Promise<SessionInfo[]>
 }
 
 /**
+ * Read side of the transcript text: the resume picker and SDK hosts show
+ * `firstMessage` raw, so the expanded skill-invocation blocks of skill-first
+ * prompts are replaced with the user's own text (or the skill names).
+ */
+function sanitizeFirstMessage(infos: SessionInfo[]): SessionInfo[] {
+	for (const info of infos) info.firstMessage = stripLeadingSkillBlocks(info.firstMessage);
+	return infos;
+}
+
+/**
  * Drop transcripts explicitly marked headless, keep everything else. For
  * user-facing session lists only (`--resume` / `/resume`): unmarked sessions stay
  * visible. Entries already decorated by the patched `list` / `listAll` filter
@@ -250,11 +261,17 @@ export async function filterInteractiveSessions(sessions: readonly SessionInfo[]
 
 const upstreamList = statics.list;
 statics.list = (...args: unknown[]): Promise<SessionInfo[]> =>
-	upstreamList.apply(statics as never, args).then(decorateInteractive);
+	upstreamList
+		.apply(statics as never, args)
+		.then(sanitizeFirstMessage)
+		.then(decorateInteractive);
 
 const upstreamListAll = statics.listAll;
 statics.listAll = (...args: unknown[]): Promise<SessionInfo[]> =>
-	upstreamListAll.apply(statics as never, args).then(decorateInteractive);
+	upstreamListAll
+		.apply(statics as never, args)
+		.then(sanitizeFirstMessage)
+		.then(decorateInteractive);
 
 /**
  * Delete a persisted session transcript file. Returns true when the file was
