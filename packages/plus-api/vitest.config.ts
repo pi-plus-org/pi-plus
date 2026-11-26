@@ -31,6 +31,13 @@ merged.resolve.alias = [
 		find: agentCoreAlias,
 		replacement: fileURLToPath(new URL("../plus/src/agent/index.ts", import.meta.url)),
 	},
+	// pi-hub's package.json exports point at dist only; alias to source so the
+	// tests exercise the real module (kept out of the shared vitest.base.ts,
+	// which stays identical to upstream).
+	{
+		find: /^@earendil-works\/pi-hub$/,
+		replacement: fileURLToPath(new URL("../hub/src/index.ts", import.meta.url)),
+	},
 	...(Array.isArray(merged.resolve.alias)
 		? merged.resolve.alias.filter((entry) => String((entry as { find: unknown }).find) !== String(agentCoreAlias))
 		: []),

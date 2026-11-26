@@ -32,7 +32,13 @@ const ALLOWED_PREFIXES = [
 // The gate's own infrastructure, kept explicit: without these it could never
 // have been committed (scripts/ would cover them now, but the intent reads
 // clearer spelled out).
-const ALLOWED_PATHS = new Set(["scripts/check-fork-scope.mjs", ".husky/pre-commit"]);
+const ALLOWED_PATHS = new Set([
+	"scripts/check-fork-scope.mjs",
+	".husky/pre-commit",
+	// Fork-only workflows: upstream has neither file, so edits to them are fork work.
+	".github/workflows/publish-plus.yml",
+	".github/workflows/remove-inprogress-on-close.yml",
+]);
 
 const staged = spawnSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACDMRT"], { encoding: "utf8" });
 if (staged.error) {
