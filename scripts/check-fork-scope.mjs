@@ -8,6 +8,12 @@
 
 import { spawnSync } from "node:child_process";
 
+// A merge commit (MERGE_HEAD present) is an upstream sync: exempt by design,
+// including syncs concluded with `git commit` after resolving conflicts.
+if (spawnSync("git", ["rev-parse", "-q", "--verify", "MERGE_HEAD"], { stdio: "ignore" }).status === 0) {
+	process.exit(0);
+}
+
 const ALLOWED_PREFIXES = [
 	"packages/plus/",
 	"packages/hub/",

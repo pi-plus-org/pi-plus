@@ -40,7 +40,6 @@ export const workspaceSourcePaths = {
 	codemodeSource: fileURLToPath(new URL("./packages/codemode/src/source.ts", import.meta.url)),
 	codingAgentIndex: fileURLToPath(new URL("./packages/coding-agent/src/index.ts", import.meta.url)),
 	tuiIndex: fileURLToPath(new URL("./packages/tui/src/index.ts", import.meta.url)),
-	hubIndex: fileURLToPath(new URL("./packages/hub/src/index.ts", import.meta.url)),
 } as const;
 
 export default defineConfig({
@@ -92,7 +91,6 @@ export default defineConfig({
 			{ find: /^@earendil-works\/pi-codemode\/declarations$/, replacement: workspaceSourcePaths.codemodeDeclarations },
 			{ find: /^@earendil-works\/pi-codemode\/source$/, replacement: workspaceSourcePaths.codemodeSource },
 			{ find: /^@earendil-works\/pi-tui$/, replacement: workspaceSourcePaths.tuiIndex },
-			{ find: /^@earendil-works\/pi-hub$/, replacement: workspaceSourcePaths.hubIndex },
 		],
 	},
 });
