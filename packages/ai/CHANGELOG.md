@@ -9,6 +9,7 @@
 ### Added
 
 - Added `compat.supportsReasoningReplay` to the `bedrock-converse-stream` API. When `false`, reasoning from earlier assistant messages is not sent back
+- Added `aspectRatio` and `size` to `ImagesOptions`, forwarded by `openrouter-images` to OpenRouter's `image_config`
 
 ### Changed
 
@@ -21,6 +22,7 @@
 
 - Fixed Amazon Bedrock Kimi K3.1 and GLM 5.3 ignoring the selected thinking level: they always reasoned at `max`, offered `minimal`, and hid `xhigh` and `max`. Pi now offers the effort levels models.dev lists and sends them as `reasoning_effort`, with `none` for `off` on Kimi K3.1 (GLM 5.3 cannot turn thinking off). Bedrock models outside the Claude and GPT families now send `reasoning_effort` whenever their `thinkingLevelMap` maps the selected level ([#12462](https://github.com/earendil-works/pi/issues/12462))
 - Fixed Amazon Bedrock Kimi K3 and K3.1 multi-turn requests sending earlier reasoning back, which AWS documents as failing on Converse with `InternalServerException`. Earlier reasoning is no longer sent for these models
+- Fixed GitHub Copilot models on the `openai-completions` API losing their reasoning state between turns: Copilot's `reasoning_opaque` is now stored on the thinking block and sent back with `reasoning_text`, including when it arrives without reasoning text ([#12418](https://github.com/earendil-works/pi/issues/12418))
 
 ## [1.6.1] - 2026-11-25
 
